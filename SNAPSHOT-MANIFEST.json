@@ -1273,8 +1273,8 @@
     },
     {
       "path": "vocalcode-platform/src/hotkey.rs",
-      "bytes": 127523,
-      "sha256": "186127774dd3a18ed2abc09c35aa9a496369a26263318cba132e447f9a337f8e"
+      "bytes": 129800,
+      "sha256": "6ff6a78e25fd7866e2a6fbea4f7836b3b12c39acb15f0eaa6345a3f4fd8ea099"
     },
     {
       "path": "vocalcode-platform/src/inject.rs",

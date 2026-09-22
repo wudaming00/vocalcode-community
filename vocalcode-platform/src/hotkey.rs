@@ -286,10 +286,11 @@ impl Default for Inner {
 
 impl Inner {
     fn expire(&mut self) {
-        if self
-            .deadline
-            .is_some_and(|deadline| Instant::now() >= deadline)
-        {
+        self.expire_at(Instant::now());
+    }
+
+    fn expire_at(&mut self, now: Instant) {
+        if self.deadline.is_some_and(|deadline| now >= deadline) {
             if let Some(which) = self.which.take() {
                 // Not the empty string, which the page reads as "the user
                 // pressed Escape" and answers by silently restoring the old
@@ -311,11 +312,20 @@ impl Inner {
     /// safe. Clamped to `started + CAPTURE_MAX` so somebody who walks away
     /// mid-capture cannot leave a prompt armed indefinitely.
     fn touch(&mut self) {
+        self.touch_at(Instant::now());
+    }
+
+    fn touch_at(&mut self, now: Instant) {
         let (Some(started), true) = (self.started, self.which.is_some()) else {
             return;
         };
-        let extended = Instant::now() + self.timeout;
+        let extended = now + self.timeout;
         self.deadline = Some(extended.min(started + CAPTURE_MAX));
+    }
+
+    fn keep_alive_at(&mut self, now: Instant) {
+        self.expire_at(now);
+        self.touch_at(now);
     }
 }
 
@@ -381,8 +391,7 @@ impl CaptureShared {
     /// one uncontended lock and no I/O, which is all a low-level hook can pay.
     pub(crate) fn keep_alive(&self) {
         let mut g = self.lock_inner();
-        g.expire();
-        g.touch();
+        g.keep_alive_at(Instant::now());
     }
 
     /// Tell the user what the hook is seeing, without ending the capture.
@@ -2188,35 +2197,86 @@ mod tests {
     /// that arrived with nothing waiting for it and produced no page event.
     #[test]
     fn a_prompt_does_not_expire_under_a_user_who_is_still_pressing_things() {
-        let capture = CaptureShared::default();
-        capture.start_for("talk", Duration::from_millis(200));
-        for _ in 0..5 {
-            std::thread::sleep(Duration::from_millis(80));
-            capture.keep_alive();
+        let started = Instant::now();
+        let timeout = Duration::from_millis(200);
+        let mut capture = Inner {
+            which: Some("talk".into()),
+            started: Some(started),
+            deadline: Some(started + timeout),
+            timeout,
+            ..Inner::default()
+        };
+        // Drive the same transition as the input hook without depending on
+        // the host scheduler waking this test within a 200 ms idle window.
+        for step in 1..=5 {
+            let now = started + Duration::from_millis(80 * step);
+            capture.keep_alive_at(now);
             assert!(
-                capture.is_capturing(),
+                capture.which.is_some(),
                 "the capture expired under a user who was still pressing things"
             );
+            assert_eq!(capture.deadline, Some(now + timeout));
+            assert!(capture.results.is_empty());
         }
-        assert!(capture.finish("key:F13".into()));
-        assert_eq!(
-            capture.take_result(),
-            Some(("talk".into(), "key:F13".into()))
-        );
     }
 
     /// Left alone, it still expires — otherwise a walked-away prompt would sit
     /// armed and eventually swallow a keystroke meant for somebody's editor.
     #[test]
     fn a_prompt_nobody_touches_still_expires() {
-        let capture = CaptureShared::default();
-        capture.start_for("talk", Duration::from_millis(60));
-        std::thread::sleep(Duration::from_millis(90));
-        assert!(!capture.is_capturing());
+        let started = Instant::now();
+        let timeout = Duration::from_millis(60);
+        let mut capture = Inner {
+            which: Some("talk".into()),
+            started: Some(started),
+            deadline: Some(started + timeout),
+            timeout,
+            ..Inner::default()
+        };
+        capture.expire_at(started + timeout - Duration::from_nanos(1));
+        assert!(capture.which.is_some());
+        capture.expire_at(started + timeout);
+        assert!(capture.which.is_none());
         assert_eq!(
-            capture.take_result(),
+            capture.results.pop_front(),
             Some(("talk".into(), "timeout".into()))
         );
+        // Input after expiry must not re-arm an abandoned prompt.
+        capture.keep_alive_at(started + timeout + Duration::from_millis(1));
+        assert!(capture.which.is_none());
+        assert!(capture.deadline.is_none());
+        assert!(capture.results.is_empty());
+    }
+
+    #[test]
+    fn activity_cannot_extend_a_capture_beyond_its_absolute_ceiling() {
+        let started = Instant::now();
+        let mut capture = Inner {
+            which: Some("talk".into()),
+            started: Some(started),
+            deadline: Some(started + CAPTURE_TIMEOUT),
+            ..Inner::default()
+        };
+        let mut elapsed = Duration::from_secs(30);
+        while elapsed < CAPTURE_MAX {
+            let now = started + elapsed;
+            capture.keep_alive_at(now);
+            assert!(capture.which.is_some());
+            assert_eq!(
+                capture.deadline,
+                Some((now + CAPTURE_TIMEOUT).min(started + CAPTURE_MAX))
+            );
+            elapsed += Duration::from_secs(30);
+        }
+        capture.keep_alive_at(started + CAPTURE_MAX);
+        assert!(capture.which.is_none());
+        assert!(capture.deadline.is_none());
+        assert_eq!(
+            capture.results.pop_front(),
+            Some(("talk".into(), "timeout".into()))
+        );
+        capture.keep_alive_at(started + CAPTURE_MAX + Duration::from_secs(1));
+        assert!(capture.results.is_empty());
     }
 
     /// An answer the prompt cannot bind must never *end* the prompt. This is
