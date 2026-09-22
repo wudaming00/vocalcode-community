@@ -903,8 +903,8 @@
     },
     {
       "path": "vocalcode-app/examples/meeting_prompt_smoke.rs",
-      "bytes": 11734,
-      "sha256": "db2026b5e2178890a4a24eb509cc1cb1bd1f139f6224965897e1077cf9ff5cf5"
+      "bytes": 11875,
+      "sha256": "c7440b32b89bfd7b2c6da1a9650c5ca293eb94ea87f094ae76b8edf141f4ffb9"
     },
     {
       "path": "vocalcode-app/examples/workflow_ui_smoke.rs",

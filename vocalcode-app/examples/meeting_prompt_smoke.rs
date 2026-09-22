@@ -50,13 +50,19 @@ fn main() -> anyhow::Result<()> {
     let mut gate = meeting_reminder::ReminderGate::default();
     let mut stage = 0;
     let mut due = Instant::now();
+    #[cfg(windows)]
     let mut checks = 0;
+    #[cfg(not(windows))]
+    let checks = 0;
     let (layout_sender, layout_receiver) = std::sync::mpsc::channel::<String>();
     let mut layouts = 0;
     let mut failed = false;
     let mut action_checks = 0;
     let mut expected_action = None;
+    #[cfg(windows)]
     let mut visibility_checks = 0;
+    #[cfg(not(windows))]
+    let visibility_checks = 0;
     #[cfg(windows)]
     let mut expected_focus: usize = 0;
     event_loop.run_return(|event, _, flow| {
