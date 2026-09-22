@@ -4,6 +4,7 @@
 
 # Packaged / downloaded artifacts (not source)
 /dist/
+/dist-community/
 /models/
 **/models/
 /packaging/Output/

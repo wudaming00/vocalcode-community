@@ -50,6 +50,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
       - name: Verify Windows libclang
         if: runner.os == 'Windows'
         shell: pwsh
@@ -81,6 +84,10 @@ jobs:
         run: node --test packaging/release/test_calendar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
       - name: Source licence and documentation contracts
         run: node --test packaging/community/test-licensing.mjs
+      - name: Public source inventory
+        run: node packaging/community/source-manifest.mjs
+      - name: Signed-release and packaging contracts
+        run: python -m unittest discover -s packaging/community -p 'test_*.py' -v
       - name: Unsigned community build — no production secrets
         run: cargo build -p vocalcode-app --release --locked --features community
       - name: Retain developer build (not a signed installer)

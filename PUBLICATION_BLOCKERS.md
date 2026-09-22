@@ -1,10 +1,12 @@
-# Source preview and binary-release readiness
+# Community release validation and remaining limitations
 
-This repository is an **early public source preview**, authorized by the owner
-on 2026-09-22. It is not a production-ready binary release. The source manifest
-distinguishes `source_publication_authorized: true` from
-`binary_release_ready: false`; passing automated tests cannot certify native
-audio behavior, ownership of unknown future contributions, or installer safety.
+Source publication and the full community release workflow were authorized by
+the owner on 2026-09-22. Signed installers are published only by the gated
+[release workflow](.github/workflows/community-release.yml); check its actual
+run result and the [release assets](https://github.com/wudaming00/vocalcode-community/releases)
+for availability. Passing automated checks cannot certify every native audio
+device, permission flow, or future contribution. The original `source-preview-*`
+release remains source-only and is not the desktop installer.
 
 ## Initial source-publication review
 
@@ -26,29 +28,42 @@ audio behavior, ownership of unknown future contributions, or installer safety.
       configured with read-only repository permissions and no production keys.
       Existing meeting, correction, migration and dictation UI tests are included.
 
-## Required before a production-ready installer
+## Implemented release safeguards
+
+- [x] Separate community installation, data, instance, autostart, updater and
+      update staging identities. No silent legacy migration or data deletion.
+- [x] Remove community Pro badges and paid activation flows; all local features
+      are available without an account or licence server.
+- [x] Build without credentials, isolate signing in a protected environment,
+      verify on fresh credential-free runners, and publish only after both OS
+      verification jobs pass. Actions and Inno Setup are pinned.
+- [x] Sign Windows app, uninstaller and installer; notarize/staple macOS app
+      and DMG. Check publisher, edition and version before installation.
+- [x] Bundle required notices and exact source; generate SHA-256/size-bound
+      manifests from the verified assets. Do not overwrite released bytes.
+- [x] Test Windows install/reinstall/uninstall with synthetic preserved data,
+      macOS Gatekeeper and native runtime loading. These are workflow gates;
+      implementation alone is not evidence that a particular run succeeded.
+
+## Device QA and follow-up (not claimed complete)
 
 - [ ] Complete clean-user Windows and native Apple-silicon audio, permission,
       focused-input, installation, and recovery tests. Hosted CI is not a
       substitute for these tests, even when it passes.
-- [ ] Separate community data, single-instance identity, autostart, and update
-      channels, and test an explicit safe migration. Until then, use a separate
-      OS user for testing and do not overwrite an existing installation.
-- [ ] Remove remaining Pro/online-licensing labels from community screens.
+- [ ] Validate explicit legacy data migration and cross-version upgrades.
+      Current installer smoke tests cover same-version reinstall only.
 - [ ] Resolve or document target-specific dependency warnings and continue
       maintaining automated security/dependency checks.
-- [ ] Review exact model/native-runtime redistribution terms, all artwork,
-      and platform-signing/notarization requirements for packaged binaries.
-- [ ] Publish real synthetic-content screenshots and a supported download path.
-- [ ] Pair each binary with its exact Corresponding Source and required
-      build/install files and notices. Developer CI artifacts are unsigned,
-      not a supported installer/update channel.
+- [ ] Continue reviewing model/native-runtime redistribution terms when
+      dependencies change; the packaged Windows runtime inventory records exact
+      shipped DLL versions and hashes. Model weights are downloaded separately.
+- [ ] Add real synthetic-content screenshots across supported devices.
 - [ ] Decide and communicate treatment of previous paid customers separately;
       this source release does not change live payments or promise refunds.
 
 ## Excluded from this repository
 
-Private Git history, production deployment workflows, commerce backends,
+Private Git history, legacy commerce deployment workflows, commerce backends,
 signing private keys/certificates, operator credentials, purchase/tester
 ledgers, private marketing records, user audio/transcripts/diagnostics, and
 build outputs. The public receipt-contract fixture is test data required by

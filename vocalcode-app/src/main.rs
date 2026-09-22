@@ -2643,7 +2643,7 @@ fn acquire_instance(app_data: &Path, scope: &str) -> std::io::Result<InstanceSta
 }
 
 #[cfg(windows)]
-const WINDOWS_INSTALLER_OBSERVATION_MUTEX: &str = r"Local\VocalCode.Desktop";
+const WINDOWS_INSTALLER_OBSERVATION_MUTEX: &str = community::INSTALLER_MUTEX;
 
 #[cfg(windows)]
 mod instance_platform {
@@ -4797,9 +4797,6 @@ fn start_update_maintenance(status: Arc<RuntimeStatus>) -> std::io::Result<threa
     thread::Builder::new()
         .name("vocalcode-update-maintenance".to_string())
         .spawn(move || {
-            if community::ENABLED {
-                return;
-            }
             // Check immediately, then keep a tray process current without
             // making the user reopen Settings or restart the app.
             start_update_check(status.clone());
@@ -4809,7 +4806,11 @@ fn start_update_maintenance(status: Arc<RuntimeStatus>) -> std::io::Result<threa
         })
 }
 
-const UPDATE_MANIFEST_URL: &str = "https://vocalcode.app/latest.json";
+const UPDATE_MANIFEST_URL: &str = if community::ENABLED {
+    community::UPDATE_MANIFEST_URL
+} else {
+    "https://vocalcode.app/latest.json"
+};
 
 fn update_manifest_url() -> String {
     // Local/debug contract tests may point at a fixture. A production binary
@@ -4829,6 +4830,9 @@ pub(crate) fn approved_update_url(platform: &str, version: &str, url: &str) -> b
     if release_version(version).is_none() {
         return false;
     }
+    if community::ENABLED {
+        return community::artifact_url(platform, version).as_deref() == Some(url);
+    }
     match platform {
         "windows" => url == "https://vocalcode.app/VocalCodeSetup.exe",
         "macos" => url == format!("https://vocalcode.app/VocalCode-{version}.dmg"),
@@ -4837,10 +4841,8 @@ pub(crate) fn approved_update_url(platform: &str, version: &str, url: &str) -> b
 }
 
 pub(crate) fn update_entitled(status: &LicenseStatus, version: &str) -> bool {
-    // Until there is an independently reviewed community update channel,
-    // never replace an activation-free build with an official paid binary.
     if community::ENABLED {
-        return false;
+        return release_version(version).is_some();
     }
     let Some([major, _, _]) = release_version(version) else {
         return false;
@@ -4963,11 +4965,6 @@ fn finish_update_check(
 /// translated by a dictionary keyed on English, which is the mistake the licence
 /// line made.
 fn check_for_update(status: &RuntimeStatus) {
-    if community::ENABLED {
-        let generation = begin_update_check(status);
-        finish_update_check(status, generation, "community", None);
-        return;
-    }
     {
         if status.shutdown.load(Ordering::Acquire) {
             return;
@@ -4979,6 +4976,12 @@ fn check_for_update(status: &RuntimeStatus) {
             &status.shutdown,
             "vocalcode-update-manifest-request",
             move || {
+                let manifest = if community::ENABLED {
+                    community::resolve_download_url(&manifest, || false)
+                        .map_err(anyhow::Error::msg)?
+                } else {
+                    manifest
+                };
                 let mut response = ureq::get(&manifest)
                     .config()
                     .https_only(true)
@@ -5005,6 +5008,13 @@ fn check_for_update(status: &RuntimeStatus) {
                 return;
             }
         };
+        if community::ENABLED
+            && (v["schema"] != "vocalcode-community-update-v1"
+                || v["channel"] != "community-stable")
+        {
+            finish_update_check(status, generation, "failed", None);
+            return;
+        }
         // The manifest may carry a per-platform block, so a Mac is not offered
         // the Windows installer. Falls back to the top-level {version, url} for
         // compatibility with manifests published before the macOS build.
@@ -5378,6 +5388,20 @@ where
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
+    // Packaging can validate the real executable and native linkage without
+    // opening devices, downloading models, or creating a user-data directory.
+    if args.len() == 2 && args[1] == "--build-info" {
+        println!(
+            "{}",
+            serde_json::json!({
+                "version": env!("CARGO_PKG_VERSION"),
+                "edition": if community::ENABLED { "community" } else { "legacy" },
+                "data_directory": community::DATA_DIR_NAME,
+                "update_manifest": UPDATE_MANIFEST_URL,
+            })
+        );
+        return Ok(());
+    }
     if community::ENABLED && args.get(1).map(String::as_str) == Some("activate") {
         anyhow::bail!(community::ACTIVATION_NOTICE);
     }
@@ -7596,7 +7620,11 @@ mod tests {
         );
         assert_eq!(
             WINDOWS_INSTALLER_OBSERVATION_MUTEX,
-            r"Local\VocalCode.Desktop"
+            if community::ENABLED {
+                r"Local\VocalCode.Community.Desktop"
+            } else {
+                r"Local\VocalCode.Desktop"
+            }
         );
     }
 
@@ -8101,12 +8129,20 @@ mod tests {
         assert!(approved_update_url(
             "windows",
             "1.2.3",
-            "https://vocalcode.app/VocalCodeSetup.exe"
+            if community::ENABLED {
+                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCodeCommunitySetup.exe"
+            } else {
+                "https://vocalcode.app/VocalCodeSetup.exe"
+            }
         ));
         assert!(approved_update_url(
             "macos",
             "1.2.3",
-            "https://vocalcode.app/VocalCode-1.2.3.dmg"
+            if community::ENABLED {
+                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCodeCommunity-1.2.3.dmg"
+            } else {
+                "https://vocalcode.app/VocalCode-1.2.3.dmg"
+            }
         ));
         for url in [
             "https://evil.example/VocalCodeSetup.exe",
@@ -8199,8 +8235,13 @@ mod tests {
             assert_eq!(product_tier(&status), ProductTier::Community);
             assert_eq!(license_state(&status), ("community".to_string(), 0));
             assert_eq!(license_string(&status), community::LABEL);
-            assert!(!update_entitled(&status, "1.3.1"));
-            assert!(!update_entitled(&status, "2.0.0"));
+            assert!(update_entitled(&status, "1.3.1"));
+            assert!(update_entitled(&status, "2.0.0"));
+            assert!(!approved_update_url(
+                "windows",
+                "1.3.1",
+                "https://vocalcode.app/VocalCodeSetup.exe"
+            ));
         }
     }
 
@@ -8209,16 +8250,14 @@ mod tests {
     fn community_background_services_exit_without_network_or_user_data() {
         let status = Arc::new(RuntimeStatus::default());
         start_license_maintenance(status.clone()).join().unwrap();
+        status.shutdown.store(true, Ordering::Release);
         start_update_maintenance(status.clone())
             .unwrap()
             .join()
             .unwrap();
         check_for_update(&status);
         assert!(status.update.lock().unwrap().is_none());
-        assert_eq!(
-            status.update_check.lock().unwrap().as_deref(),
-            Some("community")
-        );
+        assert!(status.update_check.lock().unwrap().is_none());
         assert!(!status.trial_setup_error.load(Ordering::Relaxed));
     }
 

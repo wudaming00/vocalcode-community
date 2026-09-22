@@ -4,16 +4,16 @@ This is a set of priorities, not a release-date promise or a claim that these
 items are already finished. Prefer a focused issue and regression test over
 adding a new feature before the existing workflow is dependable.
 
-## Before a production-ready community binary release
+## Release infrastructure and remaining validation
 
 - Keep dependency audits green; the initial source preview upgraded Rustls
   to 0.23.45 for RUSTSEC-2026-0285. Remaining dependency warnings need follow-up.
 - Audit the exact exported files for secrets, private data, ownership, model
   terms, and required notices; strengthen the export allowlist/scanner.
-- Separate preview data, instance identity, autostart, and update behavior
-  from existing installed editions, with an explicit safe migration path.
-- Remove misleading Pro/online-licensing labels from community UI and bring
-  the existing meeting/correction UI regression tests into public CI.
+- Community data, instance identity, autostart and signed updates are now
+  separate. Validate explicit legacy migrations and different-version upgrades.
+- Keep community labels and meeting/correction UI regression tests consistent
+  with the activation-free edition and the public CI pipeline.
 - Validate clean-user Windows and native Apple-silicon workflows, then prepare
   real synthetic-content screenshots and an honest build/download guide.
 - Maintain the issue/PR/private-security endpoints, and pair any distributed
@@ -40,4 +40,4 @@ or enterprise tier is being announced by this source release preparation.
 Start with [CONTRIBUTING.md](CONTRIBUTING.md). You can help with documentation,
 language review, and reproductions without writing Rust. See
 [MAINTAINERS.md](MAINTAINERS.md) for who maintains the project and how contact
-will work when the repository opens.
+works for the public repository.

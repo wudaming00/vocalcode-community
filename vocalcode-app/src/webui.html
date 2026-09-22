@@ -892,7 +892,7 @@
           <div class="card">
             <div class="row"><div class="k">Progressive typing <span class="state-badge">Experimental</span><small>Type stable phrases after a pause instead of waiting for release. Already-inserted text is never rewritten; keep this off in terminals if you prefer one atomic insert.</small></div><button type="button" class="tg" id="liveCaption" aria-label="Progressive typing" aria-pressed="false"></button></div>
             <div class="row compatibility-row"><div class="k">Compatibility paste <span class="state-badge recommended">Keep off</span><small>Turn this on only for an app that ignores normal direct insertion. It temporarily uses and restores the clipboard; clipboard history or sync tools may retain the transcript.</small></div><button type="button" class="tg" id="paste" aria-label="Compatibility paste" aria-pressed="false"></button></div>
-            <div class="row"><div class="k">Learn my corrections <span class="state-badge">Pro</span><small>Watch the same input after dictation and learn only short word or name fixes. Sentence rewrites and punctuation edits are ignored.</small></div>
+            <div class="row"><div class="k">Learn my corrections <span class="state-badge" data-pro-badge>Pro</span><small>Watch the same input after dictation and learn only short word or name fixes. Sentence rewrites and punctuation edits are ignored.</small></div>
               <select id="correctionWindow" aria-label="Learn my corrections">
                 <option value="0">Off</option><option value="5000">5s</option><option value="8000">8s</option><option value="10000">10s</option><option value="15000">15s</option>
               </select>
@@ -994,7 +994,7 @@
       <!-- MEETINGS -->
       <div class="panel" data-panel="meetings">
         <div class="page-head">
-          <div class="heading-copy"><h2 tabindex="-1">Meetings <span class="state-badge">Pro</span></h2><p>Record or import a conversation, then search and export local notes.</p></div>
+          <div class="heading-copy"><h2 tabindex="-1">Meetings <span class="state-badge" data-pro-badge>Pro</span></h2><p>Record or import a conversation, then search and export local notes.</p></div>
           <div class="meeting-head-actions"><button type="button" class="meeting-btn" id="meetingImport">Import audio</button></div>
         </div>
         <div class="meeting-start" id="meetingStartBox">
@@ -1061,7 +1061,7 @@
         <div id="licCommunity" style="display:none">
           <p>All local features are available without a purchase, account, or activation code.</p>
           <p class="muted">Includes dictation, meetings, audio import, dictionary, and correction learning.</p>
-          <p class="muted">Model downloads use the internet. Community preview uses manual updates; the paid release channel is disabled.</p>
+          <p class="muted">Model downloads use the internet. Community updates are verified before installation.</p>
         </div>
         <div id="licBuy" style="display:none">
           <div class="price"><span class="n">$4.99</span><span class="u">one-time · one device</span></div>
@@ -1274,12 +1274,12 @@
       "Behaviour":"行为",
       "Account":"账户",
       "License":"授权",
-      "Community preview":"社区预览版",
+      "Community edition":"社区版",
       "FREE":"免费",
       "All local features are available without a purchase, account, or activation code.":"所有本地功能均可使用，无需购买、账户或激活码。",
       "Includes dictation, meetings, audio import, dictionary, and correction learning.":"包含听写、会议、音频导入、词典和纠错学习。",
-      "Model downloads use the internet. Community preview uses manual updates; the paid release channel is disabled.":"模型下载需要网络。社区预览版需手动更新，不连接付费版本的更新渠道。",
-      "Community preview uses manual updates; the paid release channel is disabled.":"社区预览版需手动更新，不连接付费版本的更新渠道。",
+      "Model downloads use the internet. Community updates are verified before installation.":"模型下载需要网络。社区版使用独立更新通道，安装前会验证更新包。",
+      "Community updates are verified before installation.":"社区版使用独立更新通道，安装前会验证更新包。",
       "Push-to-talk":"按住说话",
       "Hold to talk":"按住说话",
       "Hold":"按住",
@@ -4316,7 +4316,7 @@
     if(s.update_check){
       var note=document.getElementById("updNote");
       if(note) note.textContent = t(
-        s.update_check==="community" ? "Community preview uses manual updates; the paid release channel is disabled." :
+        s.update_check==="community" ? "Community updates are verified before installation." :
         s.update_check==="newer"   ? "An update is available" :
         s.update_check==="current" ? "You have the latest version" :
         s.update_check==="upgrade" ? "A newer licence generation is available on the VocalCode website" :
@@ -4361,7 +4361,7 @@
       var kind = s.license_kind || (/activated/i.test(s.license) ? "licensed" : "basic");
       var days = s.license_days || 0;
       var text;
-      if(kind==="community")        text = t("Community preview");
+      if(kind==="community")        text = t("Community edition");
       else if(kind==="licensed")    text = t("Pro activated");
       else if(kind==="trial")       text = t("Pro trial") + " — " + days + " " + t(days===1 ? "day left" : "days left");
       else if(kind==="basic_error") text = t("Basic — free forever") + " · " + t("Pro licence needs attention");
@@ -4374,12 +4374,14 @@
       b.className="lic-badge"+(kind==="trial" ? " warn" : "");
       const owned = kind==="licensed";
       const community = kind==="community";
-      document.getElementById("licHeading").textContent = t(community ? "Community preview" : "VocalCode plans");
+      document.getElementById("licHeading").textContent = t(community ? "Community edition" : "VocalCode plans");
       document.getElementById("licCommunity").style.display = community ? "" : "none";
       document.getElementById("licBuy").style.display = owned || community ? "none" : "";
       document.getElementById("licOwned").style.display = owned ? "" : "none";
-      document.getElementById("updBtn").disabled = community;
-      if(community) document.getElementById("updNote").textContent = t("Community preview uses manual updates; the paid release channel is disabled.");
+      document.getElementById("updBtn").disabled = false;
+      if(community && !s.update_check) document.getElementById("updNote").textContent = t("Community updates are verified before installation.");
+      document.querySelectorAll?.("[data-pro-badge]").forEach(node=>{node.style.display=community?"none":"";});
+      if(community) document.getElementById("dataNote").textContent=t("Community models and settings are stored separately from other editions.");
       var correction=document.getElementById("correctionWindow");
       if(correction){ correction.disabled=!hasPro; correction.title=hasPro?"":t("Automatic correction learning is included in Pro."); }
       renderMeetings();

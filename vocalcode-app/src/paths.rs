@@ -294,7 +294,7 @@ fn raw_data_dir() -> PathBuf {
         .unwrap_or_else(|| {
             panic!("macOS did not return an absolute user Application Support directory")
         });
-    support.join("VocalCode")
+    support.join(crate::community::DATA_DIR_NAME)
 }
 
 #[cfg(windows)]
@@ -330,11 +330,11 @@ fn lifecycle_lock_parent() -> std::io::Result<PathBuf> {
 }
 
 fn lifecycle_lock_path() -> std::io::Result<PathBuf> {
-    Ok(lifecycle_lock_parent()?.join(".vocalcode-data-lifecycle.lock"))
+    Ok(lifecycle_lock_parent()?.join(crate::community::DATA_LOCK_NAME))
 }
 
 fn lifecycle_transition_path() -> std::io::Result<PathBuf> {
-    Ok(lifecycle_lock_parent()?.join(".vocalcode-data-transition.lock"))
+    Ok(lifecycle_lock_parent()?.join(crate::community::TRANSITION_LOCK_NAME))
 }
 
 fn open_lifecycle_lock_at(path: &std::path::Path) -> std::io::Result<File> {
@@ -547,7 +547,7 @@ fn windows_data_dir_from_known_folder() -> PathBuf {
             local.display()
         );
     }
-    local.join("VocalCode")
+    local.join(crate::community::DATA_DIR_NAME)
 }
 
 #[cfg(windows)]
@@ -1370,7 +1370,7 @@ fn enter_data_lifecycle_with(wait: LifecycleLockWait) -> std::io::Result<DataLif
     #[cfg(windows)]
     {
         let legacy = exe_dir();
-        if windows_migration_work_needed(&legacy, &destination) {
+        if !crate::community::ENABLED && windows_migration_work_needed(&legacy, &destination) {
             drop(shared);
             let exclusive = lock_data_lifecycle_exclusive_raw_with(wait)?;
             // A process ahead of us may have completed the move while this one

@@ -147,13 +147,14 @@ Full licence: THIRD-PARTY-LICENSES/ONNXRuntime-LICENSE.txt
 Complete upstream notices:
 THIRD-PARTY-LICENSES/ONNXRuntime-ThirdPartyNotices.txt
 
-Microsoft Visual C++ 2026 Runtime (x64), version 14.50.35719.0
+Microsoft Visual C++ Runtime (x64)
 Copyright Microsoft Corporation.
-Files distributed unmodified in VocalCode's application directory:
-msvcp140.dll, vcruntime140.dll, and vcruntime140_1.dll.
-Source: Visual Studio 2026 Build Tools,
-VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT
+Retail CRT DLLs are distributed unmodified in the Windows application directory.
+The packaged runtime-inventory.json records their exact filenames, versions
+and hashes. Source: the GitHub Windows runner's licensed Visual Studio
+installation, VC/Redist/MSVC/<version>/x64/Microsoft.VC*.CRT.
 Redistribution list and terms reference:
+https://learn.microsoft.com/en-us/visualstudio/releases/2022/redistribution
 https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution
 Additional notice: THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt
 

@@ -19,11 +19,11 @@
 
 <p align="center">Maintained by <a href="https://github.com/wudaming00">Daming Wu</a> · <a href="LICENSE">AGPL-3.0-only</a></p>
 
-> **Early source preview — not a production-ready installer.** This repository
-> publishes VocalCode's desktop source under AGPL-3.0-only. Community builds
-> unlock local features without activation. Read the isolation warning below
-> before running a build; signed installers and native-device QA are not ready.
-> See [release readiness](PUBLICATION_BLOCKERS.md).
+> **Free community edition, with all local features and no activation.**
+> [Downloads and release status](https://github.com/wudaming00/vocalcode-community/releases)
+> include signed Windows installers and notarized Apple-silicon DMGs only after
+> the release checks pass. Tags named `source-preview-*` contain source only.
+> See [validation scope and limitations](PUBLICATION_BLOCKERS.md).
 
 [![Community checks](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml/badge.svg)](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml)
 
@@ -57,7 +57,12 @@ and [who maintains it / how to get in touch](MAINTAINERS.md).
 
 This is a desktop tool, not a meeting bot or a cloud transcription subscription.
 
-## Build a community preview
+## Install or build
+
+Open [Releases](https://github.com/wudaming00/vocalcode-community/releases) and choose
+a stable `v*` release: `VocalCodeCommunitySetup.exe` for Windows x64 or
+`VocalCodeCommunity-<version>.dmg` for Apple-silicon macOS. Each includes matching
+source and SHA-256 checksums. On macOS, drag **VocalCode Community.app** to Applications.
 
 Install the native prerequisites in [BUILDING.md](BUILDING.md), then:
 
@@ -68,13 +73,13 @@ cargo build -p vocalcode-app --release --locked --features community
 ```
 
 No payment account, activation code, or operator credential is required.
-The exported candidate enables `community` by default; the explicit flag
-makes the intended edition clear. There is no public community installer yet.
+This repository enables `community` by default; the explicit flag
+makes the intended edition clear.
 
-The preview currently shares the existing VocalCode data location and
-single-instance identity. **Use a separate OS user for isolated evaluation.**
-Do not replace an existing installation or run two copies with global input
-hooks. Back up existing settings and meeting data before a deliberate migration.
+The community edition has its own installation, data directory, instance identity,
+autostart entry, and update channel. It does not migrate or remove legacy data.
+Close the other edition before use to avoid competing global input hooks.
+Dictionary/snippet import is explicit; back up data before any manual migration.
 
 ## Privacy and network access
 
@@ -84,7 +89,8 @@ hooks. Back up existing settings and meeting data before a deliberate migration.
 - First-time model and native-runtime downloads use the network. Sources,
   sizes, and hashes are pinned where supported by the manifest/build system.
 - Community mode does not provision a trial, refresh a paid licence, or open
-  checkout. Its paid-release automatic updater is disabled; updates are manual.
+  checkout. It checks GitHub Releases for community updates, never the paid
+  release channel; installation verifies size, SHA-256, publisher and edition.
 - External calendar URLs and other explicitly configured integrations have
   their own network behavior. Do not confuse local ASR with an air-gapped app.
 - Recording, clipboard history, exports, and optional diagnostic persistence
@@ -106,14 +112,13 @@ their own licences, independent of the client source licence.
 - Windows x64 is the local validation environment. GitHub Actions also builds
   on Apple silicon; a successful hosted build does not replace native-device
   audio, permissions, and installation tests before a binary release.
-- Some community screens still have legacy Pro/online-licensing labels; these
-  do not represent a community feature paywall and are tracked for cleanup.
 - Overlapping speakers and loudspeaker echo can still damage transcription.
   The meeting echo guard is not a perfect speech-separation system.
 - Progressive typing is experimental: it inserts stable segments, not a
   continuously rewritten live hypothesis.
 - Meeting detection is advisory, not proof that a call has started or ended.
-- Linux packaging and a community signed-update channel are not provided.
+- Linux packaging is not provided. Legacy paid builds do not automatically
+  switch to this community channel.
 
 ## Project layout
 

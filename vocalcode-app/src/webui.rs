@@ -3989,6 +3989,10 @@ pub(crate) fn set_autostart(enabled: bool) -> Result<(), String> {
         delete_windows_autostart_value()?;
     }
 
+    // A community build must never remove the paid edition's startup shortcut.
+    if crate::community::ENABLED {
+        return Ok(());
+    }
     // Migrate the shortcut written by installers through 0.4.19.  Otherwise
     // switching the setting off removes only the Run entry and VocalCode still
     // launches from Startup; switching it on creates two instances.
@@ -4078,7 +4082,7 @@ fn write_windows_autostart_value(command: &str) -> Result<(), String> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let value_name = std::ffi::OsStr::new("VocalCode")
+    let value_name = std::ffi::OsStr::new(crate::community::AUTOSTART_NAME)
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -4143,7 +4147,7 @@ fn delete_windows_autostart_value() -> Result<(), String> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let value = std::ffi::OsStr::new("VocalCode")
+    let value = std::ffi::OsStr::new(crate::community::AUTOSTART_NAME)
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -4170,7 +4174,7 @@ fn query_autostart_command() -> Option<String> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let value_name = std::ffi::OsStr::new("VocalCode")
+    let value_name = std::ffi::OsStr::new(crate::community::AUTOSTART_NAME)
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -4230,6 +4234,9 @@ pub(crate) fn autostart_enabled() -> bool {
             // not an enabled setting for this copy of VocalCode.
             configured.eq_ignore_ascii_case(&exe.to_string_lossy())
         });
+    if crate::community::ENABLED {
+        return run_matches;
+    }
     let legacy_exists = match windows_startup_directory() {
         Ok(startup) => startup.join("VocalCode.lnk").is_file(),
         Err(error) => {
@@ -4260,7 +4267,7 @@ fn macos_home_directory() -> Result<PathBuf, String> {
 /// change takes effect without a logout.
 #[cfg(target_os = "macos")]
 pub(crate) fn set_autostart(enabled: bool) -> Result<(), String> {
-    const LABEL: &str = "app.vocalcode.VocalCode";
+    const LABEL: &str = crate::community::BUNDLE_ID;
 
     let home = macos_home_directory()?;
     let dir = home.join("Library").join("LaunchAgents");
@@ -4360,7 +4367,7 @@ pub(crate) fn autostart_enabled() -> bool {
     let plist = home
         .join("Library")
         .join("LaunchAgents")
-        .join("app.vocalcode.VocalCode.plist");
+        .join(format!("{}.plist", crate::community::BUNDLE_ID));
     let Ok(exe) = std::env::current_exe() else {
         return false;
     };
@@ -5464,6 +5471,15 @@ fn download_update_with_policy(
     }
 
     let request_timeout = policy.io_slice_timeout.min(policy.transfer_timeout);
+    let resolved_url = if crate::community::ENABLED && url.starts_with("https://github.com/") {
+        Some(
+            crate::community::resolve_download_url(url, &is_cancelled)
+                .map_err(UpdateDownloadError::Failed)?,
+        )
+    } else {
+        None
+    };
+    let url = resolved_url.as_deref().unwrap_or(url);
     let agent = ureq::Agent::config_builder()
         .https_only(policy.https_only)
         .max_redirects(0)
@@ -5940,10 +5956,15 @@ fn read_signed_artifact_identity(text: &str) -> Result<(), String> {
         .map(|line| line.trim().trim_start_matches('\u{feff}').trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    if values.get(3).copied() != Some("VocalCode") {
+    if values.get(3).copied() != Some(crate::community::DATA_DIR_NAME) {
         return Err("installer ProductName is not VocalCode".to_string());
     }
-    if values.get(4).copied() != Some("VocalCodeSetup.exe") {
+    let filename = if crate::community::ENABLED {
+        "VocalCodeCommunitySetup.exe"
+    } else {
+        "VocalCodeSetup.exe"
+    };
+    if values.get(4).copied() != Some(filename) {
         return Err("installer OriginalFilename is not VocalCodeSetup.exe".to_string());
     }
     Ok(())
@@ -6042,7 +6063,7 @@ fn read_verdict(text: &str) -> Result<String, String> {
 #[cfg(target_os = "macos")]
 const TEAM_ID: &str = "58Y98W3QQK";
 #[cfg(target_os = "macos")]
-const APP_BUNDLE_ID: &str = "app.vocalcode.VocalCode";
+const APP_BUNDLE_ID: &str = crate::community::BUNDLE_ID;
 
 /// macOS: download the dmg, verify it, replace this bundle in place, relaunch.
 ///
@@ -6205,9 +6226,12 @@ fn self_update(
             ));
         }
         let result = (|| -> Result<(), String> {
-            let new_app = mount.join("VocalCode.app");
+            let new_app = mount.join(crate::community::BUNDLE_NAME);
             if !new_app.is_dir() {
-                return Err("the update does not contain VocalCode.app".to_string());
+                return Err(format!(
+                    "the update does not contain {}",
+                    crate::community::BUNDLE_NAME
+                ));
             }
             verify_bundle(&new_app, expected_version, Some(&status.shutdown))?;
             swap_bundle(&new_app, &bundle, expected_version, Some(&status.shutdown))
@@ -6345,7 +6369,7 @@ fn verify_dmg_before_mount(
 /// The `.app` this process is running from, if we are allowed to replace it.
 #[cfg(any(test, target_os = "macos"))]
 fn is_canonical_bundle_path(path: &std::path::Path) -> bool {
-    path.file_name() == Some(std::ffi::OsStr::new("VocalCode.app"))
+    path.file_name() == Some(std::ffi::OsStr::new(crate::community::BUNDLE_NAME))
 }
 
 #[cfg(target_os = "macos")]
@@ -6366,9 +6390,10 @@ fn own_bundle() -> Result<std::path::PathBuf, String> {
     // Foo.app, while startup cleanup (correctly) refuses to touch them because
     // it cannot prove they belong to VocalCode. Fall back to manual install.
     if !is_canonical_bundle_path(&bundle) {
-        return Err(
-            "Rename the app to VocalCode.app, or download the update manually.".to_string(),
-        );
+        return Err(format!(
+            "Rename the app to {}, or download the update manually.",
+            crate::community::BUNDLE_NAME
+        ));
     }
     // App Translocation: launching a quarantined app from the dmg or from
     // Downloads runs it out of a read-only copy under a random path. Replacing
@@ -6603,9 +6628,17 @@ fn designated_requirement_matches(text: &str) -> bool {
 }
 
 #[cfg(any(test, target_os = "macos"))]
-const MAC_UPDATE_TRANSACTION: &str = ".VocalCode-update-transaction.json";
+const MAC_UPDATE_TRANSACTION: &str = if crate::community::ENABLED {
+    ".VocalCodeCommunity-update-transaction.json"
+} else {
+    ".VocalCode-update-transaction.json"
+};
 #[cfg(target_os = "macos")]
-const MAC_UPDATE_LOCK: &str = ".VocalCode-update.lock";
+const MAC_UPDATE_LOCK: &str = if crate::community::ENABLED {
+    ".VocalCodeCommunity-update.lock"
+} else {
+    ".VocalCode-update.lock"
+};
 
 #[cfg(any(test, target_os = "macos"))]
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -6826,8 +6859,8 @@ fn swap_bundle(
     shutdown: Option<&AtomicBool>,
 ) -> Result<(), String> {
     let parent = installed.parent().ok_or("no parent directory")?;
-    let staged = parent.join(".VocalCode-update-staged.app");
-    let old = parent.join(".VocalCode-update-old.app");
+    let staged = parent.join(format!("{}-staged.app", crate::community::UPDATE_STEM));
+    let old = parent.join(format!("{}-old.app", crate::community::UPDATE_STEM));
     let _update_lock = lock_mac_update(parent, shutdown)?;
     ensure_recovery_paths_absent(&staged, &old)?;
     if parent.join(MAC_UPDATE_TRANSACTION).exists() {
@@ -6957,8 +6990,8 @@ pub fn clear_update_leftovers() {
         log::warn!("could not lock macOS update recovery");
         return;
     };
-    let staged = parent.join(".VocalCode-update-staged.app");
-    let old = parent.join(".VocalCode-update-old.app");
+    let staged = parent.join(format!("{}-staged.app", crate::community::UPDATE_STEM));
+    let old = parent.join(format!("{}-old.app", crate::community::UPDATE_STEM));
     let marker_path = parent.join(MAC_UPDATE_TRANSACTION);
     let source = match read_bounded_local_file(&marker_path, MAC_UPDATE_TRANSACTION_MAX_BYTES) {
         Ok(source) => source,
@@ -7096,7 +7129,7 @@ pub fn clear_update_leftovers() {}
 
 #[cfg(any(test, target_os = "macos"))]
 fn is_canonical_install_bundle(bundle: &std::path::Path) -> bool {
-    bundle.file_name() == Some(std::ffi::OsStr::new("VocalCode.app"))
+    bundle.file_name() == Some(std::ffi::OsStr::new(crate::community::BUNDLE_NAME))
 }
 
 /// Single-quote a path for `/bin/sh`. Applications folders are not usually
@@ -7447,15 +7480,16 @@ mod signature_tests {
 
     #[test]
     fn signed_installer_identity_is_exact() {
-        let output = format!("Valid\r\n{OURS}\r\n0.5.2.0\r\nVocalCode\r\nVocalCodeSetup.exe\r\n");
+        let product = crate::community::DATA_DIR_NAME;
+        let filename = if crate::community::ENABLED {
+            "VocalCodeCommunitySetup.exe"
+        } else {
+            "VocalCodeSetup.exe"
+        };
+        let output = format!("Valid\r\n{OURS}\r\n0.5.2.0\r\n{product}\r\n{filename}\r\n");
         assert!(read_signed_artifact_identity(&output).is_ok());
-        assert!(
-            read_signed_artifact_identity(&output.replace("VocalCodeSetup.exe", "Other.exe"))
-                .is_err()
-        );
-        assert!(
-            read_signed_artifact_identity(&output.replace("VocalCode\r\n", "Other\r\n")).is_err()
-        );
+        assert!(read_signed_artifact_identity(&output.replace(filename, "Other.exe")).is_err());
+        assert!(read_signed_artifact_identity(&output.replace(product, "Other")).is_err());
     }
 
     fn installer() -> Option<std::path::PathBuf> {
@@ -9291,9 +9325,14 @@ mod updater_contract_tests {
 
     #[test]
     fn mac_self_update_requires_the_canonical_bundle_name() {
-        assert!(is_canonical_bundle_path(std::path::Path::new(
-            "/Applications/VocalCode.app"
-        )));
+        assert!(is_canonical_bundle_path(
+            &std::path::Path::new("/Applications").join(crate::community::BUNDLE_NAME)
+        ));
+        if crate::community::ENABLED {
+            assert!(!is_canonical_bundle_path(std::path::Path::new(
+                "/Applications/VocalCode.app"
+            )));
+        }
         for path in [
             "/Applications/Foo.app",
             "/Applications/vocalcode.app",
@@ -9408,7 +9447,10 @@ mod updater_contract_tests {
 
     #[test]
     fn mac_update_transaction_is_strict_and_versioned() {
-        assert_eq!(MAC_UPDATE_TRANSACTION, ".VocalCode-update-transaction.json");
+        assert_eq!(
+            MAC_UPDATE_TRANSACTION,
+            format!("{}-transaction.json", crate::community::UPDATE_STEM)
+        );
         let parsed = parse_mac_update_transaction(
             br#"{"version":1,"expected_version":"0.5.2","phase":"preparing"}"#,
         )
@@ -9468,9 +9510,9 @@ mod updater_contract_tests {
 
     #[test]
     fn only_the_canonical_bundle_may_clear_recovery_copies() {
-        assert!(is_canonical_install_bundle(std::path::Path::new(
-            "/Applications/VocalCode.app"
-        )));
+        assert!(is_canonical_install_bundle(
+            &std::path::Path::new("/Applications").join(crate::community::BUNDLE_NAME)
+        ));
         assert!(!is_canonical_install_bundle(std::path::Path::new(
             "/Applications/.VocalCode-update-old.app"
         )));

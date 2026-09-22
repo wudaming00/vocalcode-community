@@ -19,9 +19,9 @@ test('community displays free local features without commerce or paid updater',(
   assert.equal(node('licBuy').style.display,'none');
   assert.equal(node('licOwned').style.display,'none');
   assert.equal(node('licCommunity').style.display,'');
-  assert.equal(node('updBtn').disabled,true);
+  assert.equal(node('updBtn').disabled,false);
   assert.equal(node('correctionWindow').disabled,false);
-  assert.match(node('updNote').textContent,/manual updates/);
+  assert.match(node('updNote').textContent,/verified before installation/);
 });
 test('legacy paid and basic UI behavior is unchanged',()=>{
   let node=render('licensed',true);

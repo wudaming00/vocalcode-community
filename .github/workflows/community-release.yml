@@ -1,0 +1,266 @@
+name: Signed community release
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a stable release and its update manifest after all checks
+        type: boolean
+        default: false
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: community-stable-release
+  cancel-in-progress: false
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+jobs:
+  preflight:
+    if: github.repository == 'wudaming00/vocalcode-community' && github.actor == 'wudaming00' && github.triggering_actor == 'wudaming00'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - id: release
+        name: Require reviewed main commit and green public CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, 'packaging/community')
+          from release import version
+          repo = os.environ['GITHUB_REPOSITORY']
+          sha = os.environ['GITHUB_SHA']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + '/' + path]))
+          assert api('git/ref/heads/main')['object']['sha'] == sha, 'Release must equal current main'
+          if os.environ['GITHUB_REF_TYPE'] == 'tag':
+              assert os.environ['GITHUB_REF_NAME'] == 'v' + version(), 'Tag/version mismatch'
+          else:
+              assert os.environ['GITHUB_REF'] == 'refs/heads/main', 'Only main can dispatch releases'
+          runs = api('actions/workflows/community-ci.yml/runs?head_sha=' + sha + '&event=push')['workflow_runs']
+          assert any(r['head_sha'] == sha and r['conclusion'] == 'success' and r['head_repository']['full_name'] == repo for r in runs), 'Wait for green Community checks on this exact commit'
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write('version=' + version() + '\n')
+          PY
+  build:
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - name: Locate macOS clang
+        if: runner.os == 'macOS'
+        run: echo "LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$GITHUB_ENV"
+      - name: Build community executable without credentials
+        run: cargo build -p vocalcode-app --release --locked --features community
+      - name: Windows distribution
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode Pack
+      - name: macOS bundle and real native linkage check
+        if: runner.os == 'macOS'
+        run: python packaging/community/release.py build-macos
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: runner.os == 'Windows'
+        with:
+          name: unsigned-windows-2025
+          path: dist-community/windows/
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: runner.os == 'macOS'
+        with:
+          name: unsigned-macos-15
+          path: dist-community/macos-unsigned.zip
+          if-no-files-found: error
+          retention-days: 3
+  sign-windows:
+    needs: build
+    runs-on: windows-2025
+    environment: community-release
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: unsigned-windows-2025
+          path: dist-community/windows
+      - name: Install hash-pinned packaging compiler without credentials
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode Tools
+      - name: Sign app only
+        uses: Azure/artifact-signing-action@b443cf8ea4124818d2ea9f043cba29fc3ec47b16
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: vocalcode-signing
+          certificate-profile-name: public-trust
+          files: ${{ github.workspace }}\dist-community\windows\VocalCodeCommunity.exe
+          exclude-azure-cli-credential: true
+      - name: Generate unsigned uninstaller without credentials
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode UninstallerRequest
+      - name: Sign the single uninstaller
+        uses: Azure/artifact-signing-action@b443cf8ea4124818d2ea9f043cba29fc3ec47b16
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: vocalcode-signing
+          certificate-profile-name: public-trust
+          files-folder: ${{ github.workspace }}\dist-community\signed-uninstaller
+          files-folder-filter: exe
+          exclude-azure-cli-credential: true
+      - name: Compile installer without credentials
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode Installer
+      - name: Sign installer only
+        uses: Azure/artifact-signing-action@b443cf8ea4124818d2ea9f043cba29fc3ec47b16
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: https://eus.codesigning.azure.net/
+          signing-account-name: vocalcode-signing
+          certificate-profile-name: public-trust
+          files: ${{ github.workspace }}\dist-community\artifacts\VocalCodeCommunitySetup.exe
+          exclude-azure-cli-credential: true
+      - name: Verify publisher and community product identity
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode Verify
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: community-windows-signed
+          path: dist-community/artifacts/VocalCodeCommunitySetup.exe
+          if-no-files-found: error
+          retention-days: 3
+  sign-macos:
+    needs: build
+    runs-on: macos-15
+    environment: community-release
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: unsigned-macos-15
+          path: dist-community
+      - name: Extract this workflow's unsigned bundle before credential use
+        run: /usr/bin/ditto -x -k dist-community/macos-unsigned.zip dist-community
+      - name: Sign, notarize, staple, and remove temporary credentials
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: python packaging/community/release.py sign-macos
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: community-macos-signed
+          path: dist-community/artifacts/*.dmg
+          if-no-files-found: error
+          retention-days: 3
+  verify:
+    needs: [sign-windows, sign-macos]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2025
+            artifact: community-windows-signed
+          - os: macos-15
+            artifact: community-macos-signed
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist-community/artifacts
+      - name: Install, upgrade, check native linkage, and uninstall on disposable Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/community/windows.ps1 -Mode Smoke
+      - name: Gatekeeper, notarization, mounted app identity and native linkage
+        if: runner.os == 'macOS'
+        run: python packaging/community/release.py verify-macos
+  publish:
+    needs: [preflight, verify]
+    if: github.event_name == 'push' || inputs.publish
+    runs-on: ubuntu-24.04
+    environment: community-release
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: community-*-signed
+          merge-multiple: true
+          path: dist-community/artifacts
+      - name: Bind manifest and Corresponding Source to these exact verified bytes
+        run: python packaging/community/release.py manifest
+      - name: Publish immutable version assets, then make update manifest visible
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v$RELEASE_VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'A release with this version already exists; never overwrite published update bytes.' >&2
+            exit 1
+          fi
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --draft \
+            --title "VocalCode Community $RELEASE_VERSION" --notes-file packaging/community/RELEASE-NOTES.md \
+            dist-community/artifacts/*
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

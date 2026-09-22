@@ -1,7 +1,6 @@
 {
-  "schema": "vocalcode-community-source-preview-v1",
+  "schema": "vocalcode-community-source-v1",
   "source_publication_authorized": true,
-  "binary_release_ready": false,
   "license_decision": "owner-approved",
   "source_license": "AGPL-3.0-only",
   "license_text_sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee",
@@ -11,7 +10,7 @@
   ],
   "excluded": [
     "Git history",
-    "production workflows",
+    "legacy commerce deployment workflows",
     "commerce backend except public test receipt fixture",
     "credentials",
     "customer ledgers",
@@ -33,13 +32,18 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 4448,
-      "sha256": "d32a99281075135e78b4a657be6fbb80c2a75f58016fdd61d02a80952b1d4842"
+      "bytes": 4804,
+      "sha256": "0f5c5160815f929759cc94fe98704126296da5ca95e9ec5d820a0d8e693e5ae3"
+    },
+    {
+      "path": ".github/workflows/community-release.yml",
+      "bytes": 11351,
+      "sha256": "3a877636202dc03310cb1dd8f74fe5e585671479ca1c882b12120137f498feea"
     },
     {
       "path": ".gitignore",
-      "bytes": 1549,
-      "sha256": "8b77a229a5771f1a10b83a338b1fee74463e2b87943b0fc4a17a4068be3ec363"
+      "bytes": 1566,
+      "sha256": "d0fb886f266d9a85bb557881ce56026f94d464a197171fdd9b01755c97036f44"
     },
     {
       "path": "BRANDING.md",
@@ -48,18 +52,8 @@
     },
     {
       "path": "BUILDING.md",
-      "bytes": 6099,
-      "sha256": "5e04fe8bdc25e07718b2e0a8182b4dbf4661b6f5c33949a7a5f4ffc126478b20"
-    },
-    {
-      "path": "Cargo.lock",
-      "bytes": 129943,
-      "sha256": "d185216e5b2f3a21a12905ae28fbe1cfbcac3749b5fb04c55b25aa3070b78c04"
-    },
-    {
-      "path": "Cargo.toml",
-      "bytes": 1454,
-      "sha256": "efa09931ac82c4fa0333fba89c6c86879a435d7b93dbc7dbdef973aedddd3b36"
+      "bytes": 9183,
+      "sha256": "689164468c78bd4897a035baeeef1381c6c9e2f47d73a484d444bf21fd20f3f9"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -67,9 +61,14 @@
       "sha256": "6ea159a618692b29666211762d7d147dacf7d8ff30d554cabf7af742e2f3c31e"
     },
     {
-      "path": "docs/assets/vocalcode-community.svg",
-      "bytes": 2543,
-      "sha256": "b48cf1c3f7d46744a40baf913ef073813fddd0acf9893e81cc0c4b78094ec22a"
+      "path": "Cargo.lock",
+      "bytes": 129943,
+      "sha256": "0f54c789e4ee27b6564aa7fdcc76d21d54a8fb62bbb3fc22b13eae055c4417a6"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1454,
+      "sha256": "a44f5bcbf9f7e2dfc091418f533ca7a633fab3c38491ba857ca5c15ece244153"
     },
     {
       "path": "LICENSE",
@@ -87,104 +86,24 @@
       "sha256": "befd03f20b9a5314ba28bc7e0b6a757463ba4a1c653c7d2ad1b43a84f9816b0e"
     },
     {
-      "path": "packaging/community/licensing.mjs",
-      "bytes": 2197,
-      "sha256": "28a4e50188ba99e122c076af63fe9c53fbfb95fc1342bb5357bcb316b982edb7"
-    },
-    {
-      "path": "packaging/community/test-community-ui.mjs",
-      "bytes": 1730,
-      "sha256": "3d3f1eed86d6b2130675a11231eaf7a4463a5b19bb760dd4f99243ae5f6ff38a"
-    },
-    {
-      "path": "packaging/community/test-licensing.mjs",
-      "bytes": 4195,
-      "sha256": "21928ecda257c8f7b17d1dcf7c234c450e4008bf545e47ca4f137a0dcc20432d"
-    },
-    {
-      "path": "packaging/deliver/receipt-contract-fixture.json",
-      "bytes": 1152,
-      "sha256": "1641812125049b74c30cdcd38849e7b77d069f3e8447a59ee29074d0ee621891"
-    },
-    {
-      "path": "packaging/macos/Info.plist",
-      "bytes": 4679,
-      "sha256": "6ca4a0f1573aa2b1010e1fa79b30a6b62946969eef758f68d441ebc600ac8bbf"
-    },
-    {
-      "path": "packaging/macos/VocalCode.entitlements",
-      "bytes": 740,
-      "sha256": "5f00f3c64e57d1259e8ec0cab4aaed5447054a0c77590cfd9be76f05c85cc85d"
-    },
-    {
-      "path": "packaging/models.json",
-      "bytes": 2165,
-      "sha256": "0bb9a273886b4c9f0fd7ccead1d4e77bf40c2512fcf6902bd465729fbfb73301"
-    },
-    {
-      "path": "packaging/release/test_calendar_ui.mjs",
-      "bytes": 2007,
-      "sha256": "9f8950e7696f674b1a066feedcf5e7f77d381bb7ba28ae27e1533db8f2444283"
-    },
-    {
-      "path": "packaging/release/test_correction_review_ui.mjs",
-      "bytes": 4299,
-      "sha256": "c0ad4c25b14ac648f55182a6cfd029d3f8ab348c8dc4d17f9c6b9216f9532a5a"
-    },
-    {
-      "path": "packaging/release/test_filler_history_ui.mjs",
-      "bytes": 2225,
-      "sha256": "7fdf7abf9a497176d1280bd3263daf1f405c5568a57cdc14cbf64d7e0d59dd9b"
-    },
-    {
-      "path": "packaging/release/test_meeting_prompt_ui.mjs",
-      "bytes": 8221,
-      "sha256": "bc94f87f3474b7d422f86910d4abd1c3ee745fcf1d294d3706375e58b60e1406"
-    },
-    {
-      "path": "packaging/release/test_meeting_ui.mjs",
-      "bytes": 5871,
-      "sha256": "b3f1d04edb056e77df5156a9b8e3e0b7a209d4fff6d132cae25608886fa38587"
-    },
-    {
-      "path": "packaging/release/test_migration_ui.mjs",
-      "bytes": 5520,
-      "sha256": "8526a82b931f9616dd2bf7644bbd57276b9b180b2177a3b7ad7b835bca9323b2"
-    },
-    {
-      "path": "packaging/release/test_noise_filter_ui.mjs",
-      "bytes": 1904,
-      "sha256": "75346309b4f86b1ce4b5825217c2adfb226f7f8d894eed21983834216cb6116d"
-    },
-    {
-      "path": "packaging/release/test_workflow_ui.mjs",
-      "bytes": 7306,
-      "sha256": "34b2b8ce1371a68b59738d79b111cd99019c06971d8c093e890c5996f8ba2639"
-    },
-    {
       "path": "PUBLICATION_BLOCKERS.md",
-      "bytes": 3619,
-      "sha256": "39da1ae368299a6f696c851f8b325fd050d9fd644818a8edc45d93863d04212f"
+      "bytes": 4607,
+      "sha256": "b5fc5126da3bfe185c372a322b149b418cd87b3578713a0ca0fd23a6df75d063"
     },
     {
       "path": "README.md",
-      "bytes": 7627,
-      "sha256": "bd864d23625ffa73baecf7e2b086d8cdf24ff02f306cc16658c5bb9fa3345bd0"
+      "bytes": 7895,
+      "sha256": "204fde3e889ba9d8c0f806755c4e318ada01f2beaefcb399602b9a3441bee7a4"
     },
     {
       "path": "README.zh-CN.md",
-      "bytes": 4958,
-      "sha256": "aee7a41d55343703874029e9aca9750352e0fd652b6f66cd6e9885f7d0b1ee2e"
+      "bytes": 5474,
+      "sha256": "bc165b52d1b07f3a5a3bc23e5c53e3006bf2ab575fe67f3bbadb0212f6b49357"
     },
     {
       "path": "ROADMAP.md",
-      "bytes": 2634,
-      "sha256": "eed4c454b8d588a4344c61adf43cf55a884b7a236d7b96ea4b24d7d6a35da975"
-    },
-    {
-      "path": "rust-toolchain.toml",
-      "bytes": 86,
-      "sha256": "8e390d6a0838315f972690f46ef8bae8b7ecc9ee6c1ed70140ef852869c2482e"
+      "bytes": 2627,
+      "sha256": "d48dcbd1a6b21407e9f2e53e22ff24ea3398d82ddedd93b73a39c0351cabbc90"
     },
     {
       "path": "SECURITY.md",
@@ -263,8 +182,8 @@
     },
     {
       "path": "THIRD-PARTY-LICENSES/HClustCpp-LICENSE.txt",
-      "bytes": 1483,
-      "sha256": "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882"
+      "bytes": 1480,
+      "sha256": "0d4b6932886aa9623d166c0738c425ba28f0a47d075c7524d06709fc40525cc8"
     },
     {
       "path": "THIRD-PARTY-LICENSES/KaldiDecoder-LICENSE.txt",
@@ -272,14 +191,14 @@
       "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
     },
     {
-      "path": "THIRD-PARTY-LICENSES/Kaldifst-LICENSE.txt",
-      "bytes": 11728,
-      "sha256": "a682d6efd1ee5dee08a8e405c233c2c198ea70ae0718129daa83ab58cfe31c5d"
-    },
-    {
       "path": "THIRD-PARTY-LICENSES/KaldiNativeFbank-LICENSE.txt",
       "bytes": 11358,
       "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Kaldifst-LICENSE.txt",
+      "bytes": 11728,
+      "sha256": "a682d6efd1ee5dee08a8e405c233c2c198ea70ae0718129daa83ab58cfe31c5d"
     },
     {
       "path": "THIRD-PARTY-LICENSES/KissFFT-BSD-3-Clause.txt",
@@ -302,11 +221,6 @@
       "sha256": "ba898a14f729ba5e9965da34e3eecd5edd3795f2cc5d7c923b815ba79bb851b0"
     },
     {
-      "path": "THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt",
-      "bytes": 970,
-      "sha256": "9740c6ff587b557377ed191f99daa7a37c94a36b1a04e453fc99a60ac2d03ad2"
-    },
-    {
       "path": "THIRD-PARTY-LICENSES/MIT.txt",
       "bytes": 1078,
       "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
@@ -317,14 +231,14 @@
       "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
     },
     {
+      "path": "THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt",
+      "bytes": 1109,
+      "sha256": "6e816c889b3b7e559f9878f99376ab9db49b6af0529a1bb8e17c6ab2b1eb950a"
+    },
+    {
       "path": "THIRD-PARTY-LICENSES/NlohmannJson-LICENSE.MIT.txt",
       "bytes": 1076,
       "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603"
-    },
-    {
-      "path": "THIRD-PARTY-LICENSES/Objc2-LICENSE.md",
-      "bytes": 1339,
-      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
     },
     {
       "path": "THIRD-PARTY-LICENSES/ONNXRuntime-LICENSE.txt",
@@ -335,6 +249,11 @@
       "path": "THIRD-PARTY-LICENSES/ONNXRuntime-ThirdPartyNotices.txt",
       "bytes": 325054,
       "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Objc2-LICENSE.md",
+      "bytes": 1339,
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
     },
     {
       "path": "THIRD-PARTY-LICENSES/OpenCC-LICENSE.txt",
@@ -354,7 +273,7 @@
     {
       "path": "THIRD-PARTY-LICENSES/Rust-dependencies.json",
       "bytes": 156775,
-      "sha256": "4bbcb78ad1485d43d9c77cb4fe5364ab52ae5c199dd24e6f9cdc5b915d43c457"
+      "sha256": "9f3d26a74de108008b43e28f63c9ab32f57764dbd52ee4acbb79a91e09428ac1"
     },
     {
       "path": "THIRD-PARTY-LICENSES/SherpaRs-LICENSE.txt",
@@ -388,8 +307,133 @@
     },
     {
       "path": "THIRD-PARTY-NOTICES.txt",
-      "bytes": 10941,
-      "sha256": "6fa769907280eb7e67c786129baa6aa3ece40a2138365e6dfafd5bd21e6695ac"
+      "bytes": 11065,
+      "sha256": "871483f0785f99990f23ebb412c432062b15eb968e34710e90c996ceffb2b8bc"
+    },
+    {
+      "path": "docs/assets/vocalcode-community.svg",
+      "bytes": 2543,
+      "sha256": "b48cf1c3f7d46744a40baf913ef073813fddd0acf9893e81cc0c4b78094ec22a"
+    },
+    {
+      "path": "packaging/community/RELEASE-NOTES.md",
+      "bytes": 1965,
+      "sha256": "f331279e3b57b261938777f80d2dfe75e143f143d231e97029cca2e8efadc74e"
+    },
+    {
+      "path": "packaging/community/licensing.mjs",
+      "bytes": 2197,
+      "sha256": "28a4e50188ba99e122c076af63fe9c53fbfb95fc1342bb5357bcb316b982edb7"
+    },
+    {
+      "path": "packaging/community/release.py",
+      "bytes": 11841,
+      "sha256": "e8d582cf22950b25e35ff48c1488ab8d886611d7897dbeda4623c4b30645c06d"
+    },
+    {
+      "path": "packaging/community/source-manifest.mjs",
+      "bytes": 2015,
+      "sha256": "26983e732a2b12553a88afa115a524249f126b60a2391034775ed0c2ef76443a"
+    },
+    {
+      "path": "packaging/community/test-community-ui.mjs",
+      "bytes": 1745,
+      "sha256": "874d5da55faac0f9cad8dad3c499bd919ce280b904d17d79ce9a7812b206fa53"
+    },
+    {
+      "path": "packaging/community/test-licensing.mjs",
+      "bytes": 4195,
+      "sha256": "21928ecda257c8f7b17d1dcf7c234c450e4008bf545e47ca4f137a0dcc20432d"
+    },
+    {
+      "path": "packaging/community/test_release.py",
+      "bytes": 4636,
+      "sha256": "af56b6f5c7170be51789fa4db983e091336d07f1b3afef1f2797aff48b50d425"
+    },
+    {
+      "path": "packaging/community/windows.iss",
+      "bytes": 3029,
+      "sha256": "f333175daec2b66c4cf8c5e91879ca51a29fb805cdbf9a9efa8f1d99dae95a80"
+    },
+    {
+      "path": "packaging/community/windows.ps1",
+      "bytes": 9061,
+      "sha256": "0f0fb973924bd1be15e0dce40ba3f5a7fb335b725349a61bc433918e79f5b666"
+    },
+    {
+      "path": "packaging/deliver/receipt-contract-fixture.json",
+      "bytes": 1152,
+      "sha256": "1641812125049b74c30cdcd38849e7b77d069f3e8447a59ee29074d0ee621891"
+    },
+    {
+      "path": "packaging/licenses/generate_rust_inventory.py",
+      "bytes": 14655,
+      "sha256": "3aa867790f5500d6a78d198c0f71d84dd750ab30e2d35c577715eefa48c80969"
+    },
+    {
+      "path": "packaging/macos/Info.plist",
+      "bytes": 4679,
+      "sha256": "6ca4a0f1573aa2b1010e1fa79b30a6b62946969eef758f68d441ebc600ac8bbf"
+    },
+    {
+      "path": "packaging/macos/VocalCode.entitlements",
+      "bytes": 740,
+      "sha256": "5f00f3c64e57d1259e8ec0cab4aaed5447054a0c77590cfd9be76f05c85cc85d"
+    },
+    {
+      "path": "packaging/macos/make_icon.py",
+      "bytes": 5776,
+      "sha256": "bf7c74299c8a9f21c15611036f2f306b54a51d95ca3c0dcf02719db56006e236"
+    },
+    {
+      "path": "packaging/models.json",
+      "bytes": 2165,
+      "sha256": "0bb9a273886b4c9f0fd7ccead1d4e77bf40c2512fcf6902bd465729fbfb73301"
+    },
+    {
+      "path": "packaging/release/test_calendar_ui.mjs",
+      "bytes": 2007,
+      "sha256": "9f8950e7696f674b1a066feedcf5e7f77d381bb7ba28ae27e1533db8f2444283"
+    },
+    {
+      "path": "packaging/release/test_correction_review_ui.mjs",
+      "bytes": 4299,
+      "sha256": "c0ad4c25b14ac648f55182a6cfd029d3f8ab348c8dc4d17f9c6b9216f9532a5a"
+    },
+    {
+      "path": "packaging/release/test_filler_history_ui.mjs",
+      "bytes": 2225,
+      "sha256": "7fdf7abf9a497176d1280bd3263daf1f405c5568a57cdc14cbf64d7e0d59dd9b"
+    },
+    {
+      "path": "packaging/release/test_meeting_prompt_ui.mjs",
+      "bytes": 8221,
+      "sha256": "bc94f87f3474b7d422f86910d4abd1c3ee745fcf1d294d3706375e58b60e1406"
+    },
+    {
+      "path": "packaging/release/test_meeting_ui.mjs",
+      "bytes": 5871,
+      "sha256": "b3f1d04edb056e77df5156a9b8e3e0b7a209d4fff6d132cae25608886fa38587"
+    },
+    {
+      "path": "packaging/release/test_migration_ui.mjs",
+      "bytes": 5520,
+      "sha256": "8526a82b931f9616dd2bf7644bbd57276b9b180b2177a3b7ad7b835bca9323b2"
+    },
+    {
+      "path": "packaging/release/test_noise_filter_ui.mjs",
+      "bytes": 1904,
+      "sha256": "75346309b4f86b1ce4b5825217c2adfb226f7f8d894eed21983834216cb6116d"
+    },
+    {
+      "path": "packaging/release/test_workflow_ui.mjs",
+      "bytes": 7306,
+      "sha256": "34b2b8ce1371a68b59738d79b111cd99019c06971d8c093e890c5996f8ba2639"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "bytes": 86,
+      "sha256": "8e390d6a0838315f972690f46ef8bae8b7ecc9ee6c1ed70140ef852869c2482e"
     },
     {
       "path": "vendor/rdev/Cargo.toml",
@@ -400,6 +444,21 @@
       "path": "vendor/rdev/Cargo.toml.orig",
       "bytes": 1951,
       "sha256": "87512a97322243ae1152cceb01a9cdff2b74f90197c37af09d3fe6d957be5fb4"
+    },
+    {
+      "path": "vendor/rdev/LICENSE",
+      "bytes": 1070,
+      "sha256": "6cfe92e5df70f1ff8e675e2b74108372ebce6274ac8b093a88d3614541ca8382"
+    },
+    {
+      "path": "vendor/rdev/README.md",
+      "bytes": 7834,
+      "sha256": "8cf4070cc52a02eff7c5919b9e0d10792de731ac1600f685f4bc78510f0f98ba"
+    },
+    {
+      "path": "vendor/rdev/README.tpl",
+      "bytes": 235,
+      "sha256": "b8cf6dba4a9ff7e0dd1f55b287463d60e23c4cabab18642a8f469cea2c8b7895"
     },
     {
       "path": "vendor/rdev/examples/channel.rs",
@@ -440,21 +499,6 @@
       "path": "vendor/rdev/examples/tokio_channel.rs",
       "bytes": 552,
       "sha256": "506effdc5815e81687f52782965b4508eefe531bf0a1db4254272c35d141143f"
-    },
-    {
-      "path": "vendor/rdev/LICENSE",
-      "bytes": 1070,
-      "sha256": "6cfe92e5df70f1ff8e675e2b74108372ebce6274ac8b093a88d3614541ca8382"
-    },
-    {
-      "path": "vendor/rdev/README.md",
-      "bytes": 7834,
-      "sha256": "8cf4070cc52a02eff7c5919b9e0d10792de731ac1600f685f4bc78510f0f98ba"
-    },
-    {
-      "path": "vendor/rdev/README.tpl",
-      "bytes": 235,
-      "sha256": "b8cf6dba4a9ff7e0dd1f55b287463d60e23c4cabab18642a8f469cea2c8b7895"
     },
     {
       "path": "vendor/rdev/rustfmt.toml",
@@ -602,11 +646,6 @@
       "sha256": "6afa57b341fce6e0ec45b2a38d3939d5dc9dbbbdac890cf3b4b5ca289b11f698"
     },
     {
-      "path": "vendor/sherpa-onnx-sys/build.rs",
-      "bytes": 21474,
-      "sha256": "5f6988d9a6e825b67466ad16ec16a7bbaada1bae917abac530aacfc101e27ae7"
-    },
-    {
       "path": "vendor/sherpa-onnx-sys/Cargo.lock",
       "bytes": 32866,
       "sha256": "6bafcd7138c15ad4025324db9d584ccb76a50427a164a85fb1e27e6112f458f3"
@@ -622,6 +661,21 @@
       "sha256": "68d6c537ff435e5778d4403505632e3e6ea289800b4a45733916e97cf66cb151"
     },
     {
+      "path": "vendor/sherpa-onnx-sys/LICENSE",
+      "bytes": 1069,
+      "sha256": "30d26b5b70187611accccc4afddb8eb13ee32d85cdc85b4f77103b86a2dfc056"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/VOCALCODE-PATCH.md",
+      "bytes": 3299,
+      "sha256": "def48036f18b2ab57cbe2b4fd34e4d57376fea0cbf1eb310a4dd70b6d7ac41bc"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/build.rs",
+      "bytes": 21474,
+      "sha256": "5f6988d9a6e825b67466ad16ec16a7bbaada1bae917abac530aacfc101e27ae7"
+    },
+    {
       "path": "vendor/sherpa-onnx-sys/checksum.txt",
       "bytes": 10146,
       "sha256": "8df4e8f89fd903b8bdd0db6aefa298ed8f2b11f73b216955e2d005e2a5fbcfe3"
@@ -630,11 +684,6 @@
       "path": "vendor/sherpa-onnx-sys/dist.json",
       "bytes": 2453,
       "sha256": "15e6b637c263bd9af57b72a3dc593abf38e7d4b3709b9e06db3e800fc6643139"
-    },
-    {
-      "path": "vendor/sherpa-onnx-sys/LICENSE",
-      "bytes": 1069,
-      "sha256": "30d26b5b70187611accccc4afddb8eb13ee32d85cdc85b4f77103b86a2dfc056"
     },
     {
       "path": "vendor/sherpa-onnx-sys/sherpa-onnx/LICENSE",
@@ -745,11 +794,6 @@
       "path": "vendor/sherpa-onnx-sys/tests/cache_and_archive_security.rs",
       "bytes": 11691,
       "sha256": "1cac970e3e1361679bea2866f17b3bd6a8d9a76682bb871b32195366bd0f4e36"
-    },
-    {
-      "path": "vendor/sherpa-onnx-sys/VOCALCODE-PATCH.md",
-      "bytes": 3299,
-      "sha256": "def48036f18b2ab57cbe2b4fd34e4d57376fea0cbf1eb310a4dd70b6d7ac41bc"
     },
     {
       "path": "vendor/sherpa-onnx-sys/wrapper.h",
@@ -872,6 +916,11 @@
       "sha256": "4ff844092ca26fc0a018251be7e870d9287a324f3e056cad31e7b3b6f58a376d"
     },
     {
+      "path": "vocalcode-app/Cargo.toml",
+      "bytes": 3688,
+      "sha256": "1ef4c305dab663a35906f071d824dc7b403c5fec7201f472040e93563c3b16f5"
+    },
+    {
       "path": "vocalcode-app/assets/README.md",
       "bytes": 751,
       "sha256": "fb16ee7c7db4fec7cdca5c391a07fe379f432a42b754e6737b256a145fc30534"
@@ -883,13 +932,8 @@
     },
     {
       "path": "vocalcode-app/build.rs",
-      "bytes": 2574,
-      "sha256": "6c22772ec0c43cb2cda9d420fb8b800a615ee46f5d15c5fad6a5de6cab50555f"
-    },
-    {
-      "path": "vocalcode-app/Cargo.toml",
-      "bytes": 3688,
-      "sha256": "1ef4c305dab663a35906f071d824dc7b403c5fec7201f472040e93563c3b16f5"
+      "bytes": 2846,
+      "sha256": "cbc472e09c853dff27252b8f3a2fc3e2108b873fa937b61f963a6e25f1f60b46"
     },
     {
       "path": "vocalcode-app/examples/correction_review_smoke.rs",
@@ -923,8 +967,8 @@
     },
     {
       "path": "vocalcode-app/src/community.rs",
-      "bytes": 1886,
-      "sha256": "d6cae608520ab64f4c7bbb8bd56ade7228db98bb5921c9d51393282152dd1f62"
+      "bytes": 7553,
+      "sha256": "9d5e74149994e31519aadbd4c10e3c12517f6f07e9d9513035661434a0885a4d"
     },
     {
       "path": "vocalcode-app/src/correction_review.html",
@@ -958,8 +1002,13 @@
     },
     {
       "path": "vocalcode-app/src/main.rs",
-      "bytes": 339970,
-      "sha256": "6e3e4865276248e15353ca9c77a01ca0d7b4219c0938fc8162bbdfa07385d62b"
+      "bytes": 341581,
+      "sha256": "2e44a17c5f479cfbeeb0040a1d82f75a2cca52414dec8bf089c0b7f19bf2567b"
+    },
+    {
+      "path": "vocalcode-app/src/meeting.rs",
+      "bytes": 85334,
+      "sha256": "fe89b36dfaf222976d09791222845fd6a069841bef2207a04b2b6f8ece3c4304"
     },
     {
       "path": "vocalcode-app/src/meeting_prompt.html",
@@ -985,11 +1034,6 @@
       "path": "vocalcode-app/src/meeting_simulation.rs",
       "bytes": 20602,
       "sha256": "06cee0b67e07d5220d919f419e28904f2618df132c34ab87355cd3cded1610e8"
-    },
-    {
-      "path": "vocalcode-app/src/meeting.rs",
-      "bytes": 85334,
-      "sha256": "fe89b36dfaf222976d09791222845fd6a069841bef2207a04b2b6f8ece3c4304"
     },
     {
       "path": "vocalcode-app/src/migration.rs",
@@ -1018,8 +1062,8 @@
     },
     {
       "path": "vocalcode-app/src/paths.rs",
-      "bytes": 71418,
-      "sha256": "9f04941feb4df47a838f59922a97ec92eb650a0aad2f14ca73dda73b3cf6d4b1"
+      "bytes": 71493,
+      "sha256": "b2cdec7bae937875cd4ccadf98f2ed888e22399b6e481fc717b5f8f463f9807c"
     },
     {
       "path": "vocalcode-app/src/rewrite.rs",
@@ -1038,13 +1082,13 @@
     },
     {
       "path": "vocalcode-app/src/webui.html",
-      "bytes": 395879,
-      "sha256": "c995664286327948b253c56a750bba2d86e4deef3bab45704f6c9ef70d43557b"
+      "bytes": 396040,
+      "sha256": "2dc32d64f24dcd986de031f68a758e714e4515ef13a1816c7ee18974c2ea6844"
     },
     {
       "path": "vocalcode-app/src/webui.rs",
-      "bytes": 425047,
-      "sha256": "c8cb099b13e52ffb759c95e341bdd01d22187e61c2b75f342ff9f83fcfa796d0"
+      "bytes": 426652,
+      "sha256": "42410add717a34095a6ddb17780b4aabda72b5e90eb54d1eece91a1fc44a67c5"
     },
     {
       "path": "vocalcode-app/src/workflows.rs",
@@ -1142,14 +1186,14 @@
       "sha256": "c24b3d553061fc2db20abcff20dc66a4c7002d58c5cab8f56047d2a95561e561"
     },
     {
-      "path": "vocalcode-meeting/src/echo_guard.rs",
-      "bytes": 7592,
-      "sha256": "c34eb8e38141bef0161d499fe4ce4383baccbb3fe96691767b692cd829a20ccf"
-    },
-    {
       "path": "vocalcode-meeting/src/echo.rs",
       "bytes": 26440,
       "sha256": "5cf7e8464261460eb84ec19585968536cc72df8a403663cd87accbe83aff974b"
+    },
+    {
+      "path": "vocalcode-meeting/src/echo_guard.rs",
+      "bytes": 7592,
+      "sha256": "c34eb8e38141bef0161d499fe4ce4383baccbb3fe96691767b692cd829a20ccf"
     },
     {
       "path": "vocalcode-meeting/src/error.rs",
@@ -1267,14 +1311,14 @@
       "sha256": "53f0e5ac6bd8fb977e5c60c66631d6b7bb17731d728b77c927be2c4dbbe6e270"
     },
     {
-      "path": "vocalcode-platform/src/hotkey_macos.rs",
-      "bytes": 33233,
-      "sha256": "f62a90964d37bdb0600eaad93610b888ead6411df1dbc11a68d6a7d0c48949bb"
-    },
-    {
       "path": "vocalcode-platform/src/hotkey.rs",
       "bytes": 129800,
       "sha256": "6ff6a78e25fd7866e2a6fbea4f7836b3b12c39acb15f0eaa6345a3f4fd8ea099"
+    },
+    {
+      "path": "vocalcode-platform/src/hotkey_macos.rs",
+      "bytes": 33233,
+      "sha256": "f62a90964d37bdb0600eaad93610b888ead6411df1dbc11a68d6a7d0c48949bb"
     },
     {
       "path": "vocalcode-platform/src/inject.rs",
@@ -1336,5 +1380,6 @@
       "bytes": 2800,
       "sha256": "0c78009ef8f9c6857135236a5100506fb9a6ea12ee7e9b7faccf4c29a18399cf"
     }
-  ]
+  ],
+  "binary_release_policy": "Signed installers are published only after the protected release workflow verifies both platforms; consult the release run for results."
 }
