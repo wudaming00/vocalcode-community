@@ -1,0 +1,42 @@
+* text=auto
+
+# Cross-platform source and release inputs must stay byte-stable. In particular,
+# CRLF in a macOS shebang or multiline shell block makes the release runner fail
+# before any of the safety gates execute.
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+*.rs text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.lock text eol=lf
+*.html text eol=lf
+*.svg text eol=lf
+*.md text eol=lf
+*.xml text eol=lf
+*.txt text eol=lf
+LICENSE text eol=lf
+*.plist text eol=lf
+*.entitlements text eol=lf
+.gitattributes text eol=lf
+website/_headers text eol=lf
+
+# These files are executed only by native Windows tools.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.iss text eol=crlf
+
+# Never run binary artifacts through text filters.
+*.png binary
+*.ico binary
+*.icns binary
+*.dmg binary
+*.exe binary
+*.dll binary
+*.dylib binary
+*.onnx binary
+*.wav binary
+.DS_Store binary

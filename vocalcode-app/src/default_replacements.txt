@@ -1,0 +1,155 @@
+# VocalCode built-in recognition-correction dictionary.
+#
+# These ship inside the app (read-only) and are kept separate from your own
+# words. To OVERRIDE one, add a rule with the same heard phrase to your own
+# dictionary; to TURN ONE OFF, map its heard phrase to itself
+# (e.g. `cloud code => cloud code`). Matching is whole-word and
+# case-insensitive.
+
+# --- the product itself ---
+wol cold cold       => VocalCode
+vocal code          => VocalCode
+vocal cold          => VocalCode
+wall code           => VocalCode
+collie              => Collie
+
+# --- space-split merges (heard the sounds, split into words) ---
+fast api            => FastAPI
+sub stack           => Substack
+planet scale        => PlanetScale
+click house         => ClickHouse
+deep seek           => DeepSeek
+lang chain          => LangChain
+lang chang          => LangChain
+lang chin           => LangChain
+line chain          => LangChain
+lane chain          => LangChain
+link chain          => LangChain
+lama index          => LlamaIndex
+llama index         => LlamaIndex
+git lab             => GitLab
+solid js            => SolidJS
+duck db             => DuckDB
+rabbit mq           => RabbitMQ
+rapid mq            => RabbitMQ
+turbo pack          => Turbopack
+tab nine            => Tabnine
+tab 9               => Tabnine
+rip grep            => ripgrep
+rip grip            => ripgrep
+type script         => TypeScript
+co pilot            => Copilot
+cuba ctl            => kubectl
+cuber ctl           => kubectl
+cubic tl            => kubectl
+
+# --- misspellings whose wrong form is a non-word (safe whole-word) ---
+codeum              => Codeium
+codium              => Codeium
+codeem              => Codeium
+versal              => Vercel
+superbase           => Supabase
+vetus               => Vitest
+vitis               => Vitest
+vitist              => Vitest
+vidist              => Vitest
+oxum                => Axum
+palumi              => Pulumi
+onsible             => Ansible
+insible             => Ansible
+unsible             => Ansible
+fibase              => Firebase
+fis base            => Firebase
+replet              => Replit
+mastral             => Mistral
+grock               => Grok
+groc                => Grok
+grook               => Grok
+gruck               => Grok
+sonet               => Sonnet
+gyosa               => gyoza
+gyoja               => gyoza
+zelage              => Zellij
+zelich              => Zellij
+weviate             => Weaviate
+weavate             => Weaviate
+neavim              => Neovim
+graphana            => Grafana
+datadoc             => Datadog
+calanly             => Calendly
+callanly            => Calendly
+
+# --- collocations (safe only with the trailing word) ---
+cloud code          => Claude Code
+claud code          => Claude Code
+clawed code         => Claude Code
+clot code           => Claude Code
+cloud desktop       => Claude Desktop
+claud desktop       => Claude Desktop
+claw desktop        => Claude Desktop
+akai bowl           => acai bowl
+asai bowl           => acai bowl
+
+# ============================================================================
+# Korean tech terms — SenseVoice transliterates English tech names to Hangul;
+# map its output back to the literal name. Hangul left sides only ever appear
+# in Korean dictation, so they never touch other languages. Ambiguous forms
+# that collide with real Korean words (노드=node, 제이슨=Jason, 비=rain) are
+# deliberately left out.
+# ----------------------------------------------------------------------------
+기터부              => GitHub
+깃허브              => GitHub
+기트랩              => GitLab
+깃랩                => GitLab
+다커                => Docker
+도커                => Docker
+독커                => Docker
+쿠버네이티즈        => Kubernetes
+쿠버네티스          => Kubernetes
+파이썬              => Python
+자바스크립트        => JavaScript
+저바스크립프트      => JavaScript
+타입스크립트        => TypeScript
+타입스크리프트      => TypeScript
+리액트              => React
+리디즈              => Redis
+레디스              => Redis
+클로드 코드         => Claude Code
+클로드 데스크탑     => Claude Desktop
+버스셀              => Vercel
+버셀                => Vercel
+카프카              => Kafka
+케프커              => Kafka
+리눅스              => Linux
+포스트그레스        => PostgreSQL
+
+# Space-split variants: SenseVoice breaks compound transliterations at morpheme
+# boundaries ("기 트랩" for GitLab). Korean writes real word spaces, so unlike
+# Japanese these are NOT collapsed — the spaced form is listed directly.
+기 트랩             => GitLab
+쿠버 네이티즈       => Kubernetes
+저바 스크립프트     => JavaScript
+타입 스크리프트     => TypeScript
+리 액트             => React
+케프 커             => Kafka
+
+# ============================================================================
+# Japanese tech terms — same idea, katakana → literal name. Japanese output is
+# run through JapaneseSpaceCollapser first (SenseVoice splits "ギット ハブ"),
+# so every left side here is the UNSPACED form. Collisions with real Japanese
+# words (濃度=concentration for "Node") are left out.
+# ----------------------------------------------------------------------------
+ギットハブ          => GitHub
+ギットラボ          => GitLab
+ドッカー            => Docker
+パイソン            => Python
+ジャバスクリプト    => JavaScript
+タイプスクリプト    => TypeScript
+リアクト            => React
+リディース          => Redis
+レディス            => Redis
+クロードコード      => Claude Code
+クローダオコード    => Claude Code
+バーセル            => Vercel
+リナックス          => Linux
+クバネティス        => Kubernetes

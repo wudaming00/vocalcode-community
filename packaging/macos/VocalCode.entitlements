@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Entitlements for the hardened runtime, which notarisation requires.
+
+        Deliberately NOT sandboxed (no com.apple.security.app-sandbox): VocalCode
+        uses system-wide synthetic text input and installs a system-wide event
+        tap. Neither is expressible inside the App Sandbox, so this is a
+        Developer ID / direct-download app rather than a Mac App Store one.
+    -->
+
+    <!-- Microphone capture (cpal). Pairs with NSMicrophoneUsageDescription. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+
+</dict>
+</plist>

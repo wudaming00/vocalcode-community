@@ -1,0 +1,1340 @@
+{
+  "schema": "vocalcode-community-source-preview-v1",
+  "source_publication_authorized": true,
+  "binary_release_ready": false,
+  "license_decision": "owner-approved",
+  "source_license": "AGPL-3.0-only",
+  "license_text_sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee",
+  "transformations": [
+    "vocalcode-app defaults to the community feature",
+    "text line endings normalized to LF for Git checkout integrity"
+  ],
+  "excluded": [
+    "Git history",
+    "production workflows",
+    "commerce backend except public test receipt fixture",
+    "credentials",
+    "customer ledgers",
+    "marketing",
+    "website",
+    "user recordings and diagnostics",
+    "build outputs"
+  ],
+  "files": [
+    {
+      "path": ".cargo/config.toml",
+      "bytes": 2867,
+      "sha256": "40266692fbdd0d78db03a9421e05855ba32033da39cfb6fd14696a3ce69ee2c0"
+    },
+    {
+      "path": ".gitattributes",
+      "bytes": 918,
+      "sha256": "381d5b74adc8f27036588162e4045d1ae0c9cae9ed3acce051cb66bed3fe57ef"
+    },
+    {
+      "path": ".github/workflows/community-ci.yml",
+      "bytes": 4448,
+      "sha256": "d32a99281075135e78b4a657be6fbb80c2a75f58016fdd61d02a80952b1d4842"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 1549,
+      "sha256": "8b77a229a5771f1a10b83a338b1fee74463e2b87943b0fc4a17a4068be3ec363"
+    },
+    {
+      "path": "BRANDING.md",
+      "bytes": 1817,
+      "sha256": "ba17f87ccd6b173f89d06fc744f72284ed0945519b3f29e25ec545cbdd3e875a"
+    },
+    {
+      "path": "BUILDING.md",
+      "bytes": 6099,
+      "sha256": "5e04fe8bdc25e07718b2e0a8182b4dbf4661b6f5c33949a7a5f4ffc126478b20"
+    },
+    {
+      "path": "Cargo.lock",
+      "bytes": 129943,
+      "sha256": "d185216e5b2f3a21a12905ae28fbe1cfbcac3749b5fb04c55b25aa3070b78c04"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 1454,
+      "sha256": "efa09931ac82c4fa0333fba89c6c86879a435d7b93dbc7dbdef973aedddd3b36"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "bytes": 2998,
+      "sha256": "6ea159a618692b29666211762d7d147dacf7d8ff30d554cabf7af742e2f3c31e"
+    },
+    {
+      "path": "docs/assets/vocalcode-community.svg",
+      "bytes": 2543,
+      "sha256": "b48cf1c3f7d46744a40baf913ef073813fddd0acf9893e81cc0c4b78094ec22a"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 34020,
+      "sha256": "d8a6cc31abc16b6748c7a21f21611f5a1ec33f67d22ca23d7da1c19b95496bee"
+    },
+    {
+      "path": "LICENSING.md",
+      "bytes": 4633,
+      "sha256": "3fd156115ef2d0456a1989ce551a3c7a3324396793dca92c3b771d72c276cbed"
+    },
+    {
+      "path": "MAINTAINERS.md",
+      "bytes": 3401,
+      "sha256": "befd03f20b9a5314ba28bc7e0b6a757463ba4a1c653c7d2ad1b43a84f9816b0e"
+    },
+    {
+      "path": "packaging/community/licensing.mjs",
+      "bytes": 2197,
+      "sha256": "28a4e50188ba99e122c076af63fe9c53fbfb95fc1342bb5357bcb316b982edb7"
+    },
+    {
+      "path": "packaging/community/test-community-ui.mjs",
+      "bytes": 1730,
+      "sha256": "3d3f1eed86d6b2130675a11231eaf7a4463a5b19bb760dd4f99243ae5f6ff38a"
+    },
+    {
+      "path": "packaging/community/test-licensing.mjs",
+      "bytes": 4195,
+      "sha256": "21928ecda257c8f7b17d1dcf7c234c450e4008bf545e47ca4f137a0dcc20432d"
+    },
+    {
+      "path": "packaging/deliver/receipt-contract-fixture.json",
+      "bytes": 1152,
+      "sha256": "1641812125049b74c30cdcd38849e7b77d069f3e8447a59ee29074d0ee621891"
+    },
+    {
+      "path": "packaging/macos/Info.plist",
+      "bytes": 4679,
+      "sha256": "6ca4a0f1573aa2b1010e1fa79b30a6b62946969eef758f68d441ebc600ac8bbf"
+    },
+    {
+      "path": "packaging/macos/VocalCode.entitlements",
+      "bytes": 740,
+      "sha256": "5f00f3c64e57d1259e8ec0cab4aaed5447054a0c77590cfd9be76f05c85cc85d"
+    },
+    {
+      "path": "packaging/models.json",
+      "bytes": 2165,
+      "sha256": "0bb9a273886b4c9f0fd7ccead1d4e77bf40c2512fcf6902bd465729fbfb73301"
+    },
+    {
+      "path": "packaging/release/test_calendar_ui.mjs",
+      "bytes": 2007,
+      "sha256": "9f8950e7696f674b1a066feedcf5e7f77d381bb7ba28ae27e1533db8f2444283"
+    },
+    {
+      "path": "packaging/release/test_correction_review_ui.mjs",
+      "bytes": 4299,
+      "sha256": "c0ad4c25b14ac648f55182a6cfd029d3f8ab348c8dc4d17f9c6b9216f9532a5a"
+    },
+    {
+      "path": "packaging/release/test_filler_history_ui.mjs",
+      "bytes": 2225,
+      "sha256": "7fdf7abf9a497176d1280bd3263daf1f405c5568a57cdc14cbf64d7e0d59dd9b"
+    },
+    {
+      "path": "packaging/release/test_meeting_prompt_ui.mjs",
+      "bytes": 8221,
+      "sha256": "bc94f87f3474b7d422f86910d4abd1c3ee745fcf1d294d3706375e58b60e1406"
+    },
+    {
+      "path": "packaging/release/test_meeting_ui.mjs",
+      "bytes": 5871,
+      "sha256": "b3f1d04edb056e77df5156a9b8e3e0b7a209d4fff6d132cae25608886fa38587"
+    },
+    {
+      "path": "packaging/release/test_migration_ui.mjs",
+      "bytes": 5520,
+      "sha256": "8526a82b931f9616dd2bf7644bbd57276b9b180b2177a3b7ad7b835bca9323b2"
+    },
+    {
+      "path": "packaging/release/test_noise_filter_ui.mjs",
+      "bytes": 1904,
+      "sha256": "75346309b4f86b1ce4b5825217c2adfb226f7f8d894eed21983834216cb6116d"
+    },
+    {
+      "path": "packaging/release/test_workflow_ui.mjs",
+      "bytes": 7306,
+      "sha256": "34b2b8ce1371a68b59738d79b111cd99019c06971d8c093e890c5996f8ba2639"
+    },
+    {
+      "path": "PUBLICATION_BLOCKERS.md",
+      "bytes": 3619,
+      "sha256": "39da1ae368299a6f696c851f8b325fd050d9fd644818a8edc45d93863d04212f"
+    },
+    {
+      "path": "README.md",
+      "bytes": 7627,
+      "sha256": "bd864d23625ffa73baecf7e2b086d8cdf24ff02f306cc16658c5bb9fa3345bd0"
+    },
+    {
+      "path": "README.zh-CN.md",
+      "bytes": 4958,
+      "sha256": "aee7a41d55343703874029e9aca9750352e0fd652b6f66cd6e9885f7d0b1ee2e"
+    },
+    {
+      "path": "ROADMAP.md",
+      "bytes": 2634,
+      "sha256": "eed4c454b8d588a4344c61adf43cf55a884b7a236d7b96ea4b24d7d6a35da975"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "bytes": 86,
+      "sha256": "8e390d6a0838315f972690f46ef8bae8b7ecc9ee6c1ed70140ef852869c2482e"
+    },
+    {
+      "path": "SECURITY.md",
+      "bytes": 1944,
+      "sha256": "0e603c7896eee199a4452bd1bcd9aa586842f465d5c647d8aa6867b4f9d6b2a7"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Apache-2.0.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/BSD-2-Clause.txt",
+      "bytes": 1267,
+      "sha256": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/BSD-3-Clause.txt",
+      "bytes": 1460,
+      "sha256": "5a93d5831e1297ab10fe643e1a631e83be392896da14ee2951285a79012df69d"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/CC-BY-4.0.txt",
+      "bytes": 18657,
+      "sha256": "9ba9550ad48438d0836ddab3da480b3b69ffa0aac7b7878b5a0039e7ab429411"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/CppJieba-LICENSE.txt",
+      "bytes": 1066,
+      "sha256": "ba898a14f729ba5e9965da34e3eecd5edd3795f2cc5d7c923b815ba79bb851b0"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Dlopen2-LICENSE.txt",
+      "bytes": 1184,
+      "sha256": "39fa265207450e77c62e90c5594a06c085b655d8374c7ced4bf7894b6bd95dd2"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.APACHE.txt",
+      "bytes": 11362,
+      "sha256": "03379001a7b12a2ec997a25554247d985270b353c10d5bafee9ac8d6519820b7"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.BSD.txt",
+      "bytes": 1517,
+      "sha256": "51928dce36213c5333ba3172e847d735d4c6e9b7ff2722a326c49067155b82eb"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.GPL.txt",
+      "bytes": 35147,
+      "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.LGPL.txt",
+      "bytes": 26530,
+      "sha256": "dc626520dcd53a22f727af3ee42c770e56c97a64fe3adb063799d8ab032fe551"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.MINPACK.txt",
+      "bytes": 2193,
+      "sha256": "c87b7f8ee88f6195e91743820c00354833583aef091b72e2d4a49c8e28e798a0"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.MPL2.txt",
+      "bytes": 16726,
+      "sha256": "fab3dd6bdab226f1c08630b1dd917e11fcb4ec5e1e020e2c16f83a0a13863e85"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Eigen-COPYING.README.txt",
+      "bytes": 779,
+      "sha256": "c83230b770f17ef1386ea1fd3681271dd98aa93646bdbfb5bff3a1b7050fff9d"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/FunASR-Model-License-1.1.txt",
+      "bytes": 5306,
+      "sha256": "7dba975a2069691db4992b0592d70828b330d2f8a30a71450f4e152a554e84f8"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/HClustCpp-LICENSE.txt",
+      "bytes": 1483,
+      "sha256": "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/KaldiDecoder-LICENSE.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Kaldifst-LICENSE.txt",
+      "bytes": 11728,
+      "sha256": "a682d6efd1ee5dee08a8e405c233c2c198ea70ae0718129daa83ab58cfe31c5d"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/KaldiNativeFbank-LICENSE.txt",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/KissFFT-BSD-3-Clause.txt",
+      "bytes": 1830,
+      "sha256": "4d6bcab46f27d6d0c878e8305d4bdcfe040d52bf6656b9771f04c9fb9902c0ed"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/KissFFT-COPYING.txt",
+      "bytes": 246,
+      "sha256": "a2840585f8411be8e6826a31ef15ae65c950bd74a2437a73b013398a934ad0c6"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/KissFFT-Unlicense.txt",
+      "bytes": 1521,
+      "sha256": "c543dab3c100d8741a83b02f397746b1e10fc0046f30b942f308191a68e99407"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Limonp-LICENSE.txt",
+      "bytes": 1066,
+      "sha256": "ba898a14f729ba5e9965da34e3eecd5edd3795f2cc5d7c923b815ba79bb851b0"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt",
+      "bytes": 970,
+      "sha256": "9740c6ff587b557377ed191f99daa7a37c94a36b1a04e453fc99a60ac2d03ad2"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/MIT.txt",
+      "bytes": 1078,
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/MPL-2.0.txt",
+      "bytes": 16726,
+      "sha256": "3f3d9e0024b1921b067d6f7f88deb4a60cbe7a78e76c64e3f1d7fc3b779b9d04"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/NlohmannJson-LICENSE.MIT.txt",
+      "bytes": 1076,
+      "sha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Objc2-LICENSE.md",
+      "bytes": 1339,
+      "sha256": "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/ONNXRuntime-LICENSE.txt",
+      "bytes": 1073,
+      "sha256": "2f07c72751aed99790b8a4869cf2311df85a860b22ded05fa22803587a48922c"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/ONNXRuntime-ThirdPartyNotices.txt",
+      "bytes": 325054,
+      "sha256": "0e07b95f3a8d6230037707c5c4a2b554d12c4cb67369669ac255635528ffcee2"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/OpenCC-LICENSE.txt",
+      "bytes": 9165,
+      "sha256": "b534e465949558eec2597b04f5092b5e161236a68dfbfd04d547592ac3964308"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/OpenFST-COPYING.txt",
+      "bytes": 559,
+      "sha256": "4300529197035fd3452350718a0b8cee984e9412c9932d7f35fcde849fc97a4b"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Rust-crate-license-files.txt",
+      "bytes": 774421,
+      "sha256": "7a80c9a77fcd4e1e19ed8593de62fce9f47f965d55c7699234a484d14b5b28ab"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Rust-dependencies.json",
+      "bytes": 156775,
+      "sha256": "4bbcb78ad1485d43d9c77cb4fe5364ab52ae5c199dd24e6f9cdc5b915d43c457"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/SherpaRs-LICENSE.txt",
+      "bytes": 1068,
+      "sha256": "6abe39d7066d08bf8335a2782b13bd99966498d89bb8fc730fd8900f18b82c9f"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Silero-VAD-LICENSE.txt",
+      "bytes": 1076,
+      "sha256": "51c19c8be941a3fb00ccf58f0bf9053de9f7237a0b37327896eabad32dffe873"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/SimpleSentencePiece-LICENSE.txt",
+      "bytes": 11357,
+      "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Sonora-LICENSE.txt",
+      "bytes": 1641,
+      "sha256": "d130affc26760004865ad4fb009f8daf7f6d4b1b738f01fb7623e99c1a275a4a"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/WebView2Rs-LICENSE.txt",
+      "bytes": 1067,
+      "sha256": "0dcf41516e608bbcb6cdc5229feb7b86fe4a643b85e7df251133c93408fdac73"
+    },
+    {
+      "path": "THIRD-PARTY-LICENSES/Zlib.txt",
+      "bytes": 838,
+      "sha256": "bfb1112d49db5b1daecdfef24bd7e2f3ea0bafb33aa67aa0ab51e2bf8407c03d"
+    },
+    {
+      "path": "THIRD-PARTY-NOTICES.txt",
+      "bytes": 10941,
+      "sha256": "6fa769907280eb7e67c786129baa6aa3ece40a2138365e6dfafd5bd21e6695ac"
+    },
+    {
+      "path": "vendor/rdev/Cargo.toml",
+      "bytes": 3108,
+      "sha256": "1033bb8cc548b4a18d891dbede7d36f77269ee9d2b9a1180216da429cc55d155"
+    },
+    {
+      "path": "vendor/rdev/Cargo.toml.orig",
+      "bytes": 1951,
+      "sha256": "87512a97322243ae1152cceb01a9cdff2b74f90197c37af09d3fe6d957be5fb4"
+    },
+    {
+      "path": "vendor/rdev/examples/channel.rs",
+      "bytes": 560,
+      "sha256": "4509beb4fec04175bb92abe07e493c474476c9d169f88545fcec08642bf9d542"
+    },
+    {
+      "path": "vendor/rdev/examples/display.rs",
+      "bytes": 129,
+      "sha256": "54201ef32ee2d3c6aad3bcead163433f7f3ecc2eab4c188682cffbb282b47dc5"
+    },
+    {
+      "path": "vendor/rdev/examples/grab.rs",
+      "bytes": 428,
+      "sha256": "2eb6c4eb679df890fe63746606385ccd439598e93ecdb80f62842e5663f9da7c"
+    },
+    {
+      "path": "vendor/rdev/examples/keyboard_state.rs",
+      "bytes": 734,
+      "sha256": "46230ddafb1e4b06a5be89e16a95f013d6fdff806f93f74bb5253198a2a0ec34"
+    },
+    {
+      "path": "vendor/rdev/examples/listen.rs",
+      "bytes": 226,
+      "sha256": "f1d5f645a311796d31bf9575da12d17c92a97ad5a82d14e38e1ec01686b7b5f7"
+    },
+    {
+      "path": "vendor/rdev/examples/serialize.rs",
+      "bytes": 513,
+      "sha256": "7b60f635221e3a61b8ec69c5b00a217f7bacc4c09f1087ef6ef9f0a34e4d8178"
+    },
+    {
+      "path": "vendor/rdev/examples/simulate.rs",
+      "bytes": 794,
+      "sha256": "2ef3d5c04cb7e1988d4c9d3b550388dce6dc11f68a7f021ff729794356f4cc0d"
+    },
+    {
+      "path": "vendor/rdev/examples/tokio_channel.rs",
+      "bytes": 552,
+      "sha256": "506effdc5815e81687f52782965b4508eefe531bf0a1db4254272c35d141143f"
+    },
+    {
+      "path": "vendor/rdev/LICENSE",
+      "bytes": 1070,
+      "sha256": "6cfe92e5df70f1ff8e675e2b74108372ebce6274ac8b093a88d3614541ca8382"
+    },
+    {
+      "path": "vendor/rdev/README.md",
+      "bytes": 7834,
+      "sha256": "8cf4070cc52a02eff7c5919b9e0d10792de731ac1600f685f4bc78510f0f98ba"
+    },
+    {
+      "path": "vendor/rdev/README.tpl",
+      "bytes": 235,
+      "sha256": "b8cf6dba4a9ff7e0dd1f55b287463d60e23c4cabab18642a8f469cea2c8b7895"
+    },
+    {
+      "path": "vendor/rdev/rustfmt.toml",
+      "bytes": 16,
+      "sha256": "d29b49ca7155050f28ba05baac5e141f545bad01f76b7267a91c8dabcdddf920"
+    },
+    {
+      "path": "vendor/rdev/src/lib.rs",
+      "bytes": 14834,
+      "sha256": "7c9fd74a316b8f7038c20755180b319f997983d52b1234240229da49c452f855"
+    },
+    {
+      "path": "vendor/rdev/src/linux/common.rs",
+      "bytes": 4013,
+      "sha256": "0464505809384f86ff38c4e35eb11e40ddf2b95a719fb1b9913b23ca81ba8bce"
+    },
+    {
+      "path": "vendor/rdev/src/linux/display.rs",
+      "bytes": 249,
+      "sha256": "c58f0bfc91fa58aa2c4439c32672de8439d1b07543597a6e6428569096484884"
+    },
+    {
+      "path": "vendor/rdev/src/linux/grab.rs",
+      "bytes": 17030,
+      "sha256": "e70a11cb0c2a135c5460a1afd0eba7442b595d3cb39bd7c360cf88c9832ba4eb"
+    },
+    {
+      "path": "vendor/rdev/src/linux/keyboard.rs",
+      "bytes": 8001,
+      "sha256": "69905c9609f6ebc871257a956d8b825ca8719a915bd184ed905d3d86797953cb"
+    },
+    {
+      "path": "vendor/rdev/src/linux/keycodes.rs",
+      "bytes": 2749,
+      "sha256": "6f9964564d2d38fd08d7131653670f233a7a818f464b2d83bb932c765ac800d4"
+    },
+    {
+      "path": "vendor/rdev/src/linux/listen.rs",
+      "bytes": 3567,
+      "sha256": "d84e4fb97afa31bf6112d041c68594fd8538ea44379b530922aa56533f47d24d"
+    },
+    {
+      "path": "vendor/rdev/src/linux/mod.rs",
+      "bytes": 397,
+      "sha256": "2041e470ebd5b1f94c9a73a28a79b8c52e20630ec44977b7dc701167ac0471df"
+    },
+    {
+      "path": "vendor/rdev/src/linux/simulate.rs",
+      "bytes": 3653,
+      "sha256": "662f2eb46b49bfce21f80add281e29e5be6cf707554b81e3a634353cae9013b6"
+    },
+    {
+      "path": "vendor/rdev/src/macos/common.rs",
+      "bytes": 6472,
+      "sha256": "91fb76b72f9e6d6d5ed45c693b02ed3f537ed0cb5f442844e27ca75928948a83"
+    },
+    {
+      "path": "vendor/rdev/src/macos/display.rs",
+      "bytes": 216,
+      "sha256": "0a1802a3d3443048028e199f6435625eddbfd89867f368e4f4ba68b7909a3418"
+    },
+    {
+      "path": "vendor/rdev/src/macos/grab.rs",
+      "bytes": 2553,
+      "sha256": "7b584b1ad6951b1451a1d422e7b11ff8df253366c4c17fce3e6d88885e6c471f"
+    },
+    {
+      "path": "vendor/rdev/src/macos/keyboard.rs",
+      "bytes": 5855,
+      "sha256": "9eaf97896ca179c1f6dd2a3c87e71d9543b713e76873e2314e6e9bbf63535583"
+    },
+    {
+      "path": "vendor/rdev/src/macos/keycodes.rs",
+      "bytes": 8140,
+      "sha256": "41b35fc856c2602699a23fb1d5a0fa4e3d83f75a52d635f867b40ad82be4ca9a"
+    },
+    {
+      "path": "vendor/rdev/src/macos/listen.rs",
+      "bytes": 2212,
+      "sha256": "a1df54bee2b089172301caac2e1fc07f75415068a3254975a1ce2507ac8fbc60"
+    },
+    {
+      "path": "vendor/rdev/src/macos/mod.rs",
+      "bytes": 359,
+      "sha256": "3d50b5a917a7e1926deff92ec5b22c4adba6a0ba535ab52b8705b1e91284981a"
+    },
+    {
+      "path": "vendor/rdev/src/macos/simulate.rs",
+      "bytes": 3262,
+      "sha256": "16dfce5e4b47889581061fa9d55968cb9af7f98729231fb44d8de0cb55161980"
+    },
+    {
+      "path": "vendor/rdev/src/rdev.rs",
+      "bytes": 7224,
+      "sha256": "5dfbd03d389e6d7ebad789e469278bf1a515097bce5965bcc91d2a065d807903"
+    },
+    {
+      "path": "vendor/rdev/src/windows/common.rs",
+      "bytes": 4591,
+      "sha256": "28fbeabce1246fc2f0ed5dc081d897acf299ffe7ae22e5affd024cf88033d7d2"
+    },
+    {
+      "path": "vendor/rdev/src/windows/display.rs",
+      "bytes": 501,
+      "sha256": "0aca6eca34ab5f0513b5b4c28953f03024e2ec3faa8522aefbd798b23b901a1d"
+    },
+    {
+      "path": "vendor/rdev/src/windows/grab.rs",
+      "bytes": 3096,
+      "sha256": "32a68ff01483292a8179b26891f0785e1f2f5fa46c061a5d602eff48c88fd47b"
+    },
+    {
+      "path": "vendor/rdev/src/windows/keyboard.rs",
+      "bytes": 5999,
+      "sha256": "47f4259439e5b821b405a9d6258ca5cf8d205d5b81959514a56f54eb247704d3"
+    },
+    {
+      "path": "vendor/rdev/src/windows/keycodes.rs",
+      "bytes": 3044,
+      "sha256": "4f69fc205d41f4a6f82b18a9ec3b4a254d4de3890fa68e4a4bc3b51f7790b45f"
+    },
+    {
+      "path": "vendor/rdev/src/windows/listen.rs",
+      "bytes": 2418,
+      "sha256": "49219ccbeb4ad36a751664c3d951832cbbedc76acb09b4b67bbd14c57b99c03e"
+    },
+    {
+      "path": "vendor/rdev/src/windows/mod.rs",
+      "bytes": 646,
+      "sha256": "a4aa301cc089054fc9238062f77abc3aa31f941b2413e951509f04837700956c"
+    },
+    {
+      "path": "vendor/rdev/src/windows/simulate.rs",
+      "bytes": 4661,
+      "sha256": "fe58def85dda2be91214d75037a8ab7531aaabc9b98082604b866cca31343a2e"
+    },
+    {
+      "path": "vendor/rdev/tests/grab.rs",
+      "bytes": 2236,
+      "sha256": "208ceefa6b1d87d731341bb05624de9ae2299a74464711bf02e041f6c3bb8fd8"
+    },
+    {
+      "path": "vendor/rdev/tests/listen_and_simulate.rs",
+      "bytes": 2197,
+      "sha256": "6afa57b341fce6e0ec45b2a38d3939d5dc9dbbbdac890cf3b4b5ca289b11f698"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/build.rs",
+      "bytes": 21474,
+      "sha256": "5f6988d9a6e825b67466ad16ec16a7bbaada1bae917abac530aacfc101e27ae7"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/Cargo.lock",
+      "bytes": 32866,
+      "sha256": "6bafcd7138c15ad4025324db9d584ccb76a50427a164a85fb1e27e6112f458f3"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/Cargo.toml",
+      "bytes": 3203,
+      "sha256": "cd837dbfc10631b9b217b38cf2ccbdf4aceae4b7280a195465a5d1a0d91077bc"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/Cargo.toml.orig",
+      "bytes": 2159,
+      "sha256": "68d6c537ff435e5778d4403505632e3e6ea289800b4a45733916e97cf66cb151"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/checksum.txt",
+      "bytes": 10146,
+      "sha256": "8df4e8f89fd903b8bdd0db6aefa298ed8f2b11f73b216955e2d005e2a5fbcfe3"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/dist.json",
+      "bytes": 2453,
+      "sha256": "15e6b637c263bd9af57b72a3dc593abf38e7d4b3709b9e06db3e800fc6643139"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/LICENSE",
+      "bytes": 1069,
+      "sha256": "30d26b5b70187611accccc4afddb8eb13ee32d85cdc85b4f77103b86a2dfc056"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/sherpa-onnx/LICENSE",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/sherpa-onnx/sherpa-onnx/c-api/c-api.h",
+      "bytes": 71836,
+      "sha256": "3dc70c1c3b3b3411ca452fe435b94930fa5f73dbe896c774ec0bea50745b4b3a"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/archive_policy.rs",
+      "bytes": 12544,
+      "sha256": "c9e5526d20e74b89432e195d823a63be6afa44dde5f235a03d2dbc8b4a862101"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/audio_tagging.rs",
+      "bytes": 1469,
+      "sha256": "139301b3753b080476c1ce17f42ef83103a90957db99f71eeffc71c76f701d28"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/download_binaries.rs",
+      "bytes": 22377,
+      "sha256": "6391f364a8745bf8c3684b004ea7ba2022ba559635ba3827c749df1d0554e908"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/download_limits.rs",
+      "bytes": 5517,
+      "sha256": "1de3b92c13f318f53457e4412911e5988fc3b99aeaf9d4e0e878c1fec7d4a68f"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/kws.rs",
+      "bytes": 2529,
+      "sha256": "51681240a4c7158467d77a1a792c143a79fa5fc6d3754d40d15ac41948790462"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/lib.rs",
+      "bytes": 1113,
+      "sha256": "87300aca9e7e501a2770b3547930fa16cc4ecb0444284c8e34333b8b5a97d76c"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/offline_asr.rs",
+      "bytes": 7236,
+      "sha256": "d408f95bdf53f1e46f07ef5d9de700b736736c0b6ae956df99ca316bd991f7c8"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/offline_punctuation.rs",
+      "bytes": 960,
+      "sha256": "c380194c1fda8a1ab3aef59a6065b4b8735b6f62ebd8f47fa93897f7e339df85"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/offline_speaker_diarization.rs",
+      "bytes": 2760,
+      "sha256": "89cb8b6d1681726e1516357539b580f3fbe414f10284a7d6540774eb46b61729"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/online_asr.rs",
+      "bytes": 4917,
+      "sha256": "43773aaa2f43cd25c4b683845fa74bc90aace6d711dfc67a495e11a9625ae83b"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/online_punctuation.rs",
+      "bytes": 998,
+      "sha256": "caf9ca6e116a747d983fc109eb6664dcb52bf7611021b0f9ab7981f57c12078f"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/resampler.rs",
+      "bytes": 1119,
+      "sha256": "c4017b0e121577c166665cb7295cedfc66179a6c30c45a20e529ef148ea75358"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/source_tree.rs",
+      "bytes": 18314,
+      "sha256": "e6e48e038465263bc253700863584f341e41d779a7eb0a1dcf27f410e2cb812b"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/speaker_embedding.rs",
+      "bytes": 3882,
+      "sha256": "709fdcc1b19281ca8d9c4b1d9f628fe2b1b0343c1d8a418b2b41a7da33c8cac7"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/speech_denoiser.rs",
+      "bytes": 2569,
+      "sha256": "1922c1536c5902590320e0380df526290f93d423a14838cdef6e7a478148aa9b"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/spoken_language_identification.rs",
+      "bytes": 1540,
+      "sha256": "6c746030fbfd70bbc46d78420d016e5768614a29f9c42eaea7bfbb3241f9f40d"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/tts.rs",
+      "bytes": 4775,
+      "sha256": "72c1a7eef194f627fd9ce59d4aee9724f1b04b7cd4232c2480d5514daaec6a62"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/vad.rs",
+      "bytes": 2872,
+      "sha256": "d1e93356889a7dcd524172ccff22acdf7b87c8e0f1a4f77f1e35fa5e5768a13d"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/src/wave.rs",
+      "bytes": 781,
+      "sha256": "3610968cfb6511db142449f391850e96d02253f607eb940a90d285cf60b5440d"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/tests/cache_and_archive_security.rs",
+      "bytes": 11691,
+      "sha256": "1cac970e3e1361679bea2866f17b3bd6a8d9a76682bb871b32195366bd0f4e36"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/VOCALCODE-PATCH.md",
+      "bytes": 3299,
+      "sha256": "def48036f18b2ab57cbe2b4fd34e4d57376fea0cbf1eb310a4dd70b6d7ac41bc"
+    },
+    {
+      "path": "vendor/sherpa-onnx-sys/wrapper.h",
+      "bytes": 48,
+      "sha256": "ad60e82948b0c4595633c975f02a13e2f78141905e675e61a2f6884c1b44e322"
+    },
+    {
+      "path": "vendor/sherpa-onnx/Cargo.lock",
+      "bytes": 20674,
+      "sha256": "8b083328d80e3d888b67de4c64573e4e27d23073edcee829233865ce91a8021c"
+    },
+    {
+      "path": "vendor/sherpa-onnx/Cargo.toml",
+      "bytes": 1758,
+      "sha256": "d76c784d49156b43cfccf2e85b9c0b4376c0b47951cee725b0af3d6e72a151d4"
+    },
+    {
+      "path": "vendor/sherpa-onnx/Cargo.toml.orig",
+      "bytes": 928,
+      "sha256": "708a84eddd2dd089a5c45d21ceda23b13da74c95624929b2d17e3141f1c337d1"
+    },
+    {
+      "path": "vendor/sherpa-onnx/LICENSE",
+      "bytes": 11358,
+      "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+    },
+    {
+      "path": "vendor/sherpa-onnx/README.md",
+      "bytes": 51640,
+      "sha256": "f37c9bb94bac15e309c8805345df8d79f2749404a7e7bc675cdd6f5cd302f9ed"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/audio_tagging.rs",
+      "bytes": 5545,
+      "sha256": "5763f01ed95ed344c52ad8847656e922852efcde4e3d42b0dbb99d3771d11e38"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/display.rs",
+      "bytes": 4022,
+      "sha256": "0c5cf706bb05eaacfecdea9fb47e1c91ab2e3c0ec54bca7db1c3fc44362a1873"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/kws.rs",
+      "bytes": 7752,
+      "sha256": "24abd78cce10f1710422ecded2120a62ea1b04fe01b77342362fa0d68369e44e"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/lib.rs",
+      "bytes": 16327,
+      "sha256": "baf85a805f7a2aebbacae0c782cfdee815dff3e12f896f232e3dda24bc8f9867"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/offline_asr.rs",
+      "bytes": 24642,
+      "sha256": "d66053e38f61a7796c7cdb6dcf96c4eb131f35922449d351933b49a0f74a1c3e"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/offline_punctuation.rs",
+      "bytes": 3646,
+      "sha256": "5f5a8ec6c638eae3286697e8dbcd986eb42fdccde03a8b344fb7fb5dd0ac7b5c"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/offline_speaker_diarization.rs",
+      "bytes": 7849,
+      "sha256": "ab0a9b1b3f57b4d643820cde151d4bd78882f0b029016f0fe179af50e4babc51"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/offline_speech_denoiser.rs",
+      "bytes": 5467,
+      "sha256": "6100477370728a3d27ce8f377e90d4075cb92f3546d0165ff85dbbab1df09764"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/online_asr.rs",
+      "bytes": 15752,
+      "sha256": "a79b1b6d0400c3ff4e9656bb0599f55812aec54c9bfd5fc26b1da02dda9296da"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/online_punctuation.rs",
+      "bytes": 3875,
+      "sha256": "353529832cd88a69e979a898b8a3a4c2fb3e66b22db9f2e55c31a854a8839959"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/online_speech_denoiser.rs",
+      "bytes": 2931,
+      "sha256": "7fd39c15f8c49eaa57c575d473b3c43a1c1e510a1338121a92fb38a519f835ba"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/resampler.rs",
+      "bytes": 2436,
+      "sha256": "f75d26f5bbcd6e67bf03dd94885c7b40212c354eba039bef14eedf055e4d6f2e"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/speaker_embedding.rs",
+      "bytes": 10344,
+      "sha256": "086794f4ddbcbb8eb948cf13be61b28948ffab1852012d78157fc1f25d16be77"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/spoken_language_identification.rs",
+      "bytes": 5174,
+      "sha256": "be4eb226a0c7fd1337ded4a104ad8c982cc1f7fef316f6699ea6089bac10174d"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/tts.rs",
+      "bytes": 20421,
+      "sha256": "df70711da90c6acc8d3730afb93e0c6eaea04f9607b84dbdbc3b1dfa04c27be3"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/utils.rs",
+      "bytes": 1996,
+      "sha256": "f19626a9a4783973495743d73c2bf96534eb4e9e012280a5b535e8a9d9f16baa"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/vad.rs",
+      "bytes": 8110,
+      "sha256": "a86dc914037c5bea62d5d165828456506d77eab2f6be1af240e81ecadfcd9f6a"
+    },
+    {
+      "path": "vendor/sherpa-onnx/src/wave.rs",
+      "bytes": 2555,
+      "sha256": "4ff844092ca26fc0a018251be7e870d9287a324f3e056cad31e7b3b6f58a376d"
+    },
+    {
+      "path": "vocalcode-app/assets/README.md",
+      "bytes": 751,
+      "sha256": "fb16ee7c7db4fec7cdca5c391a07fe379f432a42b754e6737b256a145fc30534"
+    },
+    {
+      "path": "vocalcode-app/assets/silero-v5.onnx",
+      "bytes": 2313101,
+      "sha256": "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"
+    },
+    {
+      "path": "vocalcode-app/build.rs",
+      "bytes": 2574,
+      "sha256": "6c22772ec0c43cb2cda9d420fb8b800a615ee46f5d15c5fad6a5de6cab50555f"
+    },
+    {
+      "path": "vocalcode-app/Cargo.toml",
+      "bytes": 3688,
+      "sha256": "1ef4c305dab663a35906f071d824dc7b403c5fec7201f472040e93563c3b16f5"
+    },
+    {
+      "path": "vocalcode-app/examples/correction_review_smoke.rs",
+      "bytes": 4051,
+      "sha256": "31dcb6288aeba8e167e5eba26d81058bb3b07b954ffc1e5a17ef65ac6cccfa36"
+    },
+    {
+      "path": "vocalcode-app/examples/meeting_auto_end_smoke.rs",
+      "bytes": 6245,
+      "sha256": "fcc77fa48eb2213118baef177ae66edbc19916165f1055c2522f94c9200fd6f5"
+    },
+    {
+      "path": "vocalcode-app/examples/meeting_prompt_smoke.rs",
+      "bytes": 11734,
+      "sha256": "db2026b5e2178890a4a24eb509cc1cb1bd1f139f6224965897e1077cf9ff5cf5"
+    },
+    {
+      "path": "vocalcode-app/examples/workflow_ui_smoke.rs",
+      "bytes": 6113,
+      "sha256": "b9d5a5d530849beb95d0770405aae486affe25af9e1392dea5793dc8097bd601"
+    },
+    {
+      "path": "vocalcode-app/src/activation.rs",
+      "bytes": 99749,
+      "sha256": "6ad5e0f732c4ee5810eeb3ec28ffca46ac8e1a78d59ddd68613278f8b03499f1"
+    },
+    {
+      "path": "vocalcode-app/src/calendar.rs",
+      "bytes": 33709,
+      "sha256": "3a6738f10c41c1601f1333c2b61606956b6d32819aac167b40a3832238aac0a9"
+    },
+    {
+      "path": "vocalcode-app/src/community.rs",
+      "bytes": 1886,
+      "sha256": "d6cae608520ab64f4c7bbb8bd56ade7228db98bb5921c9d51393282152dd1f62"
+    },
+    {
+      "path": "vocalcode-app/src/correction_review.html",
+      "bytes": 9859,
+      "sha256": "3fc0f91b67e8003437ddca27637fbf4fb7241f08d28194f062e46890714039ad"
+    },
+    {
+      "path": "vocalcode-app/src/default_replacements.txt",
+      "bytes": 5813,
+      "sha256": "5534d926f689a2b7b424f561d423c53963c526b44b446237176ae004d5ade85e"
+    },
+    {
+      "path": "vocalcode-app/src/diagnostics.rs",
+      "bytes": 17560,
+      "sha256": "672ccc3ff1c426699fc5747f1b6acbbbddd2dd747342274cd61d1e03a4481973"
+    },
+    {
+      "path": "vocalcode-app/src/inference.rs",
+      "bytes": 11274,
+      "sha256": "91f34d56d3547405b45eafb23a4bb9dbd4ab58dab70cdacef4f7ead4dd7b75a0"
+    },
+    {
+      "path": "vocalcode-app/src/learning.rs",
+      "bytes": 3367,
+      "sha256": "1429907d0dea1f91d72fd253629de823ed6604f60612330844e7d264ad23b3ab"
+    },
+    {
+      "path": "vocalcode-app/src/macos.rs",
+      "bytes": 18897,
+      "sha256": "cee52f83a4eee446ac83aae8f497d4842adaedfdd6f8164afb78c791ad51696a"
+    },
+    {
+      "path": "vocalcode-app/src/main.rs",
+      "bytes": 339970,
+      "sha256": "6e3e4865276248e15353ca9c77a01ca0d7b4219c0938fc8162bbdfa07385d62b"
+    },
+    {
+      "path": "vocalcode-app/src/meeting_prompt.html",
+      "bytes": 8063,
+      "sha256": "a652032ea7776c01012a82151d48190ac44806aa193d39db5d8e38c4eaa4efa9"
+    },
+    {
+      "path": "vocalcode-app/src/meeting_prompt.rs",
+      "bytes": 16917,
+      "sha256": "6e601e909005a6c76201b596c19dbdd1e5c3b3ea0c2d438cc33d69a0de1510d8"
+    },
+    {
+      "path": "vocalcode-app/src/meeting_regression.rs",
+      "bytes": 20333,
+      "sha256": "f490edc39697feb42059ffa01c536a58a23481c557878c19cec1a977adebde83"
+    },
+    {
+      "path": "vocalcode-app/src/meeting_reminder.rs",
+      "bytes": 37950,
+      "sha256": "8f7683dbc514b2cc9003004abf3fd9da0bac320b6503bc3b602c807a974868a1"
+    },
+    {
+      "path": "vocalcode-app/src/meeting_simulation.rs",
+      "bytes": 20602,
+      "sha256": "06cee0b67e07d5220d919f419e28904f2618df132c34ab87355cd3cded1610e8"
+    },
+    {
+      "path": "vocalcode-app/src/meeting.rs",
+      "bytes": 85334,
+      "sha256": "fe89b36dfaf222976d09791222845fd6a069841bef2207a04b2b6f8ece3c4304"
+    },
+    {
+      "path": "vocalcode-app/src/migration.rs",
+      "bytes": 22096,
+      "sha256": "44bb0d91bb5f4f4914ae4ed091ddb2cc0c933991256e488008a6098d268ffacb"
+    },
+    {
+      "path": "vocalcode-app/src/models.rs",
+      "bytes": 128517,
+      "sha256": "063172e485c1b32ba5743ffa1aeeac9188d1693cbccd2e903362957dea954b87"
+    },
+    {
+      "path": "vocalcode-app/src/noise_filter.rs",
+      "bytes": 11788,
+      "sha256": "1d37ea62e8f5bad98ed168f73a17cefafca5d649fcf2ec4bb9de24898f3431bb"
+    },
+    {
+      "path": "vocalcode-app/src/overlay.html",
+      "bytes": 10734,
+      "sha256": "cd35d4eaeb8ee8a1208b8d2c96dc9e057a13e73e0df04aa3f659288af4d26217"
+    },
+    {
+      "path": "vocalcode-app/src/overlay.rs",
+      "bytes": 35588,
+      "sha256": "7d920611b4edbf593364eced2e5f6de2a9999aba50402e5d27d7c6d44adfc0b6"
+    },
+    {
+      "path": "vocalcode-app/src/paths.rs",
+      "bytes": 71418,
+      "sha256": "9f04941feb4df47a838f59922a97ec92eb650a0aad2f14ca73dda73b3cf6d4b1"
+    },
+    {
+      "path": "vocalcode-app/src/rewrite.rs",
+      "bytes": 9950,
+      "sha256": "682b061810abc04803ea8e64a6e6690b625ed1470199bff1dd758f92e2e8ba40"
+    },
+    {
+      "path": "vocalcode-app/src/storage.rs",
+      "bytes": 9430,
+      "sha256": "e3b72481d8a96b0a19e0c432572226bd38763163360729661267029d5fe44eee"
+    },
+    {
+      "path": "vocalcode-app/src/stub_asr.rs",
+      "bytes": 1538,
+      "sha256": "21abc62f0c2713f59f0f3d4f04385b22e12f23605b183c1d244bbc87a7d102d7"
+    },
+    {
+      "path": "vocalcode-app/src/webui.html",
+      "bytes": 395879,
+      "sha256": "c995664286327948b253c56a750bba2d86e4deef3bab45704f6c9ef70d43557b"
+    },
+    {
+      "path": "vocalcode-app/src/webui.rs",
+      "bytes": 425047,
+      "sha256": "c8cb099b13e52ffb759c95e341bdd01d22187e61c2b75f342ff9f83fcfa796d0"
+    },
+    {
+      "path": "vocalcode-app/src/workflows.rs",
+      "bytes": 17861,
+      "sha256": "1cf6f6a31a632b9df528f7efcab63440dfb4a8f1e1e074729e3057c62469b9a5"
+    },
+    {
+      "path": "vocalcode-app/vocalcode.ico",
+      "bytes": 9441,
+      "sha256": "d8ffa2e3a0cbbef41d782bcca6daf3d33f82f7ccbd78e3eec5d42022afc64d59"
+    },
+    {
+      "path": "vocalcode-core/Cargo.toml",
+      "bytes": 405,
+      "sha256": "6f3846e4add59fd037511dd902dd5671c0f566ad01e0373f279420cc4515ae68"
+    },
+    {
+      "path": "vocalcode-core/src/config.rs",
+      "bytes": 43129,
+      "sha256": "f98ee86df1e6d2b37c615f1514b13e6f6be4d428e849ac49daca9b22a0e51406"
+    },
+    {
+      "path": "vocalcode-core/src/engine.rs",
+      "bytes": 104256,
+      "sha256": "f2ae00fa5bd91ebf8b5fe8231f86364111a6c53351a31d21053e1a6facecb928"
+    },
+    {
+      "path": "vocalcode-core/src/error.rs",
+      "bytes": 1226,
+      "sha256": "e8e455cf1b3384f723ae4a7615887a6625927078ad3d75811c3a49ee90467988"
+    },
+    {
+      "path": "vocalcode-core/src/fillers.rs",
+      "bytes": 19396,
+      "sha256": "39e44e63dbf60e70c6efe441cabce21d54dda25e93531b2ef42f57987b3d01af"
+    },
+    {
+      "path": "vocalcode-core/src/lib.rs",
+      "bytes": 1018,
+      "sha256": "83669ecc348a40dc034cd6109e74e961334a7193dfc7ab65530653df0816ff42"
+    },
+    {
+      "path": "vocalcode-core/src/license.rs",
+      "bytes": 14846,
+      "sha256": "2e92fe1bbf0527b89a878469e80afb9e8ab5676a0d65063fc131960b89a52ffe"
+    },
+    {
+      "path": "vocalcode-core/src/limits.rs",
+      "bytes": 1818,
+      "sha256": "2b49b78e828ae24e20dab283f0f6eaa79566abf103fe24b95c9b847839d319fc"
+    },
+    {
+      "path": "vocalcode-core/src/migration.rs",
+      "bytes": 16554,
+      "sha256": "a36250539012e055088c82677a6ba0bdf3ad171c44a38e249596b987ce02967e"
+    },
+    {
+      "path": "vocalcode-core/src/resample.rs",
+      "bytes": 7462,
+      "sha256": "83ba37f43b9130bc981350a59c038043b829e8194f9aa36b8cfcb3d169b74cc6"
+    },
+    {
+      "path": "vocalcode-core/src/traits.rs",
+      "bytes": 6318,
+      "sha256": "28a79a2ef639b3ed20467f0fad006455a3b97b522ab73c3c0d44978c15d3edc6"
+    },
+    {
+      "path": "vocalcode-core/src/trigger_bus.rs",
+      "bytes": 24497,
+      "sha256": "31c47079c7ae86034705e5b2df5aa7a30e0a6180a2dde2067cbd2d34bd8097b3"
+    },
+    {
+      "path": "vocalcode-meeting/Cargo.toml",
+      "bytes": 821,
+      "sha256": "730fe10a44b14f3992c0d0da4e1a678e52de1a8e173ad481a843631fb386babe"
+    },
+    {
+      "path": "vocalcode-meeting/examples/assessment_quality.rs",
+      "bytes": 3659,
+      "sha256": "0bc2b03436eb2e9293a18f1ecdf75ec55cdf69ed6765c2509d6524e25f7f5c3f"
+    },
+    {
+      "path": "vocalcode-meeting/src/audio.rs",
+      "bytes": 26885,
+      "sha256": "735e0e21e90d55d8354c9150258ea6b6d52475f3f1d017c13aa79bb8397f5389"
+    },
+    {
+      "path": "vocalcode-meeting/src/auto_end.rs",
+      "bytes": 5138,
+      "sha256": "29d2dbf3c8f5b646f699a5ad4ea7a70346e1855a476c5e48f2feae76f82adcb9"
+    },
+    {
+      "path": "vocalcode-meeting/src/diarization.rs",
+      "bytes": 9111,
+      "sha256": "c24b3d553061fc2db20abcff20dc66a4c7002d58c5cab8f56047d2a95561e561"
+    },
+    {
+      "path": "vocalcode-meeting/src/echo_guard.rs",
+      "bytes": 7592,
+      "sha256": "c34eb8e38141bef0161d499fe4ce4383baccbb3fe96691767b692cd829a20ccf"
+    },
+    {
+      "path": "vocalcode-meeting/src/echo.rs",
+      "bytes": 26440,
+      "sha256": "5cf7e8464261460eb84ec19585968536cc72df8a403663cd87accbe83aff974b"
+    },
+    {
+      "path": "vocalcode-meeting/src/error.rs",
+      "bytes": 927,
+      "sha256": "0bda8f67e2c39d1031052e5c997f39b0caf931f490f76683a2a3d40ad4d8022e"
+    },
+    {
+      "path": "vocalcode-meeting/src/export.rs",
+      "bytes": 9964,
+      "sha256": "229a77ef88f39ee2e6a1251ba2b53ce10e124d01b651da6ecac2ccaaa5859206"
+    },
+    {
+      "path": "vocalcode-meeting/src/lib.rs",
+      "bytes": 1234,
+      "sha256": "65a39f27ba8f0cb93751327ae1a5c28d67a7abe93994993a1a71cd1cc26419f7"
+    },
+    {
+      "path": "vocalcode-meeting/src/model.rs",
+      "bytes": 13038,
+      "sha256": "945cc5be5a828eb59b2179bc8b7bd83107e5148c807c96166392f1748cd0df29"
+    },
+    {
+      "path": "vocalcode-meeting/src/quality.rs",
+      "bytes": 2099,
+      "sha256": "b12eb886f8feeb3f0fe76883013a4530ee5ce9352c3647739faed5d182359565"
+    },
+    {
+      "path": "vocalcode-meeting/src/search.rs",
+      "bytes": 6242,
+      "sha256": "0a99351a6a7496c4359c0b2325aba9a692e302309e017ecc8363225d7bbf2c30"
+    },
+    {
+      "path": "vocalcode-meeting/src/store.rs",
+      "bytes": 22777,
+      "sha256": "9df15303472cce50ebb248506ca386d426fba430867b2cb908872c08552d4a44"
+    },
+    {
+      "path": "vocalcode-meeting/src/summary.rs",
+      "bytes": 18194,
+      "sha256": "51360dbb43dcf6cd93f37bbff39650a9dbe394768cf9ea2378495ab45386b16c"
+    },
+    {
+      "path": "vocalcode-meeting/tests/aec_speech_smoke.rs",
+      "bytes": 10619,
+      "sha256": "4fe2eee98cc75617a23adf234a5d16a083f6547ffaeca5a4c5af4e78779158fd"
+    },
+    {
+      "path": "vocalcode-platform/Cargo.toml",
+      "bytes": 2716,
+      "sha256": "68d8527cd78c55122fbe0bf08d4312812cfd92e67c17835f79d1eb40a84ae547"
+    },
+    {
+      "path": "vocalcode-platform/examples/assessment_asr.rs",
+      "bytes": 4406,
+      "sha256": "08d2a213d137bd8747f3e4716c8606f102a1c7522715d633264fe43170ea0044"
+    },
+    {
+      "path": "vocalcode-platform/examples/input_xray.rs",
+      "bytes": 13299,
+      "sha256": "05409ce88e07508a1903f569e72ed5d1ec27243209990e91ffcee70a9996248f"
+    },
+    {
+      "path": "vocalcode-platform/examples/meeting_presence_probe.rs",
+      "bytes": 664,
+      "sha256": "ab26d23313f642202a574ce79b74a699d18be481f065d10020f9b62dae5e917a"
+    },
+    {
+      "path": "vocalcode-platform/examples/speech_gate_probe.rs",
+      "bytes": 2883,
+      "sha256": "311a153fe73f121d31fd4556442ba091c83f06f9c5dabe9905d5fdfea3ba34ba"
+    },
+    {
+      "path": "vocalcode-platform/src/asr.rs",
+      "bytes": 11968,
+      "sha256": "1ba4aee15c135fc9ff6fdb7b8f4a972097be8fad65ce166c064f26e49e66821d"
+    },
+    {
+      "path": "vocalcode-platform/src/audio.rs",
+      "bytes": 27830,
+      "sha256": "5fb482bcc9ff5cba437798a9f3d00601dc0c94ea96d9f1fc99eb24ed92447d77"
+    },
+    {
+      "path": "vocalcode-platform/src/cleaner.rs",
+      "bytes": 20841,
+      "sha256": "2e1e5a01e0476c9baa87c756c4014794a4b5d40c59b0d4d4e67cd0c03f38bfe9"
+    },
+    {
+      "path": "vocalcode-platform/src/cue.rs",
+      "bytes": 12711,
+      "sha256": "504f1dbfd6deda4f7d37ac8d28f2b19c0fd9a43fea1faa8d1a68e587cb16084b"
+    },
+    {
+      "path": "vocalcode-platform/src/device.rs",
+      "bytes": 955,
+      "sha256": "9ef1cf588f624e0f3ae3fc0ec42c99f22fe89282f0111eebf107ba9e553ad903"
+    },
+    {
+      "path": "vocalcode-platform/src/foreground.rs",
+      "bytes": 6657,
+      "sha256": "1ec7471ad8ade2ed16fce4c4ddb348154ca7be82c88a373570907699e1de8e7b"
+    },
+    {
+      "path": "vocalcode-platform/src/hardware.rs",
+      "bytes": 9790,
+      "sha256": "4f37c7d1325f425884a0e13f2b575616895d62bed1c585cf58aff22932db9e31"
+    },
+    {
+      "path": "vocalcode-platform/src/hid_input.rs",
+      "bytes": 13916,
+      "sha256": "4869defc701f4e565ccb951b58e994fb89dc6daf213b6e25ca498287dbd267eb"
+    },
+    {
+      "path": "vocalcode-platform/src/hook_windows.rs",
+      "bytes": 17217,
+      "sha256": "53f0e5ac6bd8fb977e5c60c66631d6b7bb17731d728b77c927be2c4dbbe6e270"
+    },
+    {
+      "path": "vocalcode-platform/src/hotkey_macos.rs",
+      "bytes": 33233,
+      "sha256": "f62a90964d37bdb0600eaad93610b888ead6411df1dbc11a68d6a7d0c48949bb"
+    },
+    {
+      "path": "vocalcode-platform/src/hotkey.rs",
+      "bytes": 127523,
+      "sha256": "186127774dd3a18ed2abc09c35aa9a496369a26263318cba132e447f9a337f8e"
+    },
+    {
+      "path": "vocalcode-platform/src/inject.rs",
+      "bytes": 122887,
+      "sha256": "f8f3ff7c394114f6961a7fed363c4ad62cce0a2df2ed1a9044ab7787f055b9a3"
+    },
+    {
+      "path": "vocalcode-platform/src/input_macos.rs",
+      "bytes": 19526,
+      "sha256": "78bc01790d7bb7d9ba7609811f9fd3b449d637b68308065ac32bd6c43f3da794"
+    },
+    {
+      "path": "vocalcode-platform/src/input_windows.rs",
+      "bytes": 27677,
+      "sha256": "f36bc869b4b77a5006f34c015726038ea61edb5ec557264a18732c779c6f13ed"
+    },
+    {
+      "path": "vocalcode-platform/src/lib.rs",
+      "bytes": 2892,
+      "sha256": "ccda293f8f3cf20af31cfdbda808095b1193135557a1671018ce45092f9345ee"
+    },
+    {
+      "path": "vocalcode-platform/src/meeting_audio.rs",
+      "bytes": 11864,
+      "sha256": "d8a91a719209744fbb4af61cea5089cfa51611306c14fb5df074bfb99f8a68fb"
+    },
+    {
+      "path": "vocalcode-platform/src/meeting_presence.rs",
+      "bytes": 25458,
+      "sha256": "99707abbadcf1c6569c8b064cf1d59c19946358cee492f6260185a18d99b6c3f"
+    },
+    {
+      "path": "vocalcode-platform/src/speech_gate.rs",
+      "bytes": 6589,
+      "sha256": "302f9f86ce70f10d98a1a73a84a9cd8a08fc5a4dd8e82ecbbfec736aaef776c2"
+    },
+    {
+      "path": "vocalcode-platform/tests/keyboard_capture_live.rs",
+      "bytes": 6621,
+      "sha256": "a9439fdd39cf165d3530d35a711c31982bc834a45cad43e936c4cf58510229b6"
+    },
+    {
+      "path": "vocalcode-platform/tests/omnilingual_smoke.rs",
+      "bytes": 2131,
+      "sha256": "3c46770a7de7d0a3f7faf6744ee11330eb91edcfdfc83b23657fd19c58fa321a"
+    },
+    {
+      "path": "vocalcode-platform/tests/paraformer_smoke.rs",
+      "bytes": 1973,
+      "sha256": "1f02a489d8c2dd14bd6c5de34b5a0f5cde42b91a1aa93a7adfa7ca5d7458e6d7"
+    },
+    {
+      "path": "vocalcode-platform/tests/qwen3_smoke.rs",
+      "bytes": 1698,
+      "sha256": "0ad8c5ff17685958a254e8e5fe0fb2b0239cf083171623c4863cc62bbf7939f6"
+    },
+    {
+      "path": "vocalcode-platform/tests/sensevoice_smoke.rs",
+      "bytes": 2800,
+      "sha256": "0c78009ef8f9c6857135236a5100506fb9a6ea12ee7e9b7faccf4c29a18399cf"
+    }
+  ]
+}

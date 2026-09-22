@@ -1,0 +1,71 @@
+[package]
+name = "vocalcode-platform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+vocalcode-core.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+url = "2.5"
+cpal = "0.18.1"
+rdev = { version = "0.5.3", features = ["unstable_grab"] }
+enigo = "0.6.1"
+sherpa-onnx = { path = "../vendor/sherpa-onnx", default-features = false, features = ["shared"] }
+machine-uid = "0.6.0"
+# Keep the reviewed OpenCC-derived Apache-2.0 tables. Changing VocalCode's own
+# source licence does not approve new data dependencies: the default MediaWiki
+# tables and the `mediawiki` + `compress` feature chain remain disabled.
+zhconv = { version = "0.4.1", default-features = false, features = ["opencc"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+objc2 = "0.6.4"
+# NSWorkspace/NSRunningApplication resolve the frontmost application when the
+# system-wide Accessibility element will not. Their `processIdentifier` accessor
+# sits behind this crate's `libc` feature; `current_focus` sends the selector
+# directly instead, so one `pid_t` does not widen the dependency graph.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSPasteboard", "NSPasteboardItem", "NSRunningApplication", "NSWorkspace"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSData", "NSObject", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+# The high-level projection is used only for the OLE IDataObject clipboard
+# snapshot. Keeping that COM object alive is what preserves every advertised
+# clipboard format (HTML/RTF/images/file drops), rather than degrading the
+# user's clipboard to plain text around a paste.
+windows = { version = "0.61.3", features = [
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Variant",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    # PlaySoundW, for the recording cues.
+    "Win32_Media_Audio",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_Graphics_Gdi",
+    "Win32_System_DataExchange",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Input_XboxController",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+hound = "3.5.1"

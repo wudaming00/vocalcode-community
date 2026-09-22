@@ -1,0 +1,255 @@
+VOCALCODE THIRD-PARTY NOTICES
+========================================
+
+This notice identifies third-party software and model artifacts distributed
+with VocalCode or downloaded by VocalCode. VocalCode's own desktop source is
+licensed under AGPL-3.0-only; see LICENSE and LICENSING.md for its scope.
+Third-party components retain their own licences. Full referenced texts and the exact
+Rust dependency inventory are distributed beside this file in
+THIRD-PARTY-LICENSES/.
+
+
+1. SPEECH AND PUNCTUATION MODELS
+----------------------------------------
+
+Silero VAD v5.0 speech-activity detector
+
+Creator and publisher: Silero Team
+Source: https://github.com/snakers4/silero-vad/tree/v5.0
+Artifact: https://raw.githubusercontent.com/snakers4/silero-vad/v5.0/files/silero_vad.onnx
+SHA-256: 6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396
+Licence: MIT
+Full licence: THIRD-PARTY-LICENSES/Silero-VAD-LICENSE.txt
+Change indication: The original ONNX bytes are bundled without modification
+in the executable for optional, offline speech-presence filtering. This is
+not a speech-recognition model and does not identify the speaker.
+
+
+NVIDIA Parakeet TDT 0.6B v3
+
+Creator and publisher: NVIDIA Corporation
+Original model: nvidia/parakeet-tdt-0.6b-v3
+Original model card:
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3/blob/main/README.md
+Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+Full licence: THIRD-PARTY-LICENSES/CC-BY-4.0.txt
+
+Distributed artifact provenance:
+https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8/tree/2bda32ec70b097a55adaa07d9a7173915b43cc78
+Conversion record: https://github.com/k2-fsa/sherpa-onnx/pull/2500
+
+Change indication: Converted from NVIDIA's original NeMo/PyTorch checkpoint to
+sherpa-onnx ONNX format and quantized to INT8 by csukuangfj/k2-fsa. VocalCode
+mirrors the converted files without further modification. VocalCode is not
+endorsed by NVIDIA.
+
+
+Paraformer Chinese speech-recognition model
+
+Original publisher: iic / Tongyi Speech Lab (formerly published under the DAMO alias)
+Original ONNX model:
+https://modelscope.cn/models/iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx
+Licence: Apache License 2.0
+
+Distributed artifact provenance (pinned revision):
+https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14/tree/def027084691107096b5ebba69785756d63de6c5
+
+Change indication: The distributed INT8 ONNX artifact is the sherpa-onnx
+conversion published by csukuangfj/k2-fsa at the revision above. VocalCode
+mirrors those converted files without further modification.
+Full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+
+CT-Transformer Chinese/English punctuation model
+
+Original publisher: iic / Tongyi Lab (通义实验室)
+Original model: iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch
+https://modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch
+Licence: Apache License 2.0
+
+Distributed artifact provenance (pinned revision):
+https://huggingface.co/csukuangfj/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12/tree/432aeba669265e7aeb06b9359753419683b38597
+Conversion documentation:
+https://k2-fsa.github.io/sherpa/onnx/punctuation/pretrained_models.html
+
+Change indication: The distributed ONNX artifact was converted from the iic
+ModelScope model by the sherpa-onnx project. VocalCode mirrors the converted
+file without further modification.
+Full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+
+SenseVoiceSmall speech-recognition model
+
+Original publisher: FunASR / FunAudioLLM (Alibaba Group)
+Original model: FunAudioLLM/SenseVoiceSmall
+Original model card:
+https://huggingface.co/FunAudioLLM/SenseVoiceSmall
+Licence: FunASR Model Open Source License Agreement, version 1.1
+Full licence: THIRD-PARTY-LICENSES/FunASR-Model-License-1.1.txt
+
+Distributed artifact provenance:
+https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17
+
+Change indication: Converted from the original SenseVoiceSmall checkpoint to
+sherpa-onnx ONNX format and quantized to INT8 by csukuangfj/k2-fsa. VocalCode
+mirrors the converted model.int8.onnx and tokens.txt files without further
+modification. The model name and original publisher are retained here and in
+the application model selector. VocalCode is not endorsed by FunASR,
+FunAudioLLM or Alibaba Group.
+
+Qwen3-ASR 0.6B speech-recognition model
+
+Creator and publisher: Qwen Team / Alibaba Cloud
+Original model: Qwen/Qwen3-ASR-0.6B
+Original model card:
+https://huggingface.co/Qwen/Qwen3-ASR-0.6B
+Licence: Apache License 2.0
+Full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+Distributed artifact provenance (pinned revision):
+https://huggingface.co/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tree/2cc50d1abfe4d4f2df8d71f536d108bb40f943d2
+
+Change indication: Converted from the original Qwen3-ASR 0.6B checkpoint to
+sherpa-onnx ONNX format and quantized to INT8 by csukuangfj/k2-fsa. VocalCode
+mirrors the conversion's conv frontend, encoder, decoder and tokenizer files
+without further modification. VocalCode is not endorsed by Qwen or Alibaba.
+
+
+2. NATIVE SPEECH RUNTIME
+----------------------------------------
+
+sherpa-onnx native runtime and sherpa-onnx/sherpa-onnx-sys Rust wrappers v1.13.6
+Copyright the sherpa-onnx contributors / k2-fsa.
+Source: https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.6
+Licence: Apache License 2.0
+Full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+VocalCode uses the official shared no-TTS builds. It does not distribute the
+Piper or espeak-ng TTS backends. The exact upstream release assets are:
+
+Windows x64: sherpa-onnx-v1.13.6-win-x64-shared-MD-Release-no-tts.tar.bz2
+SHA-256: 071d6641efd737a1f60de48c9c4cd596f78d5b0980815e8ad3798c95785d2b26
+
+macOS universal2: sherpa-onnx-v1.13.6-osx-universal2-shared-no-tts.tar.bz2
+SHA-256: a16e7b91784775616c3b92f2a4947de3ac340a1df9fb9b610d86447f0857b150
+
+The sherpa-onnx-sys build integration is patched only to select the official
+no-TTS shared release assets above, reject unsafe library/checksum overrides,
+bound archive downloads and extraction, and replace stale runtime files. The
+patch record is distributed in the source tree at
+vendor/sherpa-onnx-sys/VOCALCODE-PATCH.md.
+
+Microsoft ONNX Runtime v1.27.1
+Copyright (c) Microsoft Corporation.
+Source: https://github.com/microsoft/onnxruntime/tree/v1.27.1
+Licence: MIT
+Full licence: THIRD-PARTY-LICENSES/ONNXRuntime-LICENSE.txt
+Complete upstream notices:
+THIRD-PARTY-LICENSES/ONNXRuntime-ThirdPartyNotices.txt
+
+Microsoft Visual C++ 2026 Runtime (x64), version 14.50.35719.0
+Copyright Microsoft Corporation.
+Files distributed unmodified in VocalCode's application directory:
+msvcp140.dll, vcruntime140.dll, and vcruntime140_1.dll.
+Source: Visual Studio 2026 Build Tools,
+VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT
+Redistribution list and terms reference:
+https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution
+Additional notice: THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt
+
+
+Native dependencies in the sherpa-onnx v1.13.6 source closure used to produce
+the shared no-TTS runtime are listed below. Version/tag references match the
+upstream v1.13.6 build definitions.
+
+kaldi-native-fbank v1.22.3
+Source: https://github.com/csukuangfj/kaldi-native-fbank/tree/v1.22.3
+Licence: Apache License 2.0
+Full licence: THIRD-PARTY-LICENSES/KaldiNativeFbank-LICENSE.txt
+
+KissFFT revision febd4caeed32e33ad8b2e0bb5ea77542c40f18ec
+Source: https://github.com/mborgerding/kissfft/tree/febd4caeed32e33ad8b2e0bb5ea77542c40f18ec
+Licence: BSD 3-Clause or Unlicense, by file as documented upstream
+Notices: THIRD-PARTY-LICENSES/KissFFT-COPYING.txt,
+THIRD-PARTY-LICENSES/KissFFT-BSD-3-Clause.txt, and
+THIRD-PARTY-LICENSES/KissFFT-Unlicense.txt
+
+kaldi-decoder v0.3.0
+Source: https://github.com/k2-fsa/kaldi-decoder/tree/v0.3.0
+Licence: Apache License 2.0
+Full licence: THIRD-PARTY-LICENSES/KaldiDecoder-LICENSE.txt
+
+kaldifst v1.8.0
+Source: https://github.com/k2-fsa/kaldifst/tree/v1.8.0
+Licence: Apache License 2.0
+Full licence and legal notice: THIRD-PARTY-LICENSES/Kaldifst-LICENSE.txt
+
+OpenFST fork tag v1.8.5-2026-04-10
+Source: https://github.com/csukuangfj/openfst/tree/v1.8.5-2026-04-10
+Licence: Apache License 2.0
+Notice: THIRD-PARTY-LICENSES/OpenFST-COPYING.txt
+Full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+simple-sentencepiece v0.7
+Source: https://github.com/pkufool/simple-sentencepiece/tree/v0.7
+Licence: Apache License 2.0
+Full licence: THIRD-PARTY-LICENSES/SimpleSentencePiece-LICENSE.txt
+
+hclust-cpp tag 2026-02-25
+Source: https://github.com/csukuangfj/hclust-cpp/tree/2026-02-25
+Licence: BSD 2-Clause
+Full licence and copyright notices:
+THIRD-PARTY-LICENSES/HClustCpp-LICENSE.txt
+
+nlohmann/json v3.12.0
+Source: https://github.com/nlohmann/json/tree/v3.12.0
+Licence: MIT
+Full licence: THIRD-PARTY-LICENSES/NlohmannJson-LICENSE.MIT.txt
+
+
+3. CHINESE SCRIPT CONVERSION
+----------------------------------------
+
+zhconv-rs v0.4.1
+Copyright Hung-I Wang and contributors.
+Source: https://github.com/Gowee/zhconv-rs/tree/v0.4.1
+
+The crate's package-level SPDX declaration is GPL-2.0-or-later because its
+default feature bundles MediaWiki tables. VocalCode disables all default
+features and enables only `opencc`; no MediaWiki table, MediaWiki feature, or
+compression feature is compiled. The upstream project documents the library
+code (excluding bundled tables) as MIT OR Apache-2.0 and the OpenCC dictionaries
+as Apache-2.0. VocalCode selects Apache-2.0 for both. The release inventory gate
+mechanically rejects any future activation of a MediaWiki or compression
+feature before packaging.
+Evidence: https://github.com/Gowee/zhconv-rs/blob/v0.4.1/README.md#license
+
+OpenCC dictionary source revision:
+https://github.com/BYVoid/OpenCC/tree/eec2a142e9debfc2c6070d349a4bd183c4a5e046
+OpenCC full licence: THIRD-PARTY-LICENSES/OpenCC-LICENSE.txt
+Apache full licence: THIRD-PARTY-LICENSES/Apache-2.0.txt
+
+
+4. MPL-2.0 COVERED SOFTWARE
+----------------------------------------
+
+option-ext v0.2.0
+Copyright Simon Ochsenreither and contributors.
+Covered Software source (exact released crate):
+https://crates.io/crates/option-ext/0.2.0
+Upstream repository: https://github.com/soc/option-ext
+Licence: Mozilla Public License 2.0
+Modification status: VocalCode uses the released crate without modification.
+The Covered Software source is available at the exact source link above.
+Full licence: THIRD-PARTY-LICENSES/MPL-2.0.txt
+
+
+5. RUST DEPENDENCIES
+----------------------------------------
+
+THIRD-PARTY-LICENSES/Rust-dependencies.json lists every non-workspace crate in
+the exact Cargo.lock closure, with version, declared licence, source,
+repository, and authors. THIRD-PARTY-LICENSES/Rust-crate-license-files.txt
+reproduces and attributes every licence or notice file shipped in those crate
+archives. A Cargo.lock hash and generated-content check makes any dependency
+change fail until these files are regenerated and reviewed.

@@ -1,0 +1,72 @@
+{
+  "parakeet-tdt-v3": {
+    "encoder.onnx": {
+      "sha256": "acfc2b4456377e15d04f0243af540b7fe7c992f8d898d751cf134c3a55fd2247",
+      "size": 652184281
+    },
+    "decoder.onnx": {
+      "sha256": "179e50c43d1a9de79c8a24149a2f9bac6eb5981823f2a2ed88d655b24248db4e",
+      "size": 11845275
+    },
+    "joiner.onnx": {
+      "sha256": "3164c13fc2821009440d20fcb5fdc78bff28b4db2f8d0f0b329101719c0948b3",
+      "size": 6355277
+    },
+    "tokens.txt": {
+      "sha256": "d58544679ea4bc6ac563d1f545eb7d474bd6cfa467f0a6e2c1dc1c7d37e3c35d",
+      "size": 93939
+    }
+  },
+  "paraformer-zh": {
+    "model.onnx": {
+      "sha256": "f36a0433bcf096bd6d6f11b80a3ac8bed110bdca632fe0d731df8d1a84475945",
+      "size": 243371218
+    },
+    "tokens.txt": {
+      "sha256": "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6",
+      "size": 75756
+    }
+  },
+  "sensevoice": {
+    "model.int8.onnx": {
+      "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51",
+      "size": 239233841
+    },
+    "tokens.txt": {
+      "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc",
+      "size": 315894
+    }
+  },
+  "qwen3-asr-0.6b": {
+    "conv_frontend.onnx": {
+      "sha256": "d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e",
+      "size": 44148281
+    },
+    "encoder.int8.onnx": {
+      "sha256": "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9",
+      "size": 182491662
+    },
+    "decoder.int8.onnx": {
+      "sha256": "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771",
+      "size": 755914231
+    },
+    "merges.txt": {
+      "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+      "size": 1671853
+    },
+    "tokenizer_config.json": {
+      "sha256": "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c",
+      "size": 12487
+    },
+    "vocab.json": {
+      "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+      "size": 2776833
+    }
+  },
+  "punct": {
+    "model.onnx": {
+      "sha256": "e93593a6dbd69a07f8734ef269dbe861a379755f8d1c8354719432116f2c44bd",
+      "size": 294372519
+    }
+  }
+}

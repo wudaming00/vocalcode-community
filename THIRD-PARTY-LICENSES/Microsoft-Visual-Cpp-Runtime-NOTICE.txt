@@ -1,0 +1,21 @@
+Microsoft Visual C++ 2026 Runtime redistribution notice
+=======================================================
+
+VocalCode distributes the following unmodified x64 retail runtime files from a
+validly licensed Visual Studio 2026 Build Tools installation:
+
+  VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT/msvcp140.dll
+  VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT/vcruntime140.dll
+  VC/Redist/MSVC/14.50.35710/x64/Microsoft.VC145.CRT/vcruntime140_1.dll
+
+File version: 14.50.35719.0
+Copyright Microsoft Corporation.
+
+Microsoft identifies files within the Visual Studio VC/Redist directory as
+distributable code, subject to the Microsoft Software License Terms for the
+licensed Visual Studio edition, and requires the files to remain unmodified.
+The authoritative Visual Studio 2026 redistribution list is:
+
+https://learn.microsoft.com/en-us/visualstudio/releases/2026/redistribution
+
+This notice does not replace or expand the Microsoft Software License Terms.

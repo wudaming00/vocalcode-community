@@ -1,0 +1,75 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'"><title>VocalCode meeting reminder</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#0e0f11;color:#efeff1;font:14px/1.45 system-ui,sans-serif;overflow:hidden}main{height:100%;padding:16px 18px;display:flex;flex-direction:column;border:1px solid #34363a;border-radius:12px;gap:9px}header{display:flex;align-items:center;gap:8px;color:#a7a9af;font-size:11px;letter-spacing:.08em}header span{flex:1}button{font:inherit;cursor:pointer;color:#e9eaed;border:1px solid #42454c;background:#23252a;border-radius:9px;padding:8px 12px;min-height:36px}button:hover{background:#35383f}button:focus-visible{outline:2px solid #f4ab68;outline-offset:2px}button:disabled{opacity:.6;cursor:default}#close{padding:0;min-height:24px;width:24px;border:0;background:transparent;font-size:20px}h1{font-size:18px;line-height:1.2;margin:0}p{margin:0;overflow-wrap:anywhere}#context{color:#b8bbc2;max-height:42px;overflow:hidden}#privacy{font-size:12px;color:#989ca5}footer{margin-top:auto;display:flex;flex-wrap:wrap;gap:7px}#review{background:#e2e5e9;color:#131416;border-color:transparent;font-weight:600}#snooze{background:transparent}#dismiss{background:transparent;border-color:transparent;color:#afb3bd}@media(max-width:330px){main{padding:11px;gap:6px}h1{font-size:16px}button{padding:7px 9px;font-size:12px}}
+</style></head><body><main role="dialog" aria-labelledby="heading" aria-describedby="context privacy"><header><span>VOCALCODE · LOCAL</span><button id="close" aria-label="Dismiss">×</button></header><h1 id="heading">Meeting detected</h1><p id="context"></p><p id="privacy">Nothing is recorded yet. Review the audio sources and confirm before recording.</p><footer><button id="review">Review &amp; start</button><button id="snooze">In 2 minutes</button><button id="dismiss">Not this time</button></footer></main>
+<script>
+(() => {
+  let current=null,timer=null,pending=null,remaining=20000,started=0;
+  const el=id=>document.getElementById(id);
+  const copy={
+    en:['Meeting detected','Possible meeting','Scheduled meeting','Nothing is recorded yet. Review the audio sources and confirm before recording.','Review meeting','In 2 minutes','Not this time','No response. Please try again. Nothing is recorded.'],
+    zh:['检测到会议','可能正在开会','日程会议提醒','尚未录音。请先确认音源，并征得参会者同意。','查看会议','2 分钟后提醒','这次不用','操作未响应，请重试。尚未录音。'],
+    ja:['会議を検出しました','会議の可能性があります','予定された会議','録音は開始していません。音声ソースと参加者の同意を確認してください。','会議を確認','2分後に通知','今回は不要','応答がありません。再試行してください。録音は開始していません。'],
+    ko:['회의가 감지되었습니다','회의 중일 수 있습니다','예정된 회의','아직 녹음하지 않습니다. 오디오 소스와 참석자 동의를 확인하세요.','회의 확인','2분 후 알림','이번에는 안 함','응답이 없습니다. 다시 시도하세요. 녹음하지 않습니다.'],
+    es:['Reunión detectada','Posible reunión','Reunión programada','Aún no se graba. Revisa las fuentes y confirma antes de grabar.','Revisar reunión','En 2 minutos','Esta vez no','Sin respuesta. Inténtalo de nuevo. Aún no se graba.'],
+    fr:['Réunion détectée','Réunion possible','Réunion prévue','Aucun enregistrement. Vérifiez les sources et obtenez le consentement.','Voir la réunion','Dans 2 minutes','Pas cette fois','Aucune réponse. Réessayez. Aucun enregistrement.'],
+    de:['Meeting erkannt','Mögliches Meeting','Geplantes Meeting','Noch keine Aufnahme. Audioquellen und Zustimmung zuerst prüfen.','Meeting prüfen','In 2 Minuten','Diesmal nicht','Keine Antwort. Bitte erneut versuchen. Keine Aufnahme.']
+  };
+  const clear=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
+  const clearPending=()=>{if(pending!==null)clearTimeout(pending);pending=null;};
+  const disable=value=>document.querySelectorAll('button').forEach(b=>b.disabled=value);
+  const send=action=>{
+    if(!current||pending!==null)return;
+    const card=current;clear();disable(true);
+    const recover=()=>{
+      if(current!==card||pending!==watchdog)return;
+      clearPending();disable(false);remaining=20000;
+      el('privacy').textContent=card.copy[7];
+    };
+    const watchdog=setTimeout(recover,2500);pending=watchdog;
+    try{window.ipc.postMessage(JSON.stringify({type:card.autoEnd?'auto_end_action':'reminder_action',id:card.id,action}));}
+    catch(_){recover();}
+  };
+  const arm=()=>{clear();if(!current||current.autoEnd||pending!==null)return;started=Date.now();timer=setTimeout(()=>send('dismiss'),Math.max(0,remaining));};
+  window.showReminder=p=>{
+    if(!p||!Number.isSafeInteger(p.id)||p.id<=0)return;
+    clear();clearPending();remaining=20000;
+    const lang=String(p.language==='auto'?navigator.language:(p.language||'en')).toLowerCase().split('-')[0],c=copy[lang]||copy.en;
+    current={id:p.id,copy:c};
+    document.documentElement.lang=copy[lang]?lang:'en';
+    el('heading').textContent=c[p.kind==='confirmed'?0:p.kind==='calendar'?2:1];
+    el('context').textContent=String(p.kind==='calendar'?p.title:p.app).slice(0,160);
+    ['privacy','review','snooze','dismiss'].forEach((id,i)=>el(id).textContent=c[i+3]);
+    el('close').setAttribute('aria-label',c[6]);
+    disable(false);arm();
+  };
+  window.hideReminder=()=>{current=null;clear();clearPending();};
+  window.showAutoEnd=p=>{
+    if(!p||!Number.isSafeInteger(p.id)||p.id<=0)return;
+    if(current&&current.autoEnd&&current.id===p.id){
+      el('context').textContent=current.zh?'将在 '+p.seconds+' 秒后停止录音并保存。':'Recording stops and saves in '+p.seconds+' seconds.';
+      return;
+    }
+    clear();clearPending();disable(false);
+    const lang=String(p.language==='auto'?navigator.language:(p.language||'en')).toLowerCase();
+    const zh=lang.startsWith('zh');
+    current={id:p.id,autoEnd:true,zh,copy:[,,,,,,,zh?'操作未响应，请重试。':'No response. Please try again.']};
+    document.documentElement.lang=zh?'zh':'en';
+    el('heading').textContent=zh?'会议还在继续吗？':'Still in the meeting?';
+    el('context').textContent=zh?'将在 '+p.seconds+' 秒后停止录音并保存。':'Recording stops and saves in '+p.seconds+' seconds.';
+    el('privacy').textContent=zh?'已连续 '+p.minutes+' 分钟未检测到人声。继续说话可取消自动结束。':'No speech detected for '+p.minutes+' minutes. Speaking again cancels auto-end.';
+    el('review').textContent=zh?'继续录音':'Keep recording';
+    el('snooze').textContent=zh?'结束并保存':'Stop & save';
+    el('dismiss').textContent=zh?'本次关闭自动结束':'Turn off auto-end';
+    el('close').setAttribute('aria-label',zh?'继续录音':'Keep recording');
+    window.ipc.postMessage(JSON.stringify({type:'auto_end_action',id:p.id,action:'visible'}));
+  };
+  el('review').onclick=()=>send(current&&current.autoEnd?'continue':'review');el('snooze').onclick=()=>send(current&&current.autoEnd?'stop':'snooze');
+  el('dismiss').onclick=()=>send(current&&current.autoEnd?'disable':'dismiss');
+  el('close').onclick=()=>send(current&&current.autoEnd?'continue':'dismiss');
+  document.addEventListener('mouseenter',()=>{if(timer!==null){remaining=Math.max(0,remaining-(Date.now()-started));clear();}});
+  document.addEventListener('mouseleave',arm);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')send(current&&current.autoEnd?'continue':'dismiss');});
+  window.ipc.postMessage(JSON.stringify({type:'ready'}));
+})();
+</script></body></html>

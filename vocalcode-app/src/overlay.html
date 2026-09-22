@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>VocalCode Indicator</title>
+<style>
+  /* The window is transparent; only the capsule paints. */
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+    -webkit-user-select:none;user-select:none;cursor:default}
+  body{display:flex;align-items:flex-end;justify-content:center}
+
+  /* Sizes follow what comparable apps converged on: a capsule roughly 2.5:1,
+     dark, hairline-bordered. Ours is a little larger than the smallest of them
+     because it never has a hover state to grow into. */
+  .pill{
+    display:flex;align-items:center;justify-content:center;gap:9px;
+    height:34px;padding:0 15px;border-radius:17px;
+    /* Near-opaque, and no backdrop-filter.
+       A CSS backdrop-filter can only blur what is behind the element *inside*
+       the webview, and there is nothing there — it cannot see the desktop
+       behind the window. While the webview still painted its own white
+       background it blurred that, which happened to look like a solid dark
+       capsule. With the window genuinely transparent it had nothing to work
+       on and left a grey haze over the capsule instead, so it went. Blurring
+       the desktop for real would mean an NSVisualEffectView behind the page;
+       until then the honest version is simply opaque. */
+    background:rgba(12,13,16,.97);
+    border:1px solid rgba(255,255,255,.14);
+    box-shadow:0 10px 30px -8px rgba(0,0,0,.8);
+    transform:translateY(6px) scale(.96);opacity:0;
+    transition:opacity .12s ease, transform .12s cubic-bezier(.05,.6,.4,.95);
+  }
+  body.on .pill{opacity:1;transform:translateY(0) scale(1)}
+
+  /* ── level meter ───────────────────────────────────────────────────────
+     Bars animate continuously and are scaled by --level, so the meter stays
+     smooth even though the host only pushes a new level every frame-ish. A
+     bar driven purely by discrete updates looks like it is stuttering. */
+  .bars{display:flex;align-items:center;gap:2px;height:20px}
+  .bars i{
+    display:block;width:2px;height:20px;border-radius:1px;
+    background:var(--amber);
+    transform:scaleY(var(--rest));transform-origin:center;
+    animation:pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%{transform:scaleY(calc(var(--rest) * 1))}
+    20%{transform:scaleY(calc(var(--rest) * 1.2))}
+    40%{transform:scaleY(calc(var(--rest) * 1.5))}
+    80%{transform:scaleY(calc(var(--rest) * 1.1))}
+    90%{transform:scaleY(calc(var(--rest) * 1.3))}
+    100%{transform:scaleY(calc(var(--rest) * 1))}
+  }
+  :root{--amber:#F6A860}
+
+  .dot{width:7px;height:7px;border-radius:50%;background:#EE8A3E;flex:0 0 auto;
+    box-shadow:0 0 0 3px rgba(238,138,62,.22)}
+
+  /* ── transcribing ──────────────────────────────────────────────────────
+     Replaces the meter, because there is no longer any audio to show and a
+     frozen meter would read as a hang. */
+  .spinner{width:15px;height:15px;border-radius:50%;flex:0 0 auto;
+    border:2px solid rgba(246,168,96,.28);border-top-color:var(--amber);
+    animation:spin .6s linear infinite}
+  .learnmark{display:grid;place-items:center;min-width:18px;height:18px;padding:0 3px;
+    box-sizing:border-box;border-radius:6px;background:rgba(246,168,96,.14);
+    color:var(--amber);font:700 9px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .label{font:500 12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    color:#C9CDD2;letter-spacing:.01em;white-space:nowrap}
+
+  .hide{display:none}
+  @media (prefers-reduced-motion:reduce){
+    .bars i,.spinner{animation:none}
+  }
+
+  /* ── solid (Windows) ─────────────────────────────────────────────────────
+     WebView2 will not composite a transparent window on Windows — it paints
+     white — so rather than a floating capsule in a see-through window, the
+     capsule BECOMES the window: opaque, filling it, its corners matching the
+     webview's dark background so it reads as a rounded pill, never a white box.
+     The host adds `.solid` to <html> at startup on Windows only. */
+  html.solid body{align-items:center}
+  html.solid .pill{
+    width:100%;height:100%;border-radius:17px;
+    background:#0d0c0b;box-shadow:none;
+    -webkit-backdrop-filter:none;backdrop-filter:none;transform:none;
+    border:1px solid rgba(255,255,255,.10);
+  }
+  html.solid body.on .pill{transform:none}
+
+  /* ── mini ──────────────────────────────────────────────────────────────
+     The same thing, shrunk to a lozenge: no on-air dot, no "Transcribing…"
+     label, fewer bars. For users who want to know it is listening without a
+     capsule sitting over their work. Chosen with `--mini` on <html> rather
+     than a second document so both styles cannot drift apart. */
+  html.mini .pill{height:22px;padding:0 9px;border-radius:11px;gap:0}
+  html.mini .dot{display:none}
+  html.mini .bars{height:12px;gap:1.5px}
+  html.mini .bars i{width:1.5px;height:12px}
+  /* Trim two bars from each end, not four from the right — the meter is
+     centre-weighted, so lopping off one side alone would make it lean. */
+  html.mini .bars i:nth-child(-n+2),
+  html.mini .bars i:nth-child(n+11){display:none}
+  html.mini .spinner{width:11px;height:11px;border-width:1.5px}
+  html.mini .learnmark{min-width:18px;height:14px;border-radius:5px;font-size:8px}
+  html.mini .label{display:none}
+  /* On Windows Mini is also a physically smaller native window. Keep the
+     element inside that client rectangle: width:100% plus content-box padding
+     used to overflow and left an opaque rectangular WebView around the pill. */
+  html.solid.mini .pill{width:100%;height:100%;padding:0 9px;box-sizing:border-box}
+</style>
+</head>
+<body>
+  <div class="pill" id="pill">
+    <span class="dot" id="dot"></span>
+    <span class="bars" id="bars"></span>
+    <span class="spinner hide" id="spin"></span>
+    <span class="learnmark hide" id="learn" aria-hidden="true">A+</span>
+    <span class="label hide" id="label">Transcribing…</span>
+  </div>
+
+<script>
+  var BAR_COUNT = 12;
+  var bars = [];
+  var barsEl = document.getElementById("bars");
+  for (var i = 0; i < BAR_COUNT; i++) {
+    var b = document.createElement("i");
+    // Centre-weighted: the middle bars react most. Every app surveyed does
+    // this — a flat row reads as a loading bar rather than a voice.
+    var p = Math.abs((BAR_COUNT - 1) / 2 - i);
+    b._weight = Math.max(0.25, 1 - (p * p) / (BAR_COUNT * 1.6));
+    // Stagger so the bars do not pulse in lockstep.
+    b.style.animationDelay = (i < BAR_COUNT / 2 ? 0.08 * i : 0.08 * (i - BAR_COUNT)) + "s";
+    b.style.setProperty("--rest", "0.12");
+    barsEl.appendChild(b);
+    bars.push(b);
+  }
+
+  // The host supplies a coarse target; the browser interpolates it at the
+  // display's own refresh rate. Fixed-per-event smoothing only ran ~5.6 times
+  // per second because the native event loop deliberately sleeps while idle,
+  // which made real audio changes step even though the CSS pulse was smooth.
+  // Time-based exponential smoothing feels the same at 60 Hz and 120 Hz.
+  var shown = 0;
+  var target = 0;
+  var meterRunning = false;
+  var lastFrame = 0;
+  function paintMeter() {
+    for (var i = 0; i < bars.length; i++) {
+      var s = 0.12 + shown * bars[i]._weight * 0.88;
+      bars[i].style.setProperty("--rest", s.toFixed(3));
+    }
+  }
+  function renderMeter(now) {
+    if (!meterRunning) return;
+    var dt = lastFrame ? Math.min(50, now - lastFrame) : 16.7;
+    lastFrame = now;
+    var tau = target > shown ? 55 : 100;
+    shown += (target - shown) * (1 - Math.exp(-dt / tau));
+    if (Math.abs(target - shown) < 0.001) shown = target;
+    paintMeter();
+    requestAnimationFrame(renderMeter);
+  }
+  function runMeter(on) {
+    if (on === meterRunning) return;
+    meterRunning = on;
+    lastFrame = 0;
+    if (on) {
+      requestAnimationFrame(renderMeter);
+    } else {
+      target = 0;
+      shown = 0;
+      paintMeter();
+    }
+  }
+  window.vcLevel = function (level) {
+    target = Math.max(0, Math.min(1, level));
+  };
+
+  // The one word this page shows, in the five languages the window supports.
+  //
+  // The indicator has no dictionary of its own — it is a separate document from
+  // the settings window — so this stayed English for everyone while the rest of
+  // the app was translated. It is also the surface people see most: every
+  // dictation, several times a minute.
+  var TRANSCRIBING_LABELS = {
+    zh: "识别中…", es: "Transcribiendo…", fr: "Transcription…", de: "Transkribiere…"
+  };
+  var LEARNING_LABELS = {
+    zh: "正在学习…", es: "Aprendiendo…",
+    fr: "Correction…", de: "Lerne Korrektur…"
+  };
+  var languageCode = "en";
+  // `pref` is the saved setting, so "auto" is resolved here rather than in the
+  // host — the page is the side that knows the browser locale.
+  window.vcLang = function (pref) {
+    languageCode = (pref && pref !== "auto")
+      ? pref
+      : (navigator.language || "en").toLowerCase().slice(0, 2);
+    document.getElementById("label").textContent =
+      TRANSCRIBING_LABELS[languageCode] || "Transcribing…";
+  };
+
+  // Set by the host from the saved setting, and again whenever it changes.
+  window.vcStyle = function (style) {
+    document.documentElement.classList.toggle("mini", style === "mini");
+  };
+
+  window.vcPhase = function (phase) {
+    var body = document.body;
+    var recording = phase === "recording";
+    var transcribing = phase === "transcribing";
+    var learning = phase === "learning";
+    body.classList.toggle("on", recording || transcribing || learning);
+    document.getElementById("bars").classList.toggle("hide", !recording);
+    document.getElementById("dot").classList.toggle("hide", !recording);
+    document.getElementById("spin").classList.toggle("hide", !transcribing);
+    document.getElementById("learn").classList.toggle("hide", !learning);
+    document.getElementById("label").classList.toggle("hide", !(transcribing || learning));
+    document.getElementById("label").textContent = learning
+      ? (LEARNING_LABELS[languageCode] || "Learning…")
+      : (TRANSCRIBING_LABELS[languageCode] || "Transcribing…");
+    runMeter(recording);
+  };
+</script>
+</body>
+</html>

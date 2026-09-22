@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>VocalCode</string>
+    <key>CFBundleDisplayName</key>
+    <string>VocalCode</string>
+    <key>CFBundleIdentifier</key>
+    <string>app.vocalcode.VocalCode</string>
+    <key>CFBundleExecutable</key>
+    <string>VocalCode</string>
+    <key>CFBundleIconFile</key>
+    <string>VocalCode</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>__VERSION__</string>
+    <key>CFBundleVersion</key>
+    <string>__VERSION__</string>
+    <!-- This release channel is Apple Silicon-only.  bundle.sh verifies that
+         this declaration and every Mach-O in the signed bundle agree. -->
+    <key>LSArchitecturePriority</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>LSMinimumSystemVersion</key>
+    <string>11.0</string>
+
+    <!--
+        Required. Without this string macOS does not merely skip the prompt, it
+        terminates the process the moment it touches the microphone. The text is
+        what the user is shown in the permission dialog.
+    -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>VocalCode records your microphone only when you explicitly dictate or start a meeting, so it can create local text and notes. Audio is processed on this Mac and is never uploaded.</string>
+
+    <!-- Required by Core Audio process taps. The system asks separately, on
+         first use, and only after the person starts a meeting with System audio
+         selected. VocalCode does not capture the screen or any video. -->
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>VocalCode captures system audio only while you explicitly record a meeting, so it can create a local transcript and notes. Audio is processed on this Mac and is never uploaded.</string>
+
+    <!--
+        Run as a background/menu-bar app: no Dock icon and no entry in the app
+        switcher, which matches the Windows build's "close hides to the tray"
+        behaviour. Set to false if you would rather have a Dock icon.
+    -->
+    <key>LSUIElement</key>
+    <true/>
+
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+
+    <!--
+        Right-click → Services → "Add to VocalCode dictionary", in any app that
+        has text selected.
+
+        The dictionary's problem was never its form, it was that you had to know
+        in advance what the recogniser would mishear and then type it from memory
+        in a settings window — while the moment you notice is the moment the
+        wrong word is sitting selected in your document. This puts the fix where
+        the mistake is.
+
+        NSSendTypes and no NSReturnTypes: we take the selection and give nothing
+        back, so the item appears whenever text is selected and never offers to
+        replace it. `NSMessage` is the selector name minus its arguments — the
+        provider registered in `macos::install_dictionary_service` must respond
+        to `addToDictionary:userData:error:` exactly.
+
+        macOS caches this list. A newly installed build may need a launch (or
+        `/System/Library/CoreServices/pbs -flush`) before the item appears, which
+        is why the in-app Teach button is not redundant with it.
+    -->
+    <key>NSServices</key>
+    <array>
+        <dict>
+            <key>NSMenuItem</key>
+            <dict>
+                <key>default</key>
+                <string>Add to VocalCode dictionary</string>
+            </dict>
+            <key>NSMessage</key>
+            <string>addToDictionary</string>
+            <!--
+                Empty on purpose, and not optional. Apple's Services Properties
+                doc: without NSRequiredContext "the system registers your service
+                but does not automatically present it in the Services menu" —
+                which is exactly what happened. `pbs -dump` listed us correctly
+                and `NSPerformService` dispatched to us by name, while the menu
+                itself never showed the item. An empty dictionary means "no
+                restriction on when this applies".
+            -->
+            <key>NSRequiredContext</key>
+            <dict/>
+            <key>NSPortName</key>
+            <string>VocalCode</string>
+            <key>NSSendTypes</key>
+            <array>
+                <string>public.utf8-plain-text</string>
+                <string>NSStringPboardType</string>
+            </array>
+        </dict>
+    </array>
+</dict>
+</plist>

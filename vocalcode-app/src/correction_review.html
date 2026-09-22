@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    *{box-sizing:border-box}
+    html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#090a0c;color:#f4f1ed}
+    body{font-family:Inter,"Segoe UI",system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+    .review{display:grid;grid-template-columns:42px minmax(0,1fr) auto auto 24px;align-items:center;gap:9px;width:100%;height:100%;padding:10px 11px;border:1px solid rgba(255,255,255,.11);border-radius:22px;background:linear-gradient(180deg,#111214,#090a0c);box-shadow:inset 0 1px 0 rgba(255,255,255,.045)}
+    .mark{width:38px;height:38px;border:1px solid rgba(255,255,255,.08);border-radius:13px;display:flex;align-items:center;justify-content:center;gap:2.5px;background:linear-gradient(160deg,#1c1e22,#111215);box-shadow:inset 0 1px 0 rgba(255,255,255,.045)}
+    .mark i{width:3px;border-radius:3px;background:linear-gradient(180deg,#ffb264,#f38b36)}
+    .mark i:nth-child(1){height:12px}.mark i:nth-child(2){height:21px}.mark i:nth-child(3){height:29px}.mark i:nth-child(4){height:18px}.mark i:nth-child(5){height:10px}
+    .content{min-width:0}.label{margin:0 0 4px 2px;color:#97979e;font-size:10.5px;line-height:1}
+    .fields{display:grid;grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr);align-items:center;gap:5px}
+    input{width:100%;min-width:0;padding:7px 8px;border:1px solid rgba(255,255,255,.12);border-radius:8px;outline:0;background:#090a0c;color:#f4f1ed;font:600 12px ui-monospace,SFMono-Regular,Consolas,monospace;-webkit-user-select:text;user-select:text}
+    input:focus{border-color:rgba(255,255,255,.27);box-shadow:0 0 0 2px rgba(255,255,255,.045)}
+    .arrow{text-align:center;color:#77777c}
+    #next{padding:0;width:16px;height:24px;border:0;background:transparent;box-shadow:none;color:#aaa}
+    button:disabled{opacity:.5;cursor:default}.label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    button{height:34px;padding:0 13px;border:1px solid rgba(255,255,255,.13);border-radius:11px;background:linear-gradient(180deg,#2a2c31,#202226);color:#f4f1ed;font:600 12px Inter,"Segoe UI",system-ui,sans-serif;cursor:pointer;white-space:nowrap;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}
+    button:hover{background:linear-gradient(180deg,#32343a,#27292e);border-color:rgba(255,255,255,.19)}
+    #undo{padding:0 11px;background:#17191d;color:#c9c6c2;border-color:rgba(255,255,255,.11)}
+    #undo:hover{background:#222429;color:#f4f1ed;border-color:rgba(255,255,255,.17)}
+    #close{width:24px;height:24px;padding:0;border:0;border-radius:50%;background:transparent;color:#97979e;font-size:16px;line-height:1;box-shadow:none}
+    #close:hover{background:rgba(255,255,255,.07);color:#f4f1ed}
+  </style>
+</head>
+<body>
+  <div class="review" id="review">
+    <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+    <div class="content">
+      <div class="label" id="label">Learned correction</div>
+      <div class="fields">
+        <input id="from" aria-label="What VocalCode heard" spellcheck="false">
+        <button id="next" class="arrow" type="button" aria-label="Next correction" title="Next correction">→</button>
+        <input id="to" aria-label="What VocalCode should write" spellcheck="false">
+      </div>
+    </div>
+    <button id="keep" type="button">Keep</button>
+    <button id="undo" type="button">Undo</button>
+    <button id="close" type="button" aria-label="Close">×</button>
+  </div>
+  <script>
+    "use strict";
+    const REVIEW_REQUEST_BASE=8000000000000000;
+    let requestSequence=0, state=null, timer=null, pending=null, incoming=null;
+    const from=document.getElementById("from"), to=document.getElementById("to");
+    function send(message){
+      try{window.ipc.postMessage(JSON.stringify(message));return true}catch(_){return false}
+    }
+    function stopTimer(){if(timer!==null){clearTimeout(timer);timer=null}}
+    function close(){if(pending!==null)return;stopTimer();state=null;send({type:"correction_popup_close"})}
+    function cloneRules(rules){
+      return (Array.isArray(rules)?rules:[]).filter(rule=>Array.isArray(rule)&&rule.length===2)
+        .map(rule=>[String(rule[0]),String(rule[1])]);
+    }
+    function rollback(rules,change){
+      const at=rules.findIndex(rule=>rule[0].toLowerCase()===change.from.toLowerCase()&&rule[1]===change.to);
+      if(at<0)return false;
+      if(change.previous)rules[at]=change.previous.slice();else rules.splice(at,1);
+      return true;
+    }
+    function validSide(value){return value.length>0&&!/[\r\n]/.test(value)}
+    function save(rules){
+      if(!state||!state.revision||pending!==null)return false;
+      stopTimer();pending=REVIEW_REQUEST_BASE+(++requestSequence);busy(true);
+      if(send({type:"save_dict",request_id:pending,revision:state.revision,rules:rules}))return true;
+      pending=null;busy(false);document.getElementById("label").textContent="Not saved. Try again.";return false;
+    }
+    function busy(value){
+      ["keep","undo","close","next"].forEach(id=>{document.getElementById(id).disabled=value});
+      from.disabled=value;to.disabled=value;
+    }
+    function storeEdit(){
+      if(!state)return false;
+      const heard=from.value.trim(),written=to.value.trim();
+      if(!validSide(heard)){from.focus();return false}
+      if(!validSide(written)){to.focus();return false}
+      state.edits[state.index]=[heard,written];return true;
+    }
+    function showEdit(){
+      from.value=state.edits[state.index][0];to.value=state.edits[state.index][1];
+      const label=document.getElementById("label");
+      label.textContent=(state.reviewOnly?"Review before saving":"Learned correction")+(state.changes.length>1?" · "+(state.index+1)+"/"+state.changes.length:"");
+      label.title=state.message;
+      document.getElementById("next").disabled=state.changes.length<2;
+    }
+    function keep(){
+      if(!state||pending!==null||!storeEdit())return;
+      if(!state.reviewOnly&&state.edits.every((pair,i)=>pair[0]===state.changes[i].from&&pair[1]===state.changes[i].to)){close();return}
+      const rules=cloneRules(state.rules);
+      if(!state.reviewOnly&&!state.changes.slice().reverse().every(change=>rollback(rules,change))){document.getElementById("label").textContent="Rules changed. Reopen Dictionary.";return}
+      const seen=new Set();
+      for(const [heard,written] of state.edits){
+        if(seen.has(heard.toLowerCase())){document.getElementById("label").textContent="Duplicate heard phrase. Edit before saving.";return}seen.add(heard.toLowerCase());
+        const at=rules.findIndex(rule=>rule[0].toLowerCase()===heard.toLowerCase());
+        if(at>=0)rules[at]=[heard,written];else rules.push([heard,written]);
+      }
+      save(rules);
+    }
+    function undo(){
+      if(!state||pending!==null)return;
+      if(state.reviewOnly){close();return}
+      const rules=cloneRules(state.rules);
+      let valid=true;
+      state.changes.slice().reverse().forEach(change=>{if(!rollback(rules,change))valid=false});
+      if(valid)save(rules);
+    }
+    window.vocalcodeCorrectionReview=function(result){
+      if(pending!==null){incoming=result;return}
+      stopTimer();
+      const changes=(result&&Array.isArray(result.changes)?result.changes:[]).map(change=>({
+        from:String(change&&change.from||""),to:String(change&&change.to||""),
+        previous:Array.isArray(change&&change.previous)&&change.previous.length===2
+          ?[String(change.previous[0]),String(change.previous[1])]:null
+      })).filter(change=>change.from&&change.to);
+      if(!result||!result.ok||!changes.length||typeof result.revision!=="string"){close();return}
+      state={revision:result.revision,rules:cloneRules(result.rules),changes:changes,reviewOnly:result.review_only===true,index:0,edits:changes.map(c=>[c.from,c.to]),message:String(result.msg||"")};
+      busy(false);showEdit();
+      document.getElementById("keep").textContent=state.reviewOnly?(changes.length>1?"Save all":"Save rule"):"Keep";
+      document.getElementById("undo").textContent=state.reviewOnly?"Skip":"Undo";
+      timer=setTimeout(close,4000);
+    };
+    window.vocalcodeCorrectionSaveResult=function(result){
+      if(!result||pending===null||result.request_id!==pending)return;
+      pending=null;busy(false);
+      if(incoming&&result.ok){const next=incoming;incoming=null;window.vocalcodeCorrectionReview(next);return}
+      incoming=null;
+      if(result.ok){close();return}
+      // Never adopt a conflicting snapshot and silently retry an old proposal.
+      document.getElementById("label").textContent=result.conflict?"Not saved: rules changed. Reopen Dictionary.":"Not saved. Try again.";
+      document.getElementById("label").title=String(result.msg||"");
+      if(result.conflict){document.getElementById("keep").disabled=true;document.getElementById("undo").disabled=true;state=null;}
+    };
+    window.vocalcodeCorrectionReviewClosed=function(){stopTimer();state=null;pending=null;incoming=null;from.value="";to.value=""};
+    document.getElementById("next").onclick=()=>{if(pending===null&&state&&storeEdit()){stopTimer();state.index=(state.index+1)%state.changes.length;showEdit()}};
+    document.getElementById("keep").onclick=keep;
+    document.getElementById("undo").onclick=undo;
+    document.getElementById("close").onclick=close;
+    document.getElementById("review").addEventListener("pointerdown",stopTimer);
+    document.getElementById("review").addEventListener("focusin",stopTimer);
+    [from,to].forEach(input=>input.addEventListener("keydown",event=>{
+      if(event.key==="Enter"){event.preventDefault();event.stopPropagation();keep()}
+      if(event.key==="Escape"){event.preventDefault();event.stopPropagation();close()}
+    }));
+    send({type:"ready"});
+  </script>
+</body>
+</html>

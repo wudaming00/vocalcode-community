@@ -1,0 +1,94 @@
+[package]
+name = "vocalcode-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["community"]
+# Local, activation-free preview. This product build option is independent of
+# the AGPL-3.0-only source licence; see the root LICENSE and LICENSING.md.
+community = []
+# Developer-only corpus/key diagnostics. Release packaging intentionally builds
+# without this feature so unlicensed test harnesses are absent from the product.
+diagnostic-cli = ["dep:hound"]
+
+[dependencies]
+vocalcode-core.workspace = true
+vocalcode-platform.workspace = true
+vocalcode-meeting.workspace = true
+anyhow.workspace = true
+log.workspace = true
+env_logger = "0.11.11"
+hound = { version = "3.5.1", optional = true }
+toml = "1.1.3"
+# `transparent` is NOT one of wry's default features, and without it every line
+# that acts on `with_transparent(true)` is compiled out — the call still exists
+# and still returns Self, so it looks like it works. The recording indicator was
+# therefore drawing WKWebView's default white background: an opaque white
+# rectangle around the capsule, on top of whatever the user was working in.
+wry = { version = "0.55.1", features = ["transparent"] }
+tao = "0.35.3"
+tray-icon = "0.24.1"
+ureq = { version = "3.3.0", features = ["json"] }
+# Verifying an update before running it. Already in the tree transitively.
+sha2 = "0.10"
+serde = { workspace = true }
+serde_json.workspace = true
+fs2 = "0.4.3"
+# CLI activation reads reusable licence keys without echoing them or exposing
+# them in argv/process listings. The redirected `--stdin` path remains
+# available for automation.
+rpassword = "7.5.4"
+# WebView2 reports `NavigateToString` documents as exact base64 data URLs.
+# Reconstruct that URL so the navigation allowlist can admit only our embedded UI.
+base64 = "0.23.0"
+rfd = "0.17.2"
+ring = "0.17.14"
+jiff = "0.2.35"
+url = "2.5"
+
+[build-dependencies]
+winresource = "0.1"
+base64 = "0.23.0"
+
+# macOS only: building the CFDictionary that AXIsProcessTrustedWithOptions
+# needs in order to show the Accessibility grant prompt (see src/macos.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+core-foundation = "0.10"
+# Raising the indicator above the menu bar and making it click-through needs
+# the NSWindow directly — tao exposes the pointer but no API for either.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWindow"] }
+objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
+# The trusted-time high-water mark is integrity-protected in the login
+# Keychain. A plaintext app-data value could simply be edited downward after a
+# clock rollback and would not make a finite offline receipt finite.
+security-framework = "3.7.0"
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSPathUtilities", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+# Purge/uninstall must distinguish an absent launch-at-login value from an
+# access-denied registry failure; parsing localized `reg.exe` stderr cannot do
+# that reliably.
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_FileSystem",
+    "Win32_System_IO",
+    "Win32_System_JobObjects",
+    "Win32_System_Memory",
+    "Win32_System_Com",
+    "Win32_System_Pipes",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+] }

@@ -1,0 +1,61 @@
+# Build-time environment for the workspace.
+# (Build-time only — none of this is shipped in the final binary.)
+#
+# Cargo's [env] table is global: it has no cfg/target gating. Everything here is
+# therefore written so it is inert on the platforms it does not apply to.
+[env]
+
+# --- Windows -----------------------------------------------------------------
+# Lets sherpa-rs-sys's bindgen find libclang.dll.
+#
+# NOTE for other platforms: a LIBCLANG_PATH that exists but contains no libclang
+# does NOT fall through to clang-sys's default search list — it shadows it, and
+# bindgen then panics with "Unable to find libclang ... (invalid: [])". Cargo's
+# [env] defaults to force = false, i.e. it only applies when the variable is not
+# already set, so packaging/macos/build.sh exports the Command Line Tools path
+# and this Windows value is then left alone. Build on macOS via that script.
+LIBCLANG_PATH = 'C:\Program Files\LLVM\bin'
+
+# --- macOS (Apple Silicon) ---------------------------------------------------
+# Pin the C/C++ compiler and flags for the Mac target.
+#
+# Why: an activated Conda env exports CC/CXX/CFLAGS/CXXFLAGS globally, pointing
+# at Conda's x86_64 cross-clang with Intel-only flags (-march=core2 -mssse3).
+# cc-rs picks those up and native arm64 deps (ring, sherpa-rs-sys) fail with
+# "the clang compiler does not support '-march=core2'".
+#
+# cc-rs resolves CC_<target> before the bare CC, so these win without needing
+# the developer's shell to be clean. The names are target-suffixed, so they are
+# ignored entirely on Windows/Linux builds.
+CC_aarch64_apple_darwin = "/usr/bin/clang"
+CXX_aarch64_apple_darwin = "/usr/bin/clang++"
+CFLAGS_aarch64_apple_darwin = ""
+CXXFLAGS_aarch64_apple_darwin = ""
+
+# Same story for Intel Macs, so a build there is not silently broken either.
+CC_x86_64_apple_darwin = "/usr/bin/clang"
+CXX_x86_64_apple_darwin = "/usr/bin/clang++"
+CFLAGS_x86_64_apple_darwin = ""
+CXXFLAGS_x86_64_apple_darwin = ""
+
+# --- macOS runtime library search path ---------------------------------------
+# sherpa-rs links libsherpa-onnx-c-api / libonnxruntime as @rpath/... and copies
+# them next to the binary, but adds no LC_RPATH — so the freshly built binary
+# dies at launch with "Library not loaded ... no LC_RPATH's found".
+#
+# Two rpaths cover both layouts we care about:
+#   @executable_path              cargo build / cargo run, dylibs in target/<profile>/
+#   @executable_path/../Frameworks  the .app bundle, dylibs in Contents/Frameworks/
+#
+# These are target-scoped, so no other platform is affected.
+[target.aarch64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-Wl,-rpath,@executable_path",
+    "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks",
+]
+
+[target.x86_64-apple-darwin]
+rustflags = [
+    "-C", "link-arg=-Wl,-rpath,@executable_path",
+    "-C", "link-arg=-Wl,-rpath,@executable_path/../Frameworks",
+]

@@ -1,0 +1,19 @@
+[package]
+name = "vocalcode-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+ed25519-dalek = "3.0.0"
+base64 = "0.23.0"
+
+[dev-dependencies]
+# Round-trip tests for the on-disk config format.
+toml = "1.1.3"

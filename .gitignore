@@ -1,0 +1,66 @@
+# Rust build output
+/target/
+**/target/
+
+# Packaged / downloaded artifacts (not source)
+/dist/
+/models/
+**/models/
+/packaging/Output/
+/packaging/Output-branding-test/
+website/VocalCodeSetup.exe
+website/latest.json
+website/release-history.json
+website/site-integrity.json
+*.exe
+*.dll
+# Release artefacts staged into website/ for a Pages upload — the deploy
+# needs them on disk, but they must never enter git (a 21 MB dmg makes the
+# push fail outright).
+*.dmg
+*.part
+
+# Hook-probe scratch (built exes, per-trial logs); the scripts themselves are
+# kept in packaging/diag/.
+/probe-arena/
+
+# Runtime / dev-generated files
+vocalcode.toml
+vocalcode-trial.dat
+vocalcode-license.json
+replacements.txt
+*.wav
+
+# OS / editor
+.DS_Store
+# …except this one, which is a build input rather than a Finder leftover: it is
+# the dmg's window layout (icon positions, background, no toolbar), and without
+# the exception `git add -A` silently drops a regenerated one and the release
+# ships the old layout with nothing to show for it.
+!packaging/macos/dmg/.DS_Store
+Thumbs.db
+
+# wrangler cache
+.wrangler/
+node_modules/
+
+# Python release-tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage/
+
+# License-signing/operator secrets. The public raw key may be tracked when
+# deliberately needed, but private PKCS#8 material must never enter the repo.
+vocalcode-license-private.pkcs8.b64
+*.p12
+AuthKey*.p8
+*.keychain-db
+.dev.vars
+.env
+.env.*
+
+# Local Keygen credentials for tester issuance - never commit
+packaging/deliver/.tester-keygen.env

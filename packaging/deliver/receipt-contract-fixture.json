@@ -1,0 +1,23 @@
+{
+  "description": "Public, deterministic RFC 8032 test material; never use this key pair in production.",
+  "public_key_b64": "11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+  "claims": {
+    "key": "lic_contract_fixture",
+    "device": "device-contract-v1",
+    "product": "vocalcode",
+    "max_version": 3,
+    "iat": 1999000000,
+    "exp": 2000000000
+  },
+  "token": "eyJrZXkiOiJsaWNfY29udHJhY3RfZml4dHVyZSIsImRldmljZSI6ImRldmljZS1jb250cmFjdC12MSIsInByb2R1Y3QiOiJ2b2NhbGNvZGUiLCJtYXhfdmVyc2lvbiI6MywiaWF0IjoxOTk5MDAwMDAwLCJleHAiOjIwMDAwMDAwMDB9./cFhyKUl0xttz6ZL9r2qGNildoM0TCgPr3TH9ICNOcHTtil6E5jxCtptNQ59iRhR8cFbzMSahdp7lyC3N3TyCA==",
+  "trial_claims": {
+    "kind": "trial",
+    "version": 1,
+    "device": "device-trial-contract-v1",
+    "product": "vocalcode",
+    "iat": 1800000000,
+    "exp": 1802592000,
+    "checked_at": 1800000000
+  },
+  "trial_token": "eyJraW5kIjoidHJpYWwiLCJ2ZXJzaW9uIjoxLCJkZXZpY2UiOiJkZXZpY2UtdHJpYWwtY29udHJhY3QtdjEiLCJwcm9kdWN0Ijoidm9jYWxjb2RlIiwiaWF0IjoxODAwMDAwMDAwLCJleHAiOjE4MDI1OTIwMDAsImNoZWNrZWRfYXQiOjE4MDAwMDAwMDB9.eghr+1hvsHnCDMT1h6cEMrhVEkFvWGbiGHI6cCedvDsasL7+N7POh0PDW3Fpjz8MRJtOdEcdOxxhu3rFCGBrDA=="
+}
