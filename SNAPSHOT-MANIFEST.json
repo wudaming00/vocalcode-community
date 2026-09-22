@@ -32,8 +32,8 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 4804,
-      "sha256": "0f5c5160815f929759cc94fe98704126296da5ca95e9ec5d820a0d8e693e5ae3"
+      "bytes": 5196,
+      "sha256": "ba154a62664a76b26a70ae169e3b30f9ed90a62d46d7c07ac401899494199571"
     },
     {
       "path": ".github/workflows/community-release.yml",
