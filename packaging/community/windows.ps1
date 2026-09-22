@@ -48,7 +48,17 @@ switch ($Mode) {
         $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
         $vs = @(& $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath)
         if ($LASTEXITCODE -ne 0 -or $vs.Count -ne 1) { throw 'Cannot identify the Visual C++ redistributable source' }
-        $runtime = Get-ChildItem -LiteralPath (Join-Path $vs[0] 'VC\Redist\MSVC') -Directory | Sort-Object Name -Descending | ForEach-Object { Get-ChildItem -Path (Join-Path $_.FullName 'x64\Microsoft.VC*.CRT') -Directory } | Select-Object -First 1
+        # Visual Studio also creates alias directories such as v145, which do
+        # not necessarily contain x64. Inspect only actual versioned layouts.
+        $runtime = Get-ChildItem -LiteralPath (Join-Path $vs[0] 'VC\Redist\MSVC') -Directory |
+            Where-Object { $_.Name -match '^\d+\.\d+\.\d+(\.\d+)?$' } |
+            Sort-Object { [version]$_.Name } -Descending |
+            ForEach-Object {
+                $x64 = Join-Path $_.FullName 'x64'
+                if (Test-Path -LiteralPath $x64 -PathType Container) {
+                    Get-ChildItem -LiteralPath $x64 -Filter 'Microsoft.VC*.CRT' -Directory
+                }
+            } | Select-Object -First 1
         if ($null -eq $runtime) { throw 'Microsoft app-local CRT is missing' }
         foreach ($dll in Get-ChildItem -LiteralPath $runtime.FullName -Filter '*.dll' -File) {
             Assert-Signature $dll.FullName 'Microsoft Corporation'

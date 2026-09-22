@@ -357,8 +357,8 @@
     },
     {
       "path": "packaging/community/windows.ps1",
-      "bytes": 9061,
-      "sha256": "0f0fb973924bd1be15e0dce40ba3f5a7fb335b725349a61bc433918e79f5b666"
+      "bytes": 9493,
+      "sha256": "53e9112f9529d14b38483c1770bfda412dbe63258b59e5b6b8c2f24d61ac378d"
     },
     {
       "path": "packaging/deliver/receipt-contract-fixture.json",
