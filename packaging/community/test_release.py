@@ -82,6 +82,8 @@ class CommunityReleaseTests(unittest.TestCase):
         self.assertNotIn("self-hosted", workflow)
         self.assertIn("github.actor == 'wudaming00'", workflow)
         self.assertIn("r['conclusion'] == 'success'", workflow)
+        self.assertIn("run-id: ${{ needs.preflight.outputs.ci_run }}", workflow)
+        self.assertIn("name: vocalcode-community-dev-${{ matrix.os }}-${{ github.sha }}", workflow)
         self.assertIn("environment: community-release", workflow)
         self.assertIn("needs: [preflight, verify]", workflow)
         self.assertIn("--draft=false --latest", workflow)

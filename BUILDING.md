@@ -117,6 +117,9 @@ uses only GitHub-hosted runners. To release as the repository owner:
    checks** to pass on that exact commit.
 2. Dispatch **Signed community release** from `main`; set `publish` to `true`
    to publish after all gates, or leave it off for a signing/install rehearsal.
+   Packaging consumes the exact successful main CI run's commit-named binaries
+   and rechecks native linkage. If its three-day artifacts have expired, rerun
+   Community checks on `main` first.
 3. Approve the `community-release` environment for signing. Windows app,
    uninstaller and installer are individually signed through Azure Artifact
    Signing. macOS app and DMG are signed, notarized and stapled using a temporary

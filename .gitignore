@@ -5,6 +5,7 @@
 # Packaged / downloaded artifacts (not source)
 /dist/
 /dist-community/
+/ci-build/
 /models/
 **/models/
 /packaging/Output/

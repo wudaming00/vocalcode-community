@@ -37,13 +37,13 @@
     },
     {
       "path": ".github/workflows/community-release.yml",
-      "bytes": 11313,
-      "sha256": "f6c47780818d0910245211ca3c8930ceb326da52fe5c17f445a873469f55fc18"
+      "bytes": 11605,
+      "sha256": "36c3fe8f8ef190a1b3ba7bffef165bba6d5d03d3b67c7d8aa627b5916781ec5c"
     },
     {
       "path": ".gitignore",
-      "bytes": 1566,
-      "sha256": "d0fb886f266d9a85bb557881ce56026f94d464a197171fdd9b01755c97036f44"
+      "bytes": 1577,
+      "sha256": "0458a486004477e2bf2e74d20bd2a62d1e1a29152576c4f98e0d9dff0b10457f"
     },
     {
       "path": "BRANDING.md",
@@ -52,8 +52,8 @@
     },
     {
       "path": "BUILDING.md",
-      "bytes": 9183,
-      "sha256": "689164468c78bd4897a035baeeef1381c6c9e2f47d73a484d444bf21fd20f3f9"
+      "bytes": 9378,
+      "sha256": "b43e8aa826f933f79505bd079526e836e7af26868d921719f10872f7f7ac943b"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -347,8 +347,8 @@
     },
     {
       "path": "packaging/community/test_release.py",
-      "bytes": 6252,
-      "sha256": "4ac2bce994a409f463ccc91a76726a7396452c483029318c5debe83b7d3873e0"
+      "bytes": 6433,
+      "sha256": "c1333e032a8f17423a40e9d1488a6a226afb5e94c7b03aa3fc6e970cd8cebd49"
     },
     {
       "path": "packaging/community/windows.iss",
