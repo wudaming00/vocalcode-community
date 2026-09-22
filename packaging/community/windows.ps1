@@ -22,7 +22,9 @@ function Assert-Community([string]$Path, [string]$OriginalName) {
     $subject = ($signature.SignerCertificate.Subject -split ',' | ForEach-Object { $_.Trim() }) -join ', '
     if ($subject -cne 'CN=Daming Wu, O=Daming Wu, L=Newberry, S=FL, C=US' -or $null -eq $signature.TimeStamperCertificate) { throw 'Expected exact publisher identity and a trusted signing timestamp' }
     $v = (Get-Item -LiteralPath $Path).VersionInfo
-    if ($v.ProductName -cne 'VocalCode Community' -or $v.OriginalFilename -cne $OriginalName -or $v.ProductVersion -notin @($version,"$version.0")) {
+    # Inno Setup pads version-resource strings with spaces. Normalize padding
+    # just as the desktop updater does, then compare the complete identity.
+    if ($v.ProductName.Trim() -cne 'VocalCode Community' -or $v.OriginalFilename.Trim() -cne $OriginalName -or $v.ProductVersion.Trim() -notin @($version,"$version.0")) {
         throw 'Signed executable product, filename or version does not match the community release'
     }
 }
@@ -84,8 +86,9 @@ switch ($Mode) {
         & $compiler '/Qp' ("/DSIGNED_CACHE=$cache") $recipe
         if ($LASTEXITCODE -ne 2) { throw 'Expected the signed-uninstaller request gate' }
         $files = @(Get-ChildItem -LiteralPath $cache -File)
-        if ($files.Count -ne 1 -or $files[0].Extension -ne '.exe') { throw 'Unexpected uninstaller request files' }
+        if ($files.Count -ne 1 -or $files[0].Name -notmatch '^uninst-6\.7\.3-[a-f0-9]{10}\.e32$') { throw 'Unexpected uninstaller request files' }
         if ((Get-AuthenticodeSignature -LiteralPath $files[0].FullName).Status -ne 'NotSigned') { throw 'Expected a fresh unsigned uninstaller' }
+        if ($env:GITHUB_OUTPUT) { "path=$($files[0].FullName)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT }
         $global:LASTEXITCODE = 0
     }
     'Installer' {

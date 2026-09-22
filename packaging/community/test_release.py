@@ -88,6 +88,16 @@ class CommunityReleaseTests(unittest.TestCase):
         self.assertNotIn("[InstallDelete]", text)
         self.assertNotIn("--uninstall-cleanup", text)
 
+    def test_inno_resource_padding_and_e32_signing_handoff(self):
+        script = (release.ROOT / "packaging/community/windows.ps1").read_text(encoding="utf-8")
+        for field in ("ProductName", "OriginalFilename", "ProductVersion"):
+            self.assertIn("$v." + field + ".Trim()", script)
+        self.assertIn(r"^uninst-6\.7\.3-[a-f0-9]{10}\.e32$", script)
+        self.assertIn("$files.Count -ne 1", script)
+        self.assertIn("[version]$_.Name", script)
+        workflow = (release.ROOT / ".github/workflows/community-release.yml").read_text(encoding="utf-8")
+        self.assertIn("files: ${{ steps.uninstaller.outputs.path }}", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()

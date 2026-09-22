@@ -128,6 +128,7 @@ jobs:
           files: ${{ github.workspace }}\dist-community\windows\VocalCodeCommunity.exe
           exclude-azure-cli-credential: true
       - name: Generate unsigned uninstaller without credentials
+        id: uninstaller
         shell: pwsh
         run: ./packaging/community/windows.ps1 -Mode UninstallerRequest
       - name: Sign the single uninstaller
@@ -139,8 +140,7 @@ jobs:
           endpoint: https://eus.codesigning.azure.net/
           signing-account-name: vocalcode-signing
           certificate-profile-name: public-trust
-          files-folder: ${{ github.workspace }}\dist-community\signed-uninstaller
-          files-folder-filter: exe
+          files: ${{ steps.uninstaller.outputs.path }}
           exclude-azure-cli-credential: true
       - name: Compile installer without credentials
         shell: pwsh
