@@ -327,8 +327,8 @@
     },
     {
       "path": "packaging/community/release.py",
-      "bytes": 11841,
-      "sha256": "e8d582cf22950b25e35ff48c1488ab8d886611d7897dbeda4623c4b30645c06d"
+      "bytes": 12437,
+      "sha256": "2ee72b70e90baf322db36327b9185a6ed4f254284a0af3986bcd9b68f70ed4a4"
     },
     {
       "path": "packaging/community/source-manifest.mjs",
@@ -347,8 +347,8 @@
     },
     {
       "path": "packaging/community/test_release.py",
-      "bytes": 5293,
-      "sha256": "44b1facb90da6b84937c5f9ee55f9ab222370fc7db221851c459688e4c8ee72e"
+      "bytes": 6252,
+      "sha256": "4ac2bce994a409f463ccc91a76726a7396452c483029318c5debe83b7d3873e0"
     },
     {
       "path": "packaging/community/windows.iss",

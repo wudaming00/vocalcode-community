@@ -25,6 +25,21 @@ class CommunityReleaseTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.file_record(path)
 
+    def test_universal_runtime_is_thinned_and_reverified(self):
+        source, destination = Path("upstream.dylib"), Path("bundle.dylib")
+        with patch.object(release, "run", side_effect=["x86_64 arm64\n", "", "arm64\n"]) as runner:
+            release.copy_arm64(source, destination)
+        self.assertEqual(runner.call_args_list[1].args, ("/usr/bin/lipo", source, "-thin", "arm64", "-output", destination))
+        with patch.object(release, "run", side_effect=["x86_64 arm64\n", "", "x86_64 arm64\n"]):
+            with self.assertRaises(ValueError):
+                release.copy_arm64(source, destination)
+
+    def test_runtime_without_approved_arm64_slice_fails_closed(self):
+        for architecture in ("x86_64", "", "arm64 armv7"):
+            with patch.object(release, "run", return_value=architecture):
+                with self.assertRaises(ValueError):
+                    release.copy_arm64(Path("upstream.dylib"), Path("bundle.dylib"))
+
     def test_missing_and_oversized_assets_are_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / "fixture"

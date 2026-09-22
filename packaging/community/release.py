@@ -59,6 +59,20 @@ def file_record(path: Path) -> dict:
     return {"size": size, "sha256": digest}
 
 
+def copy_arm64(source: Path, destination: Path) -> None:
+    # Upstream ONNX/sherpa releases are universal2. Keep the reviewed arm64
+    # slice for this arm64-only product, then sign that exact bundled copy.
+    architectures = set(run("/usr/bin/lipo", "-archs", source).split())
+    if "arm64" not in architectures or not architectures <= {"arm64", "x86_64"}:
+        raise ValueError(f"unsupported native runtime architecture: {source.name}")
+    if architectures == {"arm64"}:
+        shutil.copy2(source, destination)
+    else:
+        run("/usr/bin/lipo", source, "-thin", "arm64", "-output", destination)
+    if run("/usr/bin/lipo", "-archs", destination).strip() != "arm64":
+        raise ValueError(f"bundled runtime is not arm64-only: {source.name}")
+
+
 def build_macos() -> None:
     target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")) / "release"
     volume = ROOT / "dist-community" / "macos"
@@ -69,9 +83,7 @@ def build_macos() -> None:
     shutil.copy2(target / "vocalcode-app", contents / "MacOS" / "VocalCode")
     (contents / "MacOS" / "VocalCode").chmod(0o755)
     for name in RUNTIMES:
-        shutil.copy2(target / name, contents / "Frameworks" / name)
-        if run("/usr/bin/lipo", "-archs", contents / "Frameworks" / name).strip() != "arm64":
-            raise ValueError("unexpected native runtime architecture")
+        copy_arm64(target / name, contents / "Frameworks" / name)
     data = plistlib.loads((ROOT / "packaging/macos/Info.plist").read_bytes())
     data.update(CFBundleName="VocalCode Community", CFBundleDisplayName="VocalCode Community",
                 CFBundleIdentifier=BUNDLE_ID, CFBundleShortVersionString=version(), CFBundleVersion=version())
