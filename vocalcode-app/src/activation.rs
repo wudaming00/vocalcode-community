@@ -212,10 +212,35 @@ fn license_operation_with_timeout_and_cancel<'a, C>(
 where
     C: Fn() -> bool,
 {
+    license_operation_with_clock(
+        base,
+        local_mutex,
+        timeout,
+        should_cancel,
+        Instant::now,
+        std::thread::sleep,
+    )
+}
+
+// Production always uses the monotonic clock above. Injecting clock/wait here
+// lets tests verify a shared deadline without depending on runner scheduling.
+fn license_operation_with_clock<'a, C, N, W>(
+    base: &Path,
+    local_mutex: &'a Mutex<()>,
+    timeout: Duration,
+    should_cancel: C,
+    now: N,
+    wait: W,
+) -> anyhow::Result<Option<LicenseOperationGuard<'a>>>
+where
+    C: Fn() -> bool,
+    N: Fn() -> Instant,
+    W: Fn(Duration),
+{
     if timeout.is_zero() {
         anyhow::bail!("licence operation lock timeout must be non-zero");
     }
-    let deadline = Instant::now()
+    let deadline = now()
         .checked_add(timeout)
         .ok_or_else(|| anyhow::anyhow!("licence operation lock deadline overflow"))?;
 
@@ -229,23 +254,23 @@ where
                 anyhow::bail!("licence operation lock was poisoned")
             }
             Err(TryLockError::WouldBlock) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
+                let remaining = deadline.saturating_duration_since(now());
                 if remaining.is_zero() {
                     return Err(licence_lock_timeout("in-process lock", timeout));
                 }
-                std::thread::sleep(LICENSE_LOCK_POLL_INTERVAL.min(remaining));
+                wait(LICENSE_LOCK_POLL_INTERVAL.min(remaining));
             }
         }
     };
     if should_cancel() {
         return Ok(None);
     }
-    if Instant::now() >= deadline {
+    if now() >= deadline {
         return Err(licence_lock_timeout("in-process lock", timeout));
     }
 
     std::fs::create_dir_all(base)?;
-    if Instant::now() >= deadline {
+    if now() >= deadline {
         return Err(licence_lock_timeout("cross-process file lock", timeout));
     }
     let file = OpenOptions::new()
@@ -258,17 +283,17 @@ where
         if should_cancel() {
             return Ok(None);
         }
-        if Instant::now() >= deadline {
+        if now() >= deadline {
             return Err(licence_lock_timeout("cross-process file lock", timeout));
         }
         match fs2::FileExt::try_lock_exclusive(&file) {
             Ok(()) => break,
             Err(error) if license_file_lock_is_contended(&error) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
+                let remaining = deadline.saturating_duration_since(now());
                 if remaining.is_zero() {
                     return Err(licence_lock_timeout("cross-process file lock", timeout));
                 }
-                std::thread::sleep(LICENSE_LOCK_POLL_INTERVAL.min(remaining));
+                wait(LICENSE_LOCK_POLL_INTERVAL.min(remaining));
             }
             Err(error) => {
                 return Err(anyhow::anyhow!(
@@ -281,7 +306,7 @@ where
         let _ = fs2::FileExt::unlock(&file);
         return Ok(None);
     }
-    if Instant::now() >= deadline {
+    if now() >= deadline {
         let _ = fs2::FileExt::unlock(&file);
         return Err(licence_lock_timeout("cross-process file lock", timeout));
     }
@@ -1771,6 +1796,8 @@ mod tests {
 
     #[test]
     fn licence_operation_local_and_file_wait_share_one_deadline() {
+        use std::cell::{Cell, RefCell};
+
         let dir = scratch("shared-lock-deadline");
         let held_file = OpenOptions::new()
             .read(true)
@@ -1781,36 +1808,39 @@ mod tests {
             .unwrap();
         fs2::FileExt::lock_exclusive(&held_file).unwrap();
 
-        let local = std::sync::Arc::new(Mutex::new(()));
-        let held_local = local.lock().unwrap();
-        let waiter_local = std::sync::Arc::clone(&local);
-        let waiter_dir = dir.clone();
-        let (started_tx, started_rx) = std::sync::mpsc::channel();
-        let waiter = std::thread::spawn(move || {
-            let timeout = Duration::from_millis(300);
-            let started = Instant::now();
-            started_tx.send(()).unwrap();
-            let error = match license_operation_with_timeout(&waiter_dir, &waiter_local, timeout) {
-                Ok(_) => panic!("both held locks were acquired"),
-                Err(error) => error,
-            };
-            (started.elapsed(), error)
-        });
-
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        // Spend half the one budget on the local mutex. The file-lock phase
-        // must receive only what remains, not a freshly reset 300 ms.
-        std::thread::sleep(Duration::from_millis(150));
-        drop(held_local);
-        let (elapsed, error) = waiter.join().unwrap();
+        let local = Mutex::new(());
+        let held_local = RefCell::new(Some(local.lock().unwrap()));
+        let started = Instant::now();
+        let elapsed = Cell::new(Duration::ZERO);
+        let result = license_operation_with_clock(
+            &dir,
+            &local,
+            Duration::from_millis(300),
+            || false,
+            || started + elapsed.get(),
+            |duration| {
+                elapsed.set(elapsed.get() + duration);
+                // Consume half the shared budget before making the local mutex
+                // available. The actual file lock stays held throughout.
+                if elapsed.get() >= Duration::from_millis(150) {
+                    held_local.borrow_mut().take();
+                }
+            },
+        );
+        let error = match result {
+            Ok(_) => panic!("both held locks were acquired"),
+            Err(error) => error,
+        };
         assert!(
             error.to_string().contains("cross-process file lock"),
             "{error}"
         );
-        assert!(
-            elapsed >= Duration::from_millis(250) && elapsed < Duration::from_millis(400),
-            "the file phase reset the shared deadline: {elapsed:?}"
+        assert_eq!(
+            elapsed.get(),
+            Duration::from_millis(300),
+            "the file phase must inherit the deadline, not start another budget"
         );
+        assert!(local.try_lock().is_ok(), "timeout retained the local mutex");
 
         fs2::FileExt::unlock(&held_file).unwrap();
         drop(held_file);

@@ -913,8 +913,8 @@
     },
     {
       "path": "vocalcode-app/src/activation.rs",
-      "bytes": 99749,
-      "sha256": "6ad5e0f732c4ee5810eeb3ec28ffca46ac8e1a78d59ddd68613278f8b03499f1"
+      "bytes": 100231,
+      "sha256": "8200ebb996d6613bc1d84bfc8b95356644db254a9dc076b06970f6d4fd61978a"
     },
     {
       "path": "vocalcode-app/src/calendar.rs",
