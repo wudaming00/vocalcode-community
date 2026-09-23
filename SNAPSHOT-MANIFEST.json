@@ -32,8 +32,8 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 5604,
-      "sha256": "f88fb4fb3d9dd89e5d704d8dd4a702a725c77304e3dc6e84aea2260971b0af50"
+      "bytes": 5616,
+      "sha256": "336580405b2a8f10f1ae7328ad4eab4284143293e821f5074edd28021ffa4589"
     },
     {
       "path": ".github/workflows/community-release.yml",
@@ -182,8 +182,8 @@
     },
     {
       "path": "THIRD-PARTY-LICENSES/HClustCpp-LICENSE.txt",
-      "bytes": 1480,
-      "sha256": "0d4b6932886aa9623d166c0738c425ba28f0a47d075c7524d06709fc40525cc8"
+      "bytes": 1483,
+      "sha256": "e361d842da1d290351860ad6dcce2673a1e42e4f873a3ae1ff4eb92c6adaa882"
     },
     {
       "path": "THIRD-PARTY-LICENSES/KaldiDecoder-LICENSE.txt",
@@ -332,8 +332,8 @@
     },
     {
       "path": "packaging/community/source-manifest.mjs",
-      "bytes": 2015,
-      "sha256": "26983e732a2b12553a88afa115a524249f126b60a2391034775ed0c2ef76443a"
+      "bytes": 3096,
+      "sha256": "61a030eb3db2b491f0d08acf6ce390a002ff35612f1c95c56679020b5b0c2ef4"
     },
     {
       "path": "packaging/community/test-community-ui.mjs",

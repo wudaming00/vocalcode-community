@@ -85,7 +85,7 @@ jobs:
       - name: Source licence and documentation contracts
         run: node --test packaging/community/test-licensing.mjs
       - name: Public source inventory
-        run: node packaging/community/source-manifest.mjs
+        run: node packaging/community/source-manifest.mjs --git-check
       - name: Signed-release and packaging contracts
         run: python -m unittest discover -s packaging/community -p 'test_*.py' -v
       - name: Unsigned community build — no production secrets
