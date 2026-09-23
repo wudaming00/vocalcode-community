@@ -32,8 +32,8 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 5196,
-      "sha256": "ba154a62664a76b26a70ae169e3b30f9ed90a62d46d7c07ac401899494199571"
+      "bytes": 5604,
+      "sha256": "f88fb4fb3d9dd89e5d704d8dd4a702a725c77304e3dc6e84aea2260971b0af50"
     },
     {
       "path": ".github/workflows/community-release.yml",
@@ -347,8 +347,8 @@
     },
     {
       "path": "packaging/community/test_release.py",
-      "bytes": 6433,
-      "sha256": "c1333e032a8f17423a40e9d1488a6a226afb5e94c7b03aa3fc6e970cd8cebd49"
+      "bytes": 6624,
+      "sha256": "bbc32b289601e01e788f10e392d5ea69a93572dac2012751c50a63f465d8e4cd"
     },
     {
       "path": "packaging/community/windows.iss",
@@ -357,8 +357,8 @@
     },
     {
       "path": "packaging/community/windows.ps1",
-      "bytes": 9810,
-      "sha256": "7f23840887093fcc31e6dc50156561639c1b9e9b66fad6cfc6ef7f561a92f755"
+      "bytes": 10097,
+      "sha256": "baa8e49fbd7ef7a0d4b14c01b64f0613b1077f22953b1065e569eed75f704f6a"
     },
     {
       "path": "packaging/deliver/receipt-contract-fixture.json",

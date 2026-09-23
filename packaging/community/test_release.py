@@ -112,6 +112,8 @@ class CommunityReleaseTests(unittest.TestCase):
         self.assertIn(r"^uninst-6\.7\.3-[a-f0-9]{10}\.e32$", script)
         self.assertIn("$files.Count -ne 1", script)
         self.assertIn("[version]$_.Name", script)
+        self.assertIn(r"^CN=Pyrsys B\.V\., O=Pyrsys B\.V\., S=Noord-Holland, C=NL$", script)
+        self.assertIn("9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732", script)
         workflow = (release.ROOT / ".github/workflows/community-release.yml").read_text(encoding="utf-8")
         self.assertIn("files: ${{ steps.uninstaller.outputs.path }}", workflow)
 

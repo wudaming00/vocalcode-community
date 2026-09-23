@@ -94,6 +94,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./packaging/community/windows.ps1 -Mode Pack
+      - name: Verify pinned Inno publisher and compile unsigned installer without credentials
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./packaging/community/windows.ps1 -Mode Tools
+          & (Join-Path $env:RUNNER_TEMP 'community-inno\ISCC.exe') /Qp packaging/community/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Unsigned installer compilation failed' }
       - name: Validate macOS bundle, architecture and actual native linkage without credentials
         if: runner.os == 'macOS'
         run: python packaging/community/release.py build-macos

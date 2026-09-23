@@ -34,7 +34,10 @@ switch ($Mode) {
         $setup = Join-Path $env:RUNNER_TEMP 'community-innosetup-6.7.3.exe'
         Invoke-WebRequest -Uri 'https://github.com/jrsoftware/issrc/releases/download/is-6_7_3/innosetup-6.7.3.exe' -OutFile $setup
         if ((Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash -ne '9c73c3bae7ed48d44112a0f48e66742c00090bdb5bef71d9d3c056c66e97b732') { throw 'Inno Setup installer hash mismatch' }
-        Assert-Signature $setup 'Jordan Russell'
+        # Official verification instructions: https://jrsoftware.org/isdl-verify.php
+        # Inno Setup 6.7.3 is signed by its maintainer's company, Pyrsys B.V.
+        # Keep both the pinned file digest and the complete publisher identity.
+        Assert-Signature $setup '^CN=Pyrsys B\.V\., O=Pyrsys B\.V\., S=Noord-Holland, C=NL$'
         $destination = Split-Path -Parent $compiler
         $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',('/DIR="'+$destination+'"')) -PassThru -Wait -WindowStyle Hidden
         if ($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath $compiler)) { throw 'Pinned Inno Setup installation failed' }
