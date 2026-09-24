@@ -191,8 +191,10 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
+    // Braced so `Held::default()` reads the same on every platform (clippy
+    // rejects `default()` on a unit struct).
     #[derive(Default)]
-    pub(super) struct Held;
+    pub(super) struct Held {}
 
     impl Held {
         pub(super) fn mute_others(&mut self) {}
