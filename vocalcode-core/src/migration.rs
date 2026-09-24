@@ -334,8 +334,23 @@ pub fn expand_snippet(text: &str, entries: &[Entry]) -> Option<String> {
     entries
         .iter()
         .find(|entry| identity(&entry.name) == name)
-        .filter(|entry| !entry.text.chars().any(char::is_control))
-        .map(|entry| entry.text.clone())
+        // Saving accepts line breaks and tabs; expansion used to refuse them,
+        // so a multi-line snippet saved fine and then never expanded. The
+        // injector now delivers multi-line text by paste, where a line break
+        // is a line break rather than an Enter that sends a chat message.
+        // A trailing line break stays refused: in a terminal it is an Enter
+        // that runs whatever the snippet typed ("rm example\n").
+        .filter(|entry| {
+            !entry
+                .text
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                && !entry
+                    .text
+                    .trim_end_matches([' ', '\t'])
+                    .ends_with(['\n', '\r'])
+        })
+        .map(|entry| entry.text.replace("\r\n", "\n").replace('\r', "\n"))
 }
 
 #[cfg(test)]
@@ -347,6 +362,19 @@ mod tests {
             text: text.into(),
         }
     }
+    #[test]
+    fn multi_line_snippets_expand_with_normalized_line_breaks() {
+        let entries = [
+            entry("signature", "Best,\r\nDaming\n\tVocalCode"),
+            entry("bell", "ring\u{7}"),
+        ];
+        assert_eq!(
+            expand_snippet("Snippet signature.", &entries).as_deref(),
+            Some("Best,\nDaming\n\tVocalCode")
+        );
+        assert_eq!(expand_snippet("snippet bell", &entries), None);
+    }
+
     #[test]
     fn csv_bom_crlf_quotes_commas_and_header() {
         let rows = parse(

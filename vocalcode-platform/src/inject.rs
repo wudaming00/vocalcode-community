@@ -1819,6 +1819,22 @@ impl EnigoInjector {
     }
 }
 
+/// Text that cannot be typed faithfully as synthesised key events.
+fn needs_paste(text: &str) -> bool {
+    text.contains(['\n', '\r', '\t'])
+}
+
+/// Line breaks in the platform's clipboard convention: CRLF on Windows (what
+/// classic edit controls and CF_UNICODETEXT consumers expect), LF elsewhere.
+fn clipboard_line_breaks(text: &str) -> String {
+    let lf = text.replace("\r\n", "\n").replace('\r', "\n");
+    if cfg!(windows) {
+        lf.replace('\n', "\r\n")
+    } else {
+        lf
+    }
+}
+
 fn type_checked_chunks(
     text: &str,
     mut check: impl FnMut() -> Result<()>,
@@ -1924,6 +1940,12 @@ impl TextInjector for EnigoInjector {
                 self.arm_focus(target)?;
                 if self.paste {
                     self.paste_text(text)
+                } else if needs_paste(text) {
+                    // Synthesised typing turns "\n" into an Enter press and
+                    // "\t" into Tab: in a chat box the first line is sent and
+                    // the rest lands in the next message; elsewhere focus
+                    // jumps. A paste inserts line breaks and tabs as text.
+                    self.paste_text(&clipboard_line_breaks(text))
                 } else {
                     self.type_text(text)
                 }
@@ -2771,6 +2793,19 @@ pub fn copy_selection() -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn line_breaks_and_tabs_are_pasted_not_typed_as_keys() {
+        assert!(!super::needs_paste("one line, 中文"));
+        assert!(super::needs_paste("Hi,\nThanks"));
+        assert!(super::needs_paste("a\tb"));
+        let expected = if cfg!(windows) {
+            "a\r\nb\r\n\r\nc"
+        } else {
+            "a\nb\n\nc"
+        };
+        assert_eq!(super::clipboard_line_breaks("a\r\nb\n\nc"), expected);
+    }
+
     #[test]
     fn automatic_delivery_follows_the_current_safe_target() {
         assert_eq!(

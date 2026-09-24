@@ -186,6 +186,26 @@
   .home-model:hover{background:var(--sel)}
   .home-model b{padding-right:22px}
   .home-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:12px 2px 0}
+  /* Insights: counters only, drawn from the host's text-free activity file. */
+  .insights{margin-top:11px;border:1px solid var(--hair);border-radius:12px;background:rgba(28,28,30,.72);padding:12px 14px}
+  .insights[hidden]{display:none}
+  .ins-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .ins-head b{font-size:12px;font-weight:650;color:var(--ink);letter-spacing:.02em}
+  .ins-head span{color:var(--mut);font-size:10.5px}
+  .ins-body{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;align-items:center}
+  .ins-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 14px}
+  .ins-m b{display:block;color:var(--ink);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ins-m b em{font-style:normal;color:var(--amber)}
+  .ins-m span{display:block;margin-top:1px;color:var(--mut);font-size:10.5px}
+  .ins-heat{display:grid;grid-template-rows:repeat(7,9px);grid-auto-flow:column;grid-auto-columns:9px;gap:3px}
+  .ins-heat i{display:block;border-radius:2px;background:rgba(255,255,255,.055)}
+  .ins-heat i.l1{background:rgba(238,138,62,.28)}
+  .ins-heat i.l2{background:rgba(238,138,62,.5)}
+  .ins-heat i.l3{background:rgba(238,138,62,.75)}
+  .ins-heat i.l4{background:var(--amber)}
+  .ins-heat i.f{background:transparent}
+  .ins-heat i.today{box-shadow:0 0 0 1px var(--amber-2)}
+  @media (max-width:560px){.ins-body{grid-template-columns:1fr}}
   .home-local{display:inline-flex;align-items:center;gap:7px;color:var(--mut);font-size:11px}
   .home-local .d{width:6px;height:6px;border-radius:50%;background:var(--rx);box-shadow:0 0 6px rgba(87,188,142,.5)}
   .home-foot .tour-replay{margin-left:0;align-self:auto;border:0;border-radius:8px;padding:5px 7px;background:transparent;color:var(--mut)}
@@ -685,6 +705,31 @@
   .migration-row pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:inherit;font-size:13px;margin:6px 0}
   .migration-row small{color:var(--mut)}
   .migration-label{display:block;margin:12px 0 6px}
+  /* Writing page: voice commands, style and the local "Try it" preview. */
+  .w-say{display:block;margin-top:3px;color:var(--amber-2);font:10.5px/1.45 var(--mono);white-space:normal;overflow-wrap:anywhere}
+  .w-input{min-width:0;width:170px;height:32px;box-sizing:border-box;border:1px solid var(--hair-2);border-radius:8px;background:#0e1115;color:var(--ink);padding:0 10px;font:12px var(--mono)}
+  .w-input:focus{outline:none;border-color:var(--amber)}
+  .w-add{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+  .w-apps{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px}
+  .w-apps[hidden]{display:none}
+  .w-app{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hair-2);border-radius:20px;padding:3px 4px 3px 10px;font:11px var(--mono);color:var(--sub);background:#15171a;max-width:100%}
+  .w-app b{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
+  .w-app select{padding:3px 22px 3px 7px;font-size:11px;border-radius:12px}
+  .w-app button{appearance:none;border:0;background:transparent;color:var(--mut);cursor:pointer;font-size:14px;line-height:1;padding:2px 6px;border-radius:10px}
+  .w-app button:hover{color:var(--ink);background:rgba(255,255,255,.06)}
+  .w-try{padding:12px 13px;display:grid;gap:9px}
+  .w-try textarea{display:block;width:100%;min-height:62px;resize:vertical;box-sizing:border-box;background:var(--stage);color:var(--ink);border:1px solid var(--hair);border-radius:10px;padding:10px 12px;font:13px/1.5 var(--sans)}
+  .w-try textarea:focus{outline:none;border-color:var(--amber)}
+  .w-try-meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .w-try-meta .k{font-size:11.5px;color:var(--mut)}
+  .w-chips{display:flex;flex-wrap:wrap;gap:6px}
+  .w-chips button{appearance:none;border:1px solid var(--hair-2);border-radius:20px;background:rgba(255,255,255,.03);color:var(--sub);font:11px var(--sans);padding:4px 10px;cursor:pointer}
+  .w-chips button:hover{color:var(--ink);border-color:var(--amber-dim);background:rgba(238,138,62,.08)}
+  .w-try-out{min-height:44px;white-space:pre-wrap;overflow-wrap:anywhere;margin:0;padding:10px 12px;border-radius:10px;background:rgba(238,138,62,.06);border:1px solid var(--amber-dim);color:var(--ink);font:13px/1.55 var(--sans)}
+  .w-try-out.empty{border-style:dashed;background:transparent}
+  .w-send{display:inline-block;margin-left:8px;vertical-align:1px;font:700 9.5px var(--mono);color:#1c1206;background:linear-gradient(180deg,var(--amber-2),var(--amber));border-radius:6px;padding:2px 6px}
+  .w-arrow{color:var(--mut);font:11px var(--mono)}
+  #doubleTapRow[hidden],#muteRow[hidden]{display:none}
 </style>
 </head>
 <body>
@@ -770,6 +815,7 @@
       <button type="button" class="nav" data-panel="language"><span class="ic" aria-hidden="true">文</span><span class="nav-label">Language &amp; model</span></button>
       <div class="navsplit" aria-hidden="true"></div>
       <button type="button" class="nav" data-panel="dictionary"><span class="ic" aria-hidden="true">A</span><span class="nav-label">Dictionary</span></button>
+      <button type="button" class="nav" data-panel="writing"><span class="ic" aria-hidden="true">¶</span><span class="nav-label">Writing</span></button>
       <button type="button" class="nav" data-panel="meetings"><span class="ic" aria-hidden="true">●</span><span class="nav-label">Meetings</span></button>
       <button type="button" class="nav" data-panel="history"><span class="ic" aria-hidden="true">↺</span><span class="nav-label">History</span></button>
       <button type="button" class="nav" data-panel="behaviour"><span class="ic" aria-hidden="true">⚙</span><span class="nav-label">Settings</span></button>
@@ -826,6 +872,18 @@
           <div class="home-metric"><b id="stWords">0</b><span>Words dictated</span></div>
           <button type="button" class="home-model act" data-go="language"><b id="stModel">—</b><span>Language &amp; model</span></button>
         </div>
+        <div class="insights" id="insights" hidden>
+          <div class="ins-head"><b>Insights</b><span>Counts only · stays on this device</span></div>
+          <div class="ins-body">
+            <div class="ins-metrics">
+              <div class="ins-m"><b id="insStreak">0</b><span>Day streak</span></div>
+              <div class="ins-m"><b id="insBest">0</b><span>Best streak</span></div>
+              <div class="ins-m"><b id="insWpm">—</b><span>Words per minute</span></div>
+              <div class="ins-m"><b id="insWeek">0</b><span>Words this week</span></div>
+            </div>
+            <div class="ins-heat" id="insHeat" role="img" aria-label="Dictation activity, last 12 weeks"></div>
+          </div>
+        </div>
         <div class="home-foot">
           <span class="home-local"><span class="d"></span> Speech recognition runs on this device</span>
           <button type="button" class="tour-replay" id="tourReplay">Take the tour</button>
@@ -847,6 +905,7 @@
               <button data-mode="hold">Hold to talk</button><button data-mode="toggle">Press to start &amp; stop</button>
             </span>
           </div>
+          <div class="row" id="doubleTapRow" style="padding:12px 0 0;border-top:1px solid var(--hair);margin-top:12px"><div class="k">Double-tap to lock<small>Hold to talk as usual, or double-tap the key to keep listening hands-free; press once more to finish.</small></div><button type="button" class="tg" id="doubleTap" aria-label="Double-tap to lock" aria-pressed="false"></button></div>
         </div>
         <div class="lbl">Optional shortcuts</div>
         <div class="card shortcut-optional">
@@ -901,6 +960,7 @@
               </div>
             </div>
             <div class="row"><div class="k">Recording sounds<small>a short cue when recording starts and stops</small></div><button type="button" class="tg" id="cue" aria-label="Recording sounds" aria-pressed="false"></button></div>
+            <div class="row" id="muteRow" hidden><div class="k">Mute other audio while dictating<small>Silences music and videos while you speak, then restores the previous state. Skipped while a meeting is recording.</small></div><button type="button" class="tg" id="muteDictating" aria-label="Mute other audio while dictating" aria-pressed="false"></button></div>
             <div class="row" id="desktopControlRow" hidden><div class="k">Desktop control bar <span class="state-badge">Beta</span><small>A tiny 48 × 18 capsule. Hover for dictation, meetings, rewrite, history and settings. Hidden while idle in fullscreen apps; it never starts recording on hover.</small></div><button type="button" class="tg" id="desktopControl" aria-label="Desktop control bar" aria-pressed="false"></button></div>
             <div class="row" id="desktopControlEdgeRow" hidden><div class="k">Control bar position<small>Follows the foreground screen while idle; stays put while recording.</small></div><select id="desktopControlEdge" aria-label="Control bar position"><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></div>
           </div>
@@ -963,6 +1023,49 @@
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- WRITING -->
+      <!-- Deterministic, local text rules — the parts of Wispr Flow's smart
+           formatting / Backtrack / Styles that do not need a cloud model.
+           Every rule is off until chosen here; the Try-it box runs the host's
+           real rules on typed text, so what it shows is what a dictation gets. -->
+      <div class="panel" data-panel="writing">
+        <div class="page-head"><div class="heading-copy"><h2 tabindex="-1">Writing</h2><p>Shape how dictated text looks. Rules run on this device after you release the key.</p></div><span class="state-badge">New</span></div>
+        <div class="lbl">Voice commands</div>
+        <div class="card">
+          <div class="row"><div class="k">Line breaks<small class="w-say">“new line” · “new paragraph” · 换行 · 另起一段</small></div><button type="button" class="tg" id="wCommands" aria-label="Line breaks" aria-pressed="false"></button></div>
+          <div class="row"><div class="k">Scratch that<small class="w-say">“scratch that” · “strike that” · 删掉上一句</small><small>Removes the sentence or clause you said just before it.</small></div><button type="button" class="tg" id="wBacktrack" aria-label="Scratch that" aria-pressed="false"></button></div>
+          <div class="row"><div class="k">Spoken lists<small class="w-say">“first … second … third …” · 第一，… 第二，…</small><small>Becomes a numbered list.</small></div><button type="button" class="tg" id="wLists" aria-label="Spoken lists" aria-pressed="false"></button></div>
+          <div class="row"><div class="k">Coding words<small class="w-say">“camel case user id” → userId · “snake case” · “open paren” · “underscore” · “question mark”</small></div><button type="button" class="tg" id="wCode" aria-label="Coding words" aria-pressed="false"></button></div>
+          <div class="row"><div class="k">Say “press enter” to send<small class="w-say">“…, press enter” · 回车</small><small>Types the text, then presses Enter. Chat apps will send it.</small></div><button type="button" class="tg" id="wPressEnter" aria-label="Say press enter to send" aria-pressed="false"></button></div>
+        </div>
+        <div class="lbl">Style</div>
+        <div class="card">
+          <div class="row"><div class="k">Default style<small class="w-say" id="wStyleExample">Sounds good. See you at five.</small></div>
+            <span class="seg seg-sm" id="wStyleSeg"><button type="button" data-style="formal">Formal</button><button type="button" data-style="casual">Casual</button><button type="button" data-style="very_casual">Very casual</button></span>
+          </div>
+          <div class="row"><div class="k">Per-app style<small>Exact program name, e.g. Slack.exe. A browser counts as one app.</small></div>
+            <span class="w-add"><input class="w-input" id="wAppId" maxlength="200" placeholder="Slack.exe" aria-label="Program name" spellcheck="false" autocomplete="off"/><select id="wAppStyle" aria-label="Style"><option value="casual">Casual</option><option value="very_casual">Very casual</option><option value="formal">Formal</option></select><button type="button" class="setbtn" id="wAppAdd">Add</button></span>
+          </div>
+          <div class="w-apps" id="wAppList" hidden></div>
+          <div class="row"><div class="k">Chat apps<small id="wChatList">Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…</small></div><button type="button" class="setbtn" id="wChatPreset">Make chat apps casual</button></div>
+        </div>
+        <div class="lbl">Try it</div>
+        <div class="card w-try">
+          <div class="w-chips" id="wTryChips">
+            <button type="button" data-lang="en" data-say="Hi Sam, new line. Thanks for the quick fix.">Line break</button>
+            <button type="button" data-lang="en" data-say="Let's meet Tuesday. Scratch that. Let's meet Wednesday at ten.">Scratch that</button>
+            <button type="button" data-lang="en" data-say="Plan for today. First, pull the branch. Second, run the tests. Third, ship it.">List</button>
+            <button type="button" data-lang="en" data-say="Rename camel case user id to camel case account id, press enter.">Code + send</button>
+            <button type="button" data-lang="zh" data-say="你好，换行，今天三点开会。删掉上一句。今天四点开会。">换行 · 删掉上一句</button>
+            <button type="button" data-lang="zh" data-say="明天要做三件事：第一，合并分支；第二，跑测试；第三，发版本。">第一，第二…</button>
+          </div>
+          <textarea id="wTry" maxlength="2000" spellcheck="false" placeholder="Type a sentence the way you would say it" aria-label="Try a sentence"></textarea>
+          <div class="w-try-meta"><span class="k">Spoken language</span><select id="wTryLang" aria-label="Spoken language"><option value="en">English</option><option value="zh">中文</option></select><span class="k">Typing into</span><select id="wTryApp" aria-label="Typing into"><option value="">Any app</option></select></div>
+          <div class="w-try-out empty" id="wTryOut" role="status" aria-live="polite"></div>
+        </div>
+        <p class="fine" style="margin:12px 2px 0">Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.</p>
       </div>
 
       <!-- DICTIONARY -->
@@ -1214,6 +1317,63 @@
   // pitch in French should not be handed an English app.
   const DICTS = {
     zh: {
+      "Insights":"统计",
+      "Counts only · stays on this device":"只记数量 · 仅保存在本机",
+      "Day streak":"连续天数",
+      "Best streak":"最长连续",
+      "Words per minute":"每分钟字数",
+      "Words this week":"本周字数",
+      "Dictation activity, last 12 weeks":"近 12 周听写活跃度",
+      "active days":"个活跃日",
+      "day":"天",
+      "days":"天",
+      "Writing":"写作",
+      "Shape how dictated text looks. Rules run on this device after you release the key.":"决定听写出来的文字长什么样。所有规则都在本机、松键之后运行。",
+      "New":"新",
+      "Voice commands":"语音命令",
+      "Line breaks":"换行与分段",
+      "Scratch that":"撤回上一句",
+      "Removes the sentence or clause you said just before it.":"删除紧挨在它前面说的那句话或那个分句。",
+      "Spoken lists":"口述列表",
+      "Becomes a numbered list.":"自动变成编号列表。",
+      "Coding words":"代码词",
+      "Say “press enter” to send":"说「回车」发送",
+      "Types the text, then presses Enter. Chat apps will send it.":"先输入文字，再自动按回车。聊天软件会直接发出。",
+      "Style":"风格",
+      "Default style":"默认风格",
+      "Formal":"正式",
+      "Casual":"随意",
+      "Very casual":"很随意",
+      "Per-app style":"按应用设置风格",
+      "Exact program name, e.g. Slack.exe. A browser counts as one app.":"填写准确的程序名，例如 Slack.exe。浏览器整体算一个应用。",
+      "Program name":"程序名",
+      "Chat apps":"聊天软件",
+      "Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…":"Slack、Discord、Teams、WhatsApp、Telegram、微信、QQ、钉钉、飞书…",
+      "Make chat apps casual":"聊天软件用随意风格",
+      "Try it":"试一试",
+      "Line break":"换行",
+      "List":"列表",
+      "Code + send":"代码词 + 回车",
+      "Type a sentence the way you would say it":"像说话那样输入一句话",
+      "Try a sentence":"试一句话",
+      "Typing into":"输入到",
+      "Any app":"任意应用",
+      "then Enter ⏎":"然后回车 ⏎",
+      "(nothing would be typed)":"（不会输入任何内容）",
+      "Preview unavailable":"预览不可用",
+      "writing settings are malformed":"写作设置格式不正确",
+      "Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.":"规则只作用于松键后的完整听写，不影响渐进输入、会议和词块。历史记录里保留原始识别结果。",
+      "A dictation that ends with “press enter” is typed, then sent with Enter.":"以「回车」结尾的听写会先输入，再按回车发送。",
+      "Use the exact program name, like Slack.exe — not a path or window title.":"请填写准确的程序名，例如 Slack.exe，不要填路径或窗口标题。",
+      "At most 100 applications can have their own style.":"最多只能为 100 个应用单独设置风格。",
+      "Chat apps now use the Casual style.":"聊天软件现在使用随意风格。",
+      "Chat apps already have a style.":"聊天软件已经设置过风格。",
+      "Double-tap to lock":"双击锁定免提",
+      "Hold to talk as usual, or double-tap the key to keep listening hands-free; press once more to finish.":"照常按住说话；快速双击则进入免提持续收音，再按一次结束。",
+      "Double-tap your talk key to keep listening hands-free. Press it once more to finish.":"双击说话键即可免提持续收音，再按一次结束。",
+      "Mute other audio while dictating":"听写时静音其他声音",
+      "Silences music and videos while you speak, then restores the previous state. Skipped while a meeting is recording.":"说话时让音乐和视频静音，结束后恢复原来的状态。会议录制期间不生效。",
+      "Formatting applied":"已应用格式规则",
       "push-to-talk voice input":"按住说话 · 语音输入",
       "Setup":"设置",
       "Voice":"语音",
@@ -1771,6 +1931,63 @@
       "Transcribing meeting":"正在转写会议"
     },
     es: {
+      "Insights":"Estadísticas",
+      "Counts only · stays on this device":"Solo recuentos · se queda en este dispositivo",
+      "Day streak":"Racha actual",
+      "Best streak":"Mejor racha",
+      "Words per minute":"Palabras por minuto",
+      "Words this week":"Palabras esta semana",
+      "Dictation activity, last 12 weeks":"Actividad de dictado, últimas 12 semanas",
+      "active days":"días activos",
+      "day":"día",
+      "days":"días",
+      "Writing":"Escritura",
+      "Shape how dictated text looks. Rules run on this device after you release the key.":"Decide cómo se ve el texto dictado. Las reglas se ejecutan en este dispositivo al soltar la tecla.",
+      "New":"Nuevo",
+      "Voice commands":"Comandos de voz",
+      "Line breaks":"Saltos de línea",
+      "Scratch that":"Borrar lo anterior",
+      "Removes the sentence or clause you said just before it.":"Elimina la frase o cláusula que dijiste justo antes.",
+      "Spoken lists":"Listas habladas",
+      "Becomes a numbered list.":"Se convierte en una lista numerada.",
+      "Coding words":"Palabras de código",
+      "Say “press enter” to send":"Di “press enter” para enviar",
+      "Types the text, then presses Enter. Chat apps will send it.":"Escribe el texto y luego pulsa Intro. Las apps de chat lo enviarán.",
+      "Style":"Estilo",
+      "Default style":"Estilo predeterminado",
+      "Formal":"Formal",
+      "Casual":"Casual",
+      "Very casual":"Muy casual",
+      "Per-app style":"Estilo por app",
+      "Exact program name, e.g. Slack.exe. A browser counts as one app.":"Nombre exacto del programa, p. ej. Slack.exe. Un navegador cuenta como una sola app.",
+      "Program name":"Nombre del programa",
+      "Chat apps":"Apps de chat",
+      "Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…":"Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…",
+      "Make chat apps casual":"Chats en estilo casual",
+      "Try it":"Pruébalo",
+      "Line break":"Salto de línea",
+      "List":"Lista",
+      "Code + send":"Código + enviar",
+      "Type a sentence the way you would say it":"Escribe una frase tal como la dirías",
+      "Try a sentence":"Prueba una frase",
+      "Typing into":"Escribiendo en",
+      "Any app":"Cualquier app",
+      "then Enter ⏎":"y luego Intro ⏎",
+      "(nothing would be typed)":"(no se escribiría nada)",
+      "Preview unavailable":"Vista previa no disponible",
+      "writing settings are malformed":"La configuración de escritura no es válida",
+      "Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.":"Las reglas se aplican a dictados completos al soltar la tecla, no a la escritura progresiva, reuniones ni fragmentos. El historial conserva el reconocimiento original.",
+      "A dictation that ends with “press enter” is typed, then sent with Enter.":"Un dictado que termina con “press enter” se escribe y luego se envía con Intro.",
+      "Use the exact program name, like Slack.exe — not a path or window title.":"Usa el nombre exacto del programa, como Slack.exe, no una ruta ni un título de ventana.",
+      "At most 100 applications can have their own style.":"Como máximo 100 aplicaciones pueden tener su propio estilo.",
+      "Chat apps now use the Casual style.":"Las apps de chat ahora usan el estilo casual.",
+      "Chat apps already have a style.":"Las apps de chat ya tienen un estilo.",
+      "Double-tap to lock":"Doble toque para fijar",
+      "Hold to talk as usual, or double-tap the key to keep listening hands-free; press once more to finish.":"Mantén pulsado para hablar como siempre, o toca dos veces para seguir escuchando sin manos; pulsa una vez más para terminar.",
+      "Double-tap your talk key to keep listening hands-free. Press it once more to finish.":"Toca dos veces tu tecla para hablar sin manos. Púlsala una vez más para terminar.",
+      "Mute other audio while dictating":"Silenciar otro audio al dictar",
+      "Silences music and videos while you speak, then restores the previous state. Skipped while a meeting is recording.":"Silencia música y vídeos mientras hablas y luego restaura el estado anterior. No se aplica mientras se graba una reunión.",
+      "Formatting applied":"Formato aplicado",
       "push-to-talk voice input":"dictado por voz pulsando una tecla",
       "Setup":"Configuración",
       "Voice":"Voz",
@@ -2256,6 +2473,63 @@
       "Transcribing meeting":"Transcribiendo reunión",
     },
     fr: {
+      "Insights":"Statistiques",
+      "Counts only · stays on this device":"Compteurs uniquement · restent sur cet appareil",
+      "Day streak":"Série en cours",
+      "Best streak":"Meilleure série",
+      "Words per minute":"Mots par minute",
+      "Words this week":"Mots cette semaine",
+      "Dictation activity, last 12 weeks":"Activité de dictée, 12 dernières semaines",
+      "active days":"jours actifs",
+      "day":"jour",
+      "days":"jours",
+      "Writing":"Écriture",
+      "Shape how dictated text looks. Rules run on this device after you release the key.":"Choisissez l’aspect du texte dicté. Les règles s’exécutent sur cet appareil quand vous relâchez la touche.",
+      "New":"Nouveau",
+      "Voice commands":"Commandes vocales",
+      "Line breaks":"Retours à la ligne",
+      "Scratch that":"Annuler la phrase",
+      "Removes the sentence or clause you said just before it.":"Supprime la phrase ou la proposition dite juste avant.",
+      "Spoken lists":"Listes dictées",
+      "Becomes a numbered list.":"Devient une liste numérotée.",
+      "Coding words":"Mots de code",
+      "Say “press enter” to send":"Dites « press enter » pour envoyer",
+      "Types the text, then presses Enter. Chat apps will send it.":"Tape le texte puis appuie sur Entrée. Les messageries l’enverront.",
+      "Style":"Style",
+      "Default style":"Style par défaut",
+      "Formal":"Formel",
+      "Casual":"Décontracté",
+      "Very casual":"Très décontracté",
+      "Per-app style":"Style par application",
+      "Exact program name, e.g. Slack.exe. A browser counts as one app.":"Nom exact du programme, p. ex. Slack.exe. Un navigateur compte comme une seule application.",
+      "Program name":"Nom du programme",
+      "Chat apps":"Messageries",
+      "Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…":"Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…",
+      "Make chat apps casual":"Messageries en style décontracté",
+      "Try it":"Essayer",
+      "Line break":"Retour à la ligne",
+      "List":"Liste",
+      "Code + send":"Code + envoyer",
+      "Type a sentence the way you would say it":"Tapez une phrase comme vous la diriez",
+      "Try a sentence":"Essayer une phrase",
+      "Typing into":"Saisie dans",
+      "Any app":"N’importe quelle application",
+      "then Enter ⏎":"puis Entrée ⏎",
+      "(nothing would be typed)":"(rien ne serait saisi)",
+      "Preview unavailable":"Aperçu indisponible",
+      "writing settings are malformed":"Les réglages d’écriture sont invalides",
+      "Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.":"Les règles s’appliquent aux dictées complètes au relâchement de la touche, pas à la saisie progressive, aux réunions ni aux extraits. L’historique garde la reconnaissance d’origine.",
+      "A dictation that ends with “press enter” is typed, then sent with Enter.":"Une dictée qui se termine par « press enter » est tapée, puis envoyée avec Entrée.",
+      "Use the exact program name, like Slack.exe — not a path or window title.":"Utilisez le nom exact du programme, comme Slack.exe — pas un chemin ni un titre de fenêtre.",
+      "At most 100 applications can have their own style.":"Au plus 100 applications peuvent avoir leur propre style.",
+      "Chat apps now use the Casual style.":"Les messageries utilisent maintenant le style décontracté.",
+      "Chat apps already have a style.":"Les messageries ont déjà un style.",
+      "Double-tap to lock":"Double appui pour verrouiller",
+      "Hold to talk as usual, or double-tap the key to keep listening hands-free; press once more to finish.":"Maintenez pour parler comme d’habitude, ou appuyez deux fois pour écouter en mains libres ; appuyez encore une fois pour terminer.",
+      "Double-tap your talk key to keep listening hands-free. Press it once more to finish.":"Appuyez deux fois sur votre touche pour parler en mains libres. Appuyez encore une fois pour terminer.",
+      "Mute other audio while dictating":"Couper les autres sons pendant la dictée",
+      "Silences music and videos while you speak, then restores the previous state. Skipped while a meeting is recording.":"Coupe la musique et les vidéos pendant que vous parlez, puis rétablit l’état précédent. Ignoré pendant l’enregistrement d’une réunion.",
+      "Formatting applied":"Mise en forme appliquée",
       "push-to-talk voice input":"saisie vocale en maintenant une touche",
       "Setup":"Configuration",
       "Voice":"Voix",
@@ -2741,6 +3015,63 @@
       "Transcribing meeting":"Transcription de la réunion",
     },
     de: {
+      "Insights":"Statistik",
+      "Counts only · stays on this device":"Nur Zähler · bleibt auf diesem Gerät",
+      "Day streak":"Aktuelle Serie",
+      "Best streak":"Längste Serie",
+      "Words per minute":"Wörter pro Minute",
+      "Words this week":"Wörter diese Woche",
+      "Dictation activity, last 12 weeks":"Diktieraktivität der letzten 12 Wochen",
+      "active days":"aktive Tage",
+      "day":"Tag",
+      "days":"Tage",
+      "Writing":"Schreiben",
+      "Shape how dictated text looks. Rules run on this device after you release the key.":"Lege fest, wie diktierter Text aussieht. Die Regeln laufen auf diesem Gerät, sobald du die Taste loslässt.",
+      "New":"Neu",
+      "Voice commands":"Sprachbefehle",
+      "Line breaks":"Zeilenumbrüche",
+      "Scratch that":"Letzten Satz streichen",
+      "Removes the sentence or clause you said just before it.":"Entfernt den Satz oder Satzteil, den du direkt davor gesagt hast.",
+      "Spoken lists":"Gesprochene Listen",
+      "Becomes a numbered list.":"Wird zu einer nummerierten Liste.",
+      "Coding words":"Code-Wörter",
+      "Say “press enter” to send":"„press enter“ sagen zum Senden",
+      "Types the text, then presses Enter. Chat apps will send it.":"Tippt den Text und drückt dann Enter. Chat-Apps senden ihn ab.",
+      "Style":"Stil",
+      "Default style":"Standardstil",
+      "Formal":"Förmlich",
+      "Casual":"Locker",
+      "Very casual":"Sehr locker",
+      "Per-app style":"Stil pro App",
+      "Exact program name, e.g. Slack.exe. A browser counts as one app.":"Genauer Programmname, z. B. Slack.exe. Ein Browser zählt als eine App.",
+      "Program name":"Programmname",
+      "Chat apps":"Chat-Apps",
+      "Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…":"Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…",
+      "Make chat apps casual":"Chat-Apps locker schreiben",
+      "Try it":"Ausprobieren",
+      "Line break":"Zeilenumbruch",
+      "List":"Liste",
+      "Code + send":"Code + senden",
+      "Type a sentence the way you would say it":"Tippe einen Satz so, wie du ihn sagen würdest",
+      "Try a sentence":"Einen Satz testen",
+      "Typing into":"Tippen in",
+      "Any app":"Beliebige App",
+      "then Enter ⏎":"dann Enter ⏎",
+      "(nothing would be typed)":"(es würde nichts getippt)",
+      "Preview unavailable":"Vorschau nicht verfügbar",
+      "writing settings are malformed":"Die Schreibeinstellungen sind ungültig",
+      "Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.":"Die Regeln gelten für vollständige Diktate beim Loslassen der Taste – nicht für progressives Tippen, Besprechungen oder Textbausteine. Der Verlauf behält die ursprüngliche Erkennung.",
+      "A dictation that ends with “press enter” is typed, then sent with Enter.":"Ein Diktat, das mit „press enter“ endet, wird getippt und dann mit Enter gesendet.",
+      "Use the exact program name, like Slack.exe — not a path or window title.":"Verwende den genauen Programmnamen wie Slack.exe – keinen Pfad und keinen Fenstertitel.",
+      "At most 100 applications can have their own style.":"Höchstens 100 Apps können einen eigenen Stil haben.",
+      "Chat apps now use the Casual style.":"Chat-Apps verwenden jetzt den lockeren Stil.",
+      "Chat apps already have a style.":"Chat-Apps haben bereits einen Stil.",
+      "Double-tap to lock":"Doppeltippen zum Einrasten",
+      "Hold to talk as usual, or double-tap the key to keep listening hands-free; press once more to finish.":"Wie gewohnt halten zum Sprechen, oder zweimal tippen, um freihändig weiter zuzuhören; noch einmal drücken zum Beenden.",
+      "Double-tap your talk key to keep listening hands-free. Press it once more to finish.":"Tippe zweimal auf deine Sprechtaste, um freihändig zu diktieren. Noch einmal drücken zum Beenden.",
+      "Mute other audio while dictating":"Anderen Ton beim Diktieren stummschalten",
+      "Silences music and videos while you speak, then restores the previous state. Skipped while a meeting is recording.":"Schaltet Musik und Videos beim Sprechen stumm und stellt danach den vorherigen Zustand wieder her. Nicht während einer Besprechungsaufnahme.",
+      "Formatting applied":"Formatierung angewendet",
       "push-to-talk voice input":"Spracheingabe per Tastendruck",
       "Setup":"Einrichtung",
       "Voice":"Stimme",
@@ -3771,6 +4102,147 @@
   });
   bindToggle("cue","cue_sounds"); bindToggle("autostart","autostart");
   bindToggle("noiseFilter","noise_filter");
+  bindToggle("doubleTap","double_tap_lock",function(on){
+    if(on) toast(t("Double-tap your talk key to keep listening hands-free. Press it once more to finish."));
+  });
+  bindToggle("muteDictating","mute_while_dictating");
+  function renderDoubleTap(){
+    var row=document.getElementById("doubleTapRow");
+    if(row) row.hidden=(cfg.talk_mode||"hold")!=="hold";
+  }
+
+  // ---- Home insights: streaks, speaking rate, 12-week activity ------------
+  var insightsKey="";
+  function renderInsights(I){
+    var box=document.getElementById("insights");
+    if(!I||!Array.isArray(I.heat)||!(I.active_days>0)){ box.hidden=true; return; }
+    var key=JSON.stringify(I); if(key===insightsKey) return; insightsKey=key;
+    box.hidden=false;
+    var days=function(n){ return fmtCount(n)+" "+t(n===1?"day":"days"); };
+    document.getElementById("insStreak").textContent=days(I.streak||0);
+    document.getElementById("insBest").textContent=days(I.best_streak||0);
+    document.getElementById("insWpm").textContent=I.words_per_minute?fmtCount(I.words_per_minute):"—";
+    document.getElementById("insWeek").textContent=fmtCount(I.words_week||0);
+    var heat=document.getElementById("insHeat"); heat.textContent="";
+    var max=0; I.heat.forEach(function(v){ if(v>max) max=v; });
+    var todayIndex=-1; I.heat.forEach(function(v,i){ if(v>=0) todayIndex=i; });
+    I.heat.forEach(function(v,i){
+      var cell=document.createElement("i");
+      if(v<0) cell.className="f";
+      else if(v>0){ var r=v/max; cell.className=r>.75?"l4":r>.5?"l3":r>.25?"l2":"l1"; }
+      if(i===todayIndex) cell.classList.add("today");
+      heat.appendChild(cell);
+    });
+    heat.setAttribute("aria-label",t("Dictation activity, last 12 weeks")+" · "+(I.active_days||0)+" "+t("active days"));
+  }
+
+  // ---- Writing: voice commands, style, per-app style, Try it -------------
+  var CHAT_APPS_WIN=["Slack.exe","Discord.exe","ms-teams.exe","Teams.exe","WhatsApp.exe","Telegram.exe","WeChat.exe","Weixin.exe","QQ.exe","DingTalk.exe","Feishu.exe","Lark.exe","Signal.exe","LINE.exe","KakaoTalk.exe"];
+  var CHAT_APPS_MAC=["com.tinyspeck.slackmacgap","com.hnc.Discord","com.microsoft.teams2","net.whatsapp.WhatsApp","ru.keepcoder.Telegram","com.tencent.xinWeChat","com.tencent.qq","com.alibaba.DingTalkMac","com.bytedance.macos.feishu","org.whispersystems.signal-desktop","jp.naver.line.mac"];
+  var WRITING_TOGGLES=[["wCommands","commands"],["wBacktrack","backtrack"],["wLists","lists"],["wCode","code"],["wPressEnter","press_enter"]];
+  var WRITING_STYLES=["formal","casual","very_casual"];
+  var STYLE_EXAMPLES={formal:"Sounds good. See you at five.",casual:"Sounds good. See you at five",very_casual:"sounds good. see you at five"};
+  function writingCfg(){
+    var w=cfg.writing;
+    if(!w||typeof w!=="object"||Array.isArray(w)) w=cfg.writing={};
+    WRITING_TOGGLES.forEach(function(pair){ if(typeof w[pair[1]]!=="boolean") w[pair[1]]=false; });
+    if(WRITING_STYLES.indexOf(w.style)<0) w.style="formal";
+    if(!w.app_styles||typeof w.app_styles!=="object"||Array.isArray(w.app_styles)) w.app_styles={};
+    return w;
+  }
+  function styleLabel(style){ return t(style==="casual"?"Casual":style==="very_casual"?"Very casual":"Formal"); }
+  function renderWriting(){
+    var w=writingCfg();
+    WRITING_TOGGLES.forEach(function(pair){
+      var el=document.getElementById(pair[0]); if(!el) return;
+      el.classList.toggle("on",!!w[pair[1]]); el.setAttribute("aria-pressed",String(!!w[pair[1]]));
+    });
+    document.querySelectorAll("#wStyleSeg button").forEach(function(x){
+      var on=x.dataset.style===w.style; x.classList.toggle("on",on); x.setAttribute("aria-pressed",String(on));
+    });
+    document.getElementById("wStyleExample").textContent=STYLE_EXAMPLES[w.style];
+    var list=document.getElementById("wAppList"); list.textContent="";
+    var ids=Object.keys(w.app_styles).sort(function(a,b){return a.toLowerCase()<b.toLowerCase()?-1:1;});
+    ids.forEach(function(id){
+      var chip=document.createElement("span"); chip.className="w-app";
+      var name=document.createElement("b"); name.textContent=id; name.title=id; chip.appendChild(name);
+      var select=document.createElement("select"); select.setAttribute("aria-label",t("Style")+": "+id);
+      WRITING_STYLES.forEach(function(value){var o=document.createElement("option");o.value=value;o.textContent=styleLabel(value);select.appendChild(o);});
+      select.value=w.app_styles[id];
+      select.onchange=function(){w.app_styles[id]=select.value;save();tryWriting();};
+      chip.appendChild(select);
+      var remove=document.createElement("button"); remove.type="button"; remove.textContent="×";
+      remove.setAttribute("aria-label",t("Remove")+" "+id);
+      remove.onclick=function(){delete w.app_styles[id];renderWriting();save();tryWriting();};
+      chip.appendChild(remove); list.appendChild(chip);
+    });
+    list.hidden=!ids.length;
+    var tryApp=document.getElementById("wTryApp"), keep=tryApp.value;
+    tryApp.textContent="";
+    var any=document.createElement("option"); any.value=""; any.textContent=t("Any app"); tryApp.appendChild(any);
+    ids.forEach(function(id){var o=document.createElement("option");o.value=id;o.textContent=id+" · "+styleLabel(w.app_styles[id]);tryApp.appendChild(o);});
+    tryApp.value=ids.indexOf(keep)>=0?keep:"";
+    var chatList=document.getElementById("wChatList");
+    if(chatList && OS && OS!=="windows") chatList.textContent=t("Slack, Discord, Teams, WhatsApp, Telegram, WeChat, QQ, DingTalk, Feishu…");
+  }
+  WRITING_TOGGLES.forEach(function(pair){
+    document.getElementById(pair[0]).onclick=function(){
+      var w=writingCfg(); w[pair[1]]=!w[pair[1]];
+      renderWriting(); save(); tryWriting();
+      if(pair[1]==="press_enter"&&w.press_enter) toast(t("A dictation that ends with “press enter” is typed, then sent with Enter."));
+    };
+  });
+  document.querySelectorAll("#wStyleSeg button").forEach(function(b){
+    b.onclick=function(){ writingCfg().style=b.dataset.style; renderWriting(); save(); tryWriting(); };
+  });
+  function validAppId(id){ return id.length>0 && id.length<=200 && /^[A-Za-z0-9._\- ]+$/.test(id) && id.trim()===id; }
+  document.getElementById("wAppAdd").onclick=function(){
+    var input=document.getElementById("wAppId"), id=input.value.trim(), w=writingCfg();
+    if(!validAppId(id)){ toast(t("Use the exact program name, like Slack.exe — not a path or window title.")); input.focus(); return; }
+    Object.keys(w.app_styles).forEach(function(k){ if(k.toLowerCase()===id.toLowerCase()) delete w.app_styles[k]; });
+    if(Object.keys(w.app_styles).length>=100){ toast(t("At most 100 applications can have their own style.")); return; }
+    w.app_styles[id]=document.getElementById("wAppStyle").value;
+    input.value=""; renderWriting(); save(); tryWriting();
+  };
+  document.getElementById("wAppId").onkeydown=function(e){ if(e.key==="Enter"){ e.preventDefault(); document.getElementById("wAppAdd").click(); } };
+  document.getElementById("wChatPreset").onclick=function(){
+    var w=writingCfg(), added=0;
+    var lower=Object.keys(w.app_styles).map(function(k){return k.toLowerCase();});
+    (OS==="macos"?CHAT_APPS_MAC:CHAT_APPS_WIN).forEach(function(id){
+      if(lower.indexOf(id.toLowerCase())<0 && Object.keys(w.app_styles).length<100){ w.app_styles[id]="casual"; added++; }
+    });
+    renderWriting();
+    if(added){ save(); toast(t("Chat apps now use the Casual style.")); }
+    else toast(t("Chat apps already have a style."));
+    tryWriting();
+  };
+  var writingSeq=0, writingTimer=null;
+  function tryWriting(){
+    clearTimeout(writingTimer);
+    writingTimer=setTimeout(function(){
+      var text=document.getElementById("wTry").value, out=document.getElementById("wTryOut");
+      if(!text.trim()){ writingSeq++; out.textContent=""; out.classList.add("empty"); return; }
+      send({type:"writing_preview",id:++writingSeq,text:text,
+        language:document.getElementById("wTryLang").value,
+        app:document.getElementById("wTryApp").value,writing:writingCfg()});
+    },120);
+  }
+  window.vocalcodeWritingPreview=function(r){
+    if(!r||r.id!==writingSeq) return;
+    var out=document.getElementById("wTryOut"); out.textContent=""; out.classList.remove("empty");
+    if(!r.ok){ out.textContent=t(r.message||"Preview unavailable"); return; }
+    if(r.text) out.appendChild(document.createTextNode(r.text));
+    else out.appendChild(document.createTextNode(t("(nothing would be typed)")));
+    if(r.send){ var key=document.createElement("span"); key.className="w-send"; key.textContent=t("then Enter ⏎"); out.appendChild(key); }
+  };
+  ["wTry","wTryLang","wTryApp"].forEach(function(id){ var el=document.getElementById(id); el.oninput=tryWriting; el.onchange=tryWriting; });
+  document.querySelectorAll("#wTryChips button").forEach(function(b){
+    b.onclick=function(){
+      document.getElementById("wTry").value=b.dataset.say;
+      document.getElementById("wTryLang").value=b.dataset.lang;
+      tryWriting();
+    };
+  });
   bindToggle("desktopControl","desktop_control",function(){renderConfigState();});
   document.getElementById("desktopControlEdge").onchange=function(event){cfg.desktop_control_edge=event.target.value;save();};
   bindToggle("meetingReminders","smart_meeting_reminders",function(on){
@@ -4111,7 +4583,7 @@
     var min=document.getElementById("minrec"); if(min) min.value=cfg.min_record_ms;
     var correctionWindow=document.getElementById("correctionWindow");
     if(correctionWindow) correctionWindow.value=String(cfg.correction_window_ms||0);
-    [["liveCaption","live_caption"],["noiseFilter","noise_filter"],["desktopControl","desktop_control"],["paste","paste_insert"],["cue","cue_sounds"],["autostart","autostart"],["meetingReminders","smart_meeting_reminders"]]
+    [["liveCaption","live_caption"],["noiseFilter","noise_filter"],["desktopControl","desktop_control"],["paste","paste_insert"],["cue","cue_sounds"],["autostart","autostart"],["meetingReminders","smart_meeting_reminders"],["doubleTap","double_tap_lock"],["muteDictating","mute_while_dictating"]]
       .forEach(function(pair){var el=document.getElementById(pair[0]);if(el){var on=!!cfg[pair[1]];el.classList.toggle("on",on);el.setAttribute("aria-pressed",String(on));}});
     var ignored=Array.isArray(cfg.ignored_meeting_apps)?cfg.ignored_meeting_apps:[];
     document.getElementById("desktopControlRow").hidden=!cfg.desktop_control_available;
@@ -4129,6 +4601,9 @@
       var on=x.dataset.mode===(cfg.talk_mode||"hold");
       x.classList.toggle("on",on); x.setAttribute("aria-pressed",String(on));
     });
+    renderDoubleTap();
+    document.getElementById("muteRow").hidden=!cfg.mute_available;
+    renderWriting();
     renderLangs();
     var onboarding=cfg.onboarded===false;
     setOnboarding(onboarding);
@@ -4312,6 +4787,7 @@
   document.querySelectorAll("#talkModeSeg button").forEach(b=>b.onclick=()=>{
     cfg.talk_mode=b.dataset.mode;
     document.querySelectorAll("#talkModeSeg button").forEach(function(x){var on=x===b;x.classList.toggle("on",on);x.setAttribute("aria-pressed",String(on));});
+    renderDoubleTap();
     // No "restart to apply" note: the host pushes this to the engine on save,
     // and it is read fresh on each press.
     save();
@@ -4378,6 +4854,7 @@
       var totalWords = Math.max(0, Number(T.words) || 0);
       var totalChars = Math.max(0, Number(T.chars) || 0);
       document.getElementById("stWords").textContent = fmtCount(totalWords);
+      renderInsights(s.insights);
       // This is visibly labelled as an estimate at 200 characters/minute. It
       // is a typing-equivalent comparison, not measured time saved.
       var saved = Math.round(totalChars/200);
@@ -5066,9 +5543,13 @@
       var row=document.createElement("div"); row.className="hist-row";
       var t1=document.createElement("span"); t1.className="t"; t1.textContent=localHistoryTime(unixSeconds);
       var x=document.createElement("div"); x.className="x"; x.textContent=transcript||(h&&h.filler_removed>0?t("Only pause words removed"):"");
-      if(h&&typeof h.recognition==="string"&&h.filler_removed>0){
+      if(h&&typeof h.recognition==="string"&&(h.filler_removed>0||h.writing_edits>0)){
         var review=document.createElement("details");review.className="hist-original";
-        var label=document.createElement("summary");label.textContent=t("Pause words removed")+": "+h.filler_removed+" · "+t("Recognition before cleanup");
+        var label=document.createElement("summary");
+        var reasons=[];
+        if(h.filler_removed>0) reasons.push(t("Pause words removed")+": "+h.filler_removed);
+        if(h.writing_edits>0) reasons.push(t("Formatting applied")+": "+h.writing_edits);
+        label.textContent=reasons.join(" · ")+" · "+t("Recognition before cleanup");
         var original=document.createElement("p");original.textContent=h.recognition;
         var restore=document.createElement("button");restore.type="button";restore.className="cp";restore.textContent=t("Copy original recognition");
         restore.onclick=function(){var id="original-copy-"+Date.now()+"-"+Math.random().toString(36).slice(2);restore.dataset.copyRequest=id;send({type:"copy",id:id,text:h.recognition});};

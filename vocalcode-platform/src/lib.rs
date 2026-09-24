@@ -15,6 +15,7 @@ pub mod hotkey;
 pub mod inject;
 pub mod meeting_audio;
 pub mod meeting_presence;
+pub mod mute;
 pub mod speech_gate;
 
 // Descriptor decoding is platform-neutral so macOS HID edge behavior remains

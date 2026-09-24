@@ -8,6 +8,106 @@ use crate::limits::{
 };
 
 pub const MAX_IGNORED_MEETING_APPS: usize = 32;
+pub const MAX_APP_STYLES: usize = 100;
+pub const MAX_APP_STYLE_ID_UTF8_BYTES: usize = 200;
+
+/// Opt-in writing features for complete on-release dictation. Every rule is
+/// off until chosen, so an upgrade never starts rewriting text on its own.
+///
+/// Kept as its own `[writing]` table: an older build that does not know it
+/// ignores the table instead of refusing the whole settings file, which keeps
+/// an update reversible.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct WritingConfig {
+    /// "new line" / "new paragraph" (换行 / 另起一段).
+    pub commands: bool,
+    /// "scratch that" (删掉上一句) retracts what was said just before it.
+    pub backtrack: bool,
+    /// "first … second …" (第一，… 第二，…) becomes a numbered list.
+    pub lists: bool,
+    /// "camel case user id" → userId; "open paren" → "(".
+    pub code: bool,
+    /// Ending a dictation with "press enter" (回车) sends it.
+    pub press_enter: bool,
+    /// Default style for every application: formal | casual | very_casual.
+    pub style: String,
+    /// Exact executable filename (Windows) or bundle ID (macOS) → style.
+    pub app_styles: std::collections::BTreeMap<String, String>,
+}
+
+impl Default for WritingConfig {
+    fn default() -> Self {
+        Self {
+            commands: false,
+            backtrack: false,
+            lists: false,
+            code: false,
+            press_enter: false,
+            style: "formal".to_string(),
+            app_styles: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl WritingConfig {
+    /// The rules for one dictation into `app` (exact identity, compared
+    /// case-insensitively; an empty `app` means unknown).
+    pub fn options_for(&self, app: &str) -> crate::writing::Options {
+        let style = (!app.is_empty())
+            .then(|| {
+                self.app_styles
+                    .iter()
+                    .find(|(id, _)| id.eq_ignore_ascii_case(app))
+                    .map(|(_, style)| style.as_str())
+            })
+            .flatten()
+            .unwrap_or(&self.style);
+        crate::writing::Options {
+            commands: self.commands,
+            backtrack: self.backtrack,
+            lists: self.lists,
+            code: self.code,
+            press_enter: self.press_enter,
+            style: crate::writing::Style::parse(style).unwrap_or_default(),
+        }
+    }
+
+    /// Whether any per-application style needs the foreground identity.
+    pub fn needs_app_identity(&self) -> bool {
+        !self.app_styles.is_empty()
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if crate::writing::Style::parse(&self.style).is_none() {
+            return Err("writing style must be formal, casual or very_casual".into());
+        }
+        if self.app_styles.len() > MAX_APP_STYLES {
+            return Err(format!(
+                "at most {MAX_APP_STYLES} application styles can be saved"
+            ));
+        }
+        let mut seen = HashSet::new();
+        for (app, style) in &self.app_styles {
+            if app.is_empty()
+                || app.trim() != app
+                || app.len() > MAX_APP_STYLE_ID_UTF8_BYTES
+                || !app
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | ' '))
+            {
+                return Err("application styles need an exact executable filename or bundle ID, not a path or window title".into());
+            }
+            if !seen.insert(app.to_ascii_lowercase()) {
+                return Err("application styles contain the same application twice".into());
+            }
+            if crate::writing::Style::parse(style).is_none() {
+                return Err("writing style must be formal, casual or very_casual".into());
+            }
+        }
+        Ok(())
+    }
+}
 pub const MAX_MEETING_APP_KEY_UTF8_BYTES: usize = 160;
 
 /// A durable selector for the physical device that owns a trigger.
@@ -357,6 +457,20 @@ pub struct Config {
     /// Absent in every config written before this existed, hence 0.
     #[serde(default)]
     pub config_version: u32,
+    /// Hold mode: double-tap the talk key to lock a hands-free recording.
+    #[serde(default = "default_double_tap_lock")]
+    pub double_tap_lock: bool,
+    /// Mute other system audio while dictating, restored afterwards.
+    #[serde(default)]
+    pub mute_while_dictating: bool,
+    /// Opt-in spoken formatting, retraction, lists, coding words and style.
+    /// Last, so it serialises as the trailing `[writing]` table.
+    #[serde(default)]
+    pub writing: WritingConfig,
+}
+
+fn default_double_tap_lock() -> bool {
+    true
 }
 
 /// The current schema version. Bump when an existing key changes meaning.
@@ -406,6 +520,7 @@ impl Config {
                 self.ignored_meeting_apps.len()
             ));
         }
+        self.writing.validate()?;
         let mut unique_meeting_apps = HashSet::new();
         for app in &self.ignored_meeting_apps {
             if app.is_empty()
@@ -721,6 +836,9 @@ impl Default for Config {
             desktop_control_edge: default_desktop_control_edge(),
             onboarded: false, // fresh install → show the first-run language picker
             config_version: CONFIG_VERSION,
+            double_tap_lock: default_double_tap_lock(),
+            mute_while_dictating: false,
+            writing: WritingConfig::default(),
         }
     }
 }
@@ -728,6 +846,74 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn writing_is_opt_in_reversible_and_resolves_per_app() {
+        let old: Config = toml::from_str("language = \"en\"").unwrap();
+        assert_eq!(old.writing, WritingConfig::default());
+        assert!(old.writing.options_for("Slack.exe").is_noop());
+        assert!(old.double_tap_lock);
+        assert!(!old.mute_while_dictating);
+
+        let mut c = Config::default();
+        c.writing.commands = true;
+        c.writing.style = "casual".into();
+        c.writing
+            .app_styles
+            .insert("Outlook.exe".into(), "formal".into());
+        c.writing
+            .app_styles
+            .insert("Slack.exe".into(), "very_casual".into());
+        let text = toml::to_string(&c).unwrap();
+        let back: Config = toml::from_str(&text).unwrap();
+        assert_eq!(back.writing, c.writing);
+        use crate::writing::Style;
+        assert_eq!(
+            back.writing.options_for("slack.EXE").style,
+            Style::VeryCasual
+        );
+        assert_eq!(back.writing.options_for("OUTLOOK.exe").style, Style::Formal);
+        assert_eq!(back.writing.options_for("Code.exe").style, Style::Casual);
+        assert_eq!(back.writing.options_for("").style, Style::Casual);
+        assert!(back.writing.options_for("Code.exe").commands);
+
+        // An older build's view of the same file: the unknown table is ignored.
+        #[derive(serde::Deserialize)]
+        struct Older {
+            language: String,
+        }
+        assert_eq!(toml::from_str::<Older>(&text).unwrap().language, c.language);
+    }
+
+    #[test]
+    fn writing_rejects_paths_titles_and_unknown_styles() {
+        let mut c = Config::default();
+        c.writing.style = "loud".into();
+        assert!(c.validate_bounds().is_err());
+        c.writing.style = "formal".into();
+        for bad in ["C:\\Apps\\Slack.exe", " Slack.exe", "", "Inbox — Outlook"] {
+            let mut d = c.clone();
+            d.writing.app_styles.insert(bad.into(), "casual".into());
+            assert!(d.validate_bounds().is_err(), "{bad}");
+        }
+        let mut d = c.clone();
+        d.writing
+            .app_styles
+            .insert("Slack.exe".into(), "shout".into());
+        assert!(d.validate_bounds().is_err());
+        let mut d = c.clone();
+        d.writing
+            .app_styles
+            .insert("Slack.exe".into(), "casual".into());
+        d.writing
+            .app_styles
+            .insert("SLACK.exe".into(), "formal".into());
+        assert!(d.validate_bounds().is_err());
+        c.writing
+            .app_styles
+            .insert("com.tinyspeck.slackmacgap".into(), "casual".into());
+        assert!(c.validate_bounds().is_ok());
+    }
+
     #[test]
     fn acoustic_filter_is_an_independent_opt_in() {
         let old: Config = toml::from_str("").unwrap();

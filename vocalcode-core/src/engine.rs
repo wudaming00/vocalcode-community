@@ -92,9 +92,20 @@ pub struct Engine {
     cleaners: Vec<Box<dyn TextCleaner>>,
     cleanup_enabled: bool,
     filler_language: Option<String>,
+    /// Opt-in spoken formatting / retraction / list / style rules and the
+    /// spoken language they are judged in. Snapshotted per utterance.
+    writing: crate::writing::Options,
+    writing_language: String,
+    /// Hold mode: a quick tap is discarded, and a second press within
+    /// [`DOUBLE_TAP_WINDOW`] of it starts a hands-free (latched) recording.
+    double_tap_lock: bool,
+    last_tap: Option<Instant>,
     trace_enabled: bool,
     trace: Option<DictationTrace>,
     completed_trace: Option<DictationTrace>,
+    /// Captured audio length of the most recent finished dictation, for the
+    /// local words-per-minute figure. A number only — never audio or text.
+    last_audio_ms: u64,
 }
 
 struct PendingSegment {
@@ -125,6 +136,9 @@ pub struct DictationTrace {
     pub raw_text: String,
     pub raw_text_truncated: bool,
     pub filler_removed: u32,
+    /// Spoken-formatting rule applications (line breaks, retractions, list
+    /// items, identifier casing, style). The original stays in `raw_text`.
+    pub writing_edits: u32,
     pub cleaned_text: String,
     pub final_text: String,
     pub live_caption: bool,
@@ -147,6 +161,9 @@ fn append_trace_text(target: &mut String, text: &str) {
 /// switched off while held). The app may choose a different limit with
 /// [`Engine::set_max_record_ms`], but recording must never be unbounded.
 const DEFAULT_MAX_RECORD_MS: u64 = 10 * 60 * 1_000;
+
+/// How soon after a discarded tap a second press still counts as a double tap.
+pub const DOUBLE_TAP_WINDOW: Duration = Duration::from_millis(500);
 
 /// Outcome of handling one event, so the caller (tray/UI) can reflect state.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,9 +228,14 @@ impl Engine {
             cleaners,
             cleanup_enabled: true,
             filler_language: None,
+            writing: crate::writing::Options::default(),
+            writing_language: String::new(),
+            double_tap_lock: false,
+            last_tap: None,
             trace_enabled: false,
             trace: None,
             completed_trace: None,
+            last_audio_ms: 0,
         }
     }
 
@@ -276,6 +298,11 @@ impl Engine {
         true
     }
 
+    /// Length of the audio captured for the most recent finished dictation.
+    pub fn last_audio_ms(&self) -> u64 {
+        self.last_audio_ms
+    }
+
     pub fn take_trace(&mut self) -> Option<DictationTrace> {
         self.completed_trace.take()
     }
@@ -290,6 +317,66 @@ impl Engine {
         }
         self.filler_language = enabled.then(|| language.to_string());
         true
+    }
+
+    /// Double-tap the talk key to lock a hands-free recording, like pressing a
+    /// latch. Only meaningful in hold mode; toggle mode latches every press.
+    pub fn set_double_tap_lock(&mut self, enabled: bool) {
+        self.double_tap_lock = enabled;
+        if !enabled {
+            self.last_tap = None;
+        }
+    }
+
+    /// Longest press that counts as a tap rather than speech. Never shorter
+    /// than the minimum recording, so nothing that used to be transcribed is
+    /// discarded: presses under that minimum were already thrown away.
+    fn tap_threshold(&self) -> Duration {
+        Duration::from_millis((self.min_record_ms as u64).clamp(150, 400))
+    }
+
+    /// Is releasing `id` now the end of a quick hold-mode tap that double-tap
+    /// locking discards?
+    fn release_is_tap(&self, id: &TriggerId) -> bool {
+        self.double_tap_lock
+            && self.recording
+            && !self.active_latched
+            && self.pressed.len() == 1
+            && self.pressed.contains(id)
+            && self
+                .recording_since
+                .is_some_and(|since| since.elapsed() < self.tap_threshold())
+    }
+
+    /// Spoken formatting commands, "scratch that", spoken lists, identifier
+    /// casing, "press enter" and the per-app style for the next complete
+    /// on-release dictation. Progressive insertion is excluded for the same
+    /// reason as pause words: a chunk already typed cannot be retracted or
+    /// re-cased by a command spoken after it.
+    pub fn set_writing(&mut self, options: crate::writing::Options, language: &str) -> bool {
+        if self.recording {
+            return false;
+        }
+        self.writing = options;
+        self.writing_language = language.to_string();
+        true
+    }
+
+    fn write_dictation(&mut self, text: &str) -> crate::writing::Written {
+        if self.live || self.writing.is_noop() {
+            return crate::writing::Written {
+                text: text.to_string(),
+                edits: 0,
+                send: false,
+            };
+        }
+        let started = Instant::now();
+        let written = crate::writing::apply(text, &self.writing_language, &self.writing);
+        if let Some(trace) = &mut self.trace {
+            trace.cleaner_ms += started.elapsed().as_millis() as u64;
+            trace.writing_edits += written.edits;
+        }
+        written
     }
 
     fn clean_dictation(&mut self, text: &str) -> String {
@@ -766,7 +853,15 @@ impl Engine {
                 self.scan_rate = 0;
                 self.utterance.clear();
                 self.recoverable_text = None;
-                let active_latched = hands_free || self.latched();
+                // Consumed by any start, so a stale tap never latches a later,
+                // unrelated press.
+                let double_tap = self
+                    .last_tap
+                    .take()
+                    .is_some_and(|at| at.elapsed() <= DOUBLE_TAP_WINDOW)
+                    && self.double_tap_lock
+                    && !hands_free;
+                let active_latched = hands_free || self.latched() || double_tap;
                 self.active_snippets = self
                     .snippets
                     .lock()
@@ -792,7 +887,8 @@ impl Engine {
                     return Err(error);
                 }
                 self.recording = true;
-                self.trace = (self.trace_enabled || (self.filler_language.is_some() && !self.live))
+                self.trace = (self.trace_enabled
+                    || ((self.filler_language.is_some() || !self.writing.is_noop()) && !self.live))
                     .then(|| DictationTrace {
                         live_caption: self.live,
                         ..Default::default()
@@ -803,6 +899,15 @@ impl Engine {
                 Ok(Outcome::Listening)
             }
             TriggerEvent::TalkReleased(id) => {
+                if self.release_is_tap(&id) {
+                    // Silently discarded, like any press shorter than the
+                    // minimum recording — but remembered as the first half of
+                    // a possible double tap.
+                    self.pressed.remove(&id);
+                    let outcome = self.force_cancel();
+                    self.last_tap = Some(Instant::now());
+                    return outcome;
+                }
                 if !self.pressed.remove(&id) {
                     return Ok(Outcome::Idle);
                 }
@@ -898,7 +1003,10 @@ impl Engine {
         self.recording
             && match ev {
                 TriggerEvent::TalkReleased(id) => {
-                    !self.active_latched && self.pressed.contains(&id) && self.pressed.len() == 1
+                    !self.active_latched
+                        && self.pressed.contains(&id)
+                        && self.pressed.len() == 1
+                        && !self.release_is_tap(&id)
                 }
                 TriggerEvent::TalkPressed(id) => self.active_latched && !self.pressed.contains(&id),
                 TriggerEvent::DeviceDisconnected(device) => {
@@ -929,6 +1037,9 @@ impl Engine {
 
         let result = (|| {
             let rec = stopped?;
+            self.last_audio_ms = (rec.samples.len() as u64 * 1000)
+                .checked_div(rec.sample_rate as u64)
+                .unwrap_or(0);
             // Gate before ASR. Stopping still happens first so an expiry that
             // lands mid-utterance cannot leave capture running.
             if !self.inject_allowed() {
@@ -975,11 +1086,21 @@ impl Engine {
                 }
                 // A chosen snippet is literal content, not input to another
                 // chain of dictionary transformations.
+                let is_snippet = expansion.is_some();
                 let processed = match expansion {
                     Some(text) => Ok(text),
                     None => self.apply_rules(&cleaned),
                 };
+                let mut send_after = false;
                 let text = match processed {
+                    // Writing rules run after the dictionary, so a taught
+                    // spelling is what gets cased or listed, and never on a
+                    // snippet, whose saved text is delivered verbatim.
+                    Ok(text) if !is_snippet => {
+                        let written = self.write_dictation(&text);
+                        send_after = written.send;
+                        written.text
+                    }
                     Ok(text) => text,
                     Err(error) => {
                         // ASR succeeded. Preserve the bounded, pre-dictionary
@@ -1000,6 +1121,12 @@ impl Engine {
                         self.recoverable_text = Some(text);
                         return Err(error);
                     }
+                }
+                // "…, press enter": only after the text itself was delivered
+                // (a diverted or failed insertion returned above), and only
+                // while delivery is still licensed.
+                if send_after && self.inject_allowed() {
+                    self.injector.send_enter()?;
                 }
                 text
             };
@@ -1877,6 +2004,101 @@ mod state_machine_tests {
         );
     }
 
+    #[derive(Default, Clone)]
+    struct EnterRecorder(Arc<Mutex<Vec<String>>>);
+    impl TextInjector for EnterRecorder {
+        fn inject_text(&self, text: &str) -> Result<()> {
+            self.0.lock().unwrap().push(format!("inject:{text}"));
+            Ok(())
+        }
+        fn send_enter(&self) -> Result<()> {
+            self.0.lock().unwrap().push("enter".into());
+            Ok(())
+        }
+        fn backspace(&self, _n: usize) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    fn writing_all() -> crate::writing::Options {
+        crate::writing::Options {
+            commands: true,
+            backtrack: true,
+            lists: true,
+            code: true,
+            press_enter: true,
+            style: crate::writing::Style::Formal,
+        }
+    }
+
+    #[test]
+    fn writing_rules_apply_on_release_and_are_reviewable() {
+        let (mut e, _) = engine(false);
+        let calls = EnterRecorder::default();
+        assert!(e.replace_injector(Box::new(calls.clone())).is_ok());
+        e.swap_asr(
+            Box::new(PauseAsr(
+                "Hi Sam, new line. Rename camel case user id, press enter.",
+            )),
+            vec![],
+        );
+        assert!(e.set_writing(writing_all(), "en"));
+        e.handle(down()).unwrap();
+        assert!(!e.set_writing(crate::writing::Options::default(), "en"));
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("Hi Sam,\nRename userId".into())
+        );
+        assert_eq!(
+            *calls.0.lock().unwrap(),
+            vec!["inject:Hi Sam,\nRename userId".to_string(), "enter".into()]
+        );
+        let trace = e.take_trace().unwrap();
+        assert_eq!(
+            trace.raw_text,
+            "Hi Sam, new line. Rename camel case user id, press enter."
+        );
+        assert_eq!(trace.writing_edits, 3);
+    }
+
+    #[test]
+    fn writing_rules_skip_snippets_live_mode_and_other_languages() {
+        let (mut e, _) = engine(false);
+        e.swap_asr(Box::new(PauseAsr("snippet greeting")), vec![]);
+        e.set_snippets(Arc::new(Mutex::new(vec![crate::migration::Entry {
+            name: "greeting".into(),
+            text: "Hello, new line, press enter".into(),
+        }])));
+        e.set_writing(writing_all(), "en");
+        e.handle(down()).unwrap();
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("Hello, new line, press enter".into())
+        );
+
+        let (mut e, _) = engine(false);
+        e.swap_asr(Box::new(PauseAsr("Hola, new line, gracias.")), vec![]);
+        e.set_writing(writing_all(), "es");
+        e.handle(down()).unwrap();
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("Hola, new line, gracias.".into())
+        );
+        assert!(e.take_trace().is_some_and(|t| t.writing_edits == 0));
+    }
+
+    #[test]
+    fn a_retracted_only_dictation_types_nothing() {
+        let (mut e, _) = engine(false);
+        let calls = EnterRecorder::default();
+        assert!(e.replace_injector(Box::new(calls.clone())).is_ok());
+        e.swap_asr(Box::new(PauseAsr("Scratch that.")), vec![]);
+        e.set_writing(writing_all(), "en");
+        e.handle(down()).unwrap();
+        assert_eq!(e.handle(up()).unwrap(), Outcome::Transcribed(String::new()));
+        assert!(calls.0.lock().unwrap().is_empty());
+    }
+
     struct PauseAsr(&'static str);
     impl Asr for PauseAsr {
         fn transcribe(&mut self, _: &[f32], _: u32) -> Result<String> {
@@ -2184,6 +2406,60 @@ mod state_machine_tests {
             Outcome::Transcribed("hello".to_string())
         );
         assert!(!e.is_recording());
+    }
+
+    #[test]
+    fn double_tap_locks_a_hands_free_recording() {
+        let (mut e, _) = engine(false);
+        e.set_double_tap_lock(true);
+        assert_eq!(e.handle(down()).unwrap(), Outcome::Listening);
+        assert!(!e.will_finish(up()), "a tap is discarded, not transcribed");
+        assert_eq!(e.handle(up()).unwrap(), Outcome::Idle);
+        assert!(!e.is_recording());
+        assert_eq!(e.handle(down()).unwrap(), Outcome::Listening);
+        assert!(!e.will_finish(up()));
+        assert_eq!(e.handle(up()).unwrap(), Outcome::Idle);
+        assert!(e.is_recording(), "the second tap latched the recording");
+        assert!(e.will_finish(down()));
+        assert_eq!(
+            e.handle(down()).unwrap(),
+            Outcome::Transcribed("hello".into())
+        );
+        e.handle(up()).unwrap();
+        assert!(!e.is_recording());
+    }
+
+    #[test]
+    fn a_late_second_tap_or_a_real_hold_is_ordinary_push_to_talk() {
+        let (mut e, _) = engine(false);
+        e.set_double_tap_lock(true);
+        e.handle(down()).unwrap();
+        e.handle(up()).unwrap();
+        std::thread::sleep(DOUBLE_TAP_WINDOW + Duration::from_millis(50));
+        e.handle(down()).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(e.will_finish(up()));
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("hello".into())
+        );
+        assert!(!e.is_recording());
+    }
+
+    #[test]
+    fn without_double_tap_lock_a_quick_press_behaves_as_before() {
+        let (mut e, _) = engine(false);
+        e.handle(down()).unwrap();
+        assert!(e.will_finish(up()));
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("hello".into())
+        );
+        e.handle(down()).unwrap();
+        assert_eq!(
+            e.handle(up()).unwrap(),
+            Outcome::Transcribed("hello".into())
+        );
     }
 
     /// Two full utterances back to back, to catch state left behind by the first.

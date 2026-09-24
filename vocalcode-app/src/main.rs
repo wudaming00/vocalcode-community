@@ -6,6 +6,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod activation;
+mod activity;
 mod calendar;
 mod community;
 #[cfg(windows)]
@@ -1970,7 +1971,7 @@ fn push_history(status: &Arc<RuntimeStatus>, text: &str) {
 }
 
 fn publish_filler_review(status: &RuntimeStatus, trace: &vocalcode_core::engine::DictationTrace) {
-    if trace.filler_removed == 0 || trace.raw_text_truncated {
+    if (trace.filler_removed == 0 && trace.writing_edits == 0) || trace.raw_text_truncated {
         return;
     }
     if let Ok(mut history) = status.history.lock() {
@@ -4662,6 +4663,7 @@ fn start_background(
                         utterance_prefs = status.workflows.lock().unwrap().clone();
                         utterance_app = if utterance_prefs.diagnostics
                             || !utterance_prefs.profiles.is_empty()
+                            || active_config.writing.needs_app_identity()
                         {
                             vocalcode_platform::foreground_app_id().unwrap_or_default()
                         } else {
@@ -4678,6 +4680,13 @@ fn start_background(
                             &active_config.language,
                         );
                         engine.set_cleanup_enabled(cleanup == workflows::Cleanup::Light);
+                        engine.set_writing(
+                            active_config.writing.options_for(&utterance_app),
+                            &active_config.language,
+                        );
+                        engine.set_double_tap_lock(
+                            active_config.talk_mode == "hold" && active_config.double_tap_lock,
+                        );
                         engine.set_live_caption(progressive);
                         status.noise_filter.set_progressive(progressive);
                         if paste != effective_paste
@@ -4710,6 +4719,11 @@ fn start_background(
                     match engine.handle(ev) {
                         Ok(outcome) => {
                             let recording = engine.is_recording();
+                            if let Outcome::Transcribed(text) = &outcome {
+                                if !text.is_empty() {
+                                    status.activity.record(text, engine.last_audio_ms());
+                                }
+                            }
                             if publish_engine_outcome(
                                 &status,
                                 &overlay,
@@ -4754,6 +4768,14 @@ fn start_background(
                             }
                         }
                     }
+                    // Other playback is muted only while this dictation is
+                    // recording, and never during a meeting: its system-audio
+                    // loopback is exactly that playback.
+                    vocalcode_platform::mute::set_others_muted(
+                        active_config.mute_while_dictating
+                            && engine.is_recording()
+                            && !status.meetings.is_active(),
+                    );
                     if finishing {
                         // A release/disconnect may be emitted by a control that
                         // was already active when readiness closed. Feed those
@@ -4777,10 +4799,18 @@ fn start_background(
                         break;
                     }
                 }
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    vocalcode_platform::mute::set_others_muted(
+                        active_config.mute_while_dictating
+                            && engine.is_recording()
+                            && !status.meetings.is_active(),
+                    );
+                }
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+        // Never leave someone's music muted behind an exiting engine.
+        vocalcode_platform::mute::restore_blocking(Duration::from_millis(500));
     });
     BackgroundRuntime {
         events: tx,
@@ -5645,6 +5675,7 @@ fn main() -> anyhow::Result<()> {
         });
     }
     *status.totals.lock().unwrap() = load_totals();
+    status.activity.load(&app_dir());
     // Read once here and updated live from Settings; the engine reads it per press.
     status
         .talk_latched

@@ -263,6 +263,14 @@ pub struct HistoryEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recognition: Option<String>,
     pub filler_removed: u32,
+    /// Writing-rule applications (line breaks, "scratch that", lists, coding
+    /// words, style). Like pause-word removal, the original stays reviewable.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub writing_edits: u32,
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 impl HistoryEntry {
@@ -272,14 +280,16 @@ impl HistoryEntry {
             text,
             recognition: None,
             filler_removed: 0,
+            writing_edits: 0,
         }
     }
 
     pub fn with_trace(mut self, trace: &vocalcode_core::engine::DictationTrace) -> Self {
         // Never attach a partial recognition and label it as a restorable whole.
-        if trace.filler_removed > 0 && !trace.raw_text_truncated {
+        if (trace.filler_removed > 0 || trace.writing_edits > 0) && !trace.raw_text_truncated {
             self.recognition = Some(trace.raw_text.clone());
             self.filler_removed = trace.filler_removed;
+            self.writing_edits = trace.writing_edits;
         }
         self
     }
@@ -341,6 +351,9 @@ pub struct RuntimeStatus {
     pub(crate) workflows: Mutex<crate::workflows::Preferences>,
     workflow_in_progress: AtomicBool,
     workflow_result: Mutex<Option<Value>>,
+    /// Latest "Try it" answer from the Writing page: the local rules applied
+    /// to typed text. Pure string work; nothing is recorded or delivered.
+    writing_preview: Mutex<Option<Value>>,
     calendar_in_progress: AtomicBool,
     calendar_result: Mutex<Option<Value>>,
     pub(crate) calendar_cancel: AtomicBool,
@@ -442,6 +455,8 @@ pub struct RuntimeStatus {
     /// Lifetime dictation counts, loaded at startup and written after each
     /// utterance. Counts only — never the text; see `Totals` in main.rs.
     pub totals: Mutex<crate::Totals>,
+    /// Text-free per-day counters behind Home -> Insights.
+    pub activity: crate::activity::Store,
     /// The model download in flight: (label, percent, done MB, total MB).
     /// None when nothing is downloading, which is also how the UI knows to hide
     /// the bar rather than leaving it stuck at 100%.
@@ -2043,6 +2058,10 @@ fn config_snapshot_for_page(config: &Config) -> Value {
         "autostart": config.autostart,
         "smart_meeting_reminders": config.smart_meeting_reminders,
         "ignored_meeting_apps": config.ignored_meeting_apps,
+        "double_tap_lock": config.double_tap_lock,
+        "mute_while_dictating": config.mute_while_dictating,
+        "mute_available": cfg!(windows),
+        "writing": config.writing,
     })
 }
 
@@ -2110,6 +2129,14 @@ fn push_status(
         let _ = webview.evaluate_script(&format!("window.vocalcodeWorkflowResult({result})"));
     }
     if let Some(result) = status
+        .writing_preview
+        .lock()
+        .ok()
+        .and_then(|mut r| r.take())
+    {
+        let _ = webview.evaluate_script(&format!("window.vocalcodeWritingPreview({result})"));
+    }
+    if let Some(result) = status
         .migration_result
         .lock()
         .ok()
@@ -2173,6 +2200,7 @@ fn push_status(
         "permissions_ok": status.permissions_ok.load(Ordering::Relaxed),
         "totals": status.totals.lock().ok().map(|t| serde_json::json!({
             "dictations": t.dictations, "words": t.words, "chars": t.chars })),
+        "insights": status.activity.snapshot(),
         "history": status.history.lock().ok().map(|h| h.clone()).unwrap_or_default(),
         "download": download
             .map(|(label, pct, done, total)| serde_json::json!({
@@ -2478,6 +2506,39 @@ fn handle_ipc(
                 *status.calendar_result.lock().unwrap() =
                     Some(serde_json::json!({"id":request_id,"ok":false,"message":error}));
             }
+        }
+        Some("writing_preview") => {
+            // The Writing page's "Try it" box: run the same rules a dictation
+            // would get, on text the person typed, against unsaved settings.
+            // Bounded like any IPC string; never logged, stored or delivered.
+            let text = v["text"].as_str().unwrap_or("");
+            let language = v["language"].as_str().unwrap_or("en");
+            let app = v["app"].as_str().unwrap_or("");
+            let result = serde_json::from_value::<vocalcode_core::config::WritingConfig>(
+                v["writing"].clone(),
+            )
+            .map_err(|_| "writing settings are malformed".to_string())
+            .and_then(|writing| writing.validate().map(|()| writing))
+            .map(|writing| {
+                let written =
+                    vocalcode_core::writing::apply(text, language, &writing.options_for(app));
+                serde_json::json!({
+                    "id": v["id"],
+                    "ok": true,
+                    "text": written.text,
+                    "edits": written.edits,
+                    "send": written.send,
+                })
+            })
+            .unwrap_or_else(
+                |message| serde_json::json!({"id": v["id"], "ok": false, "message": message}),
+            );
+            *status
+                .writing_preview
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);
+            // Only a wake-up: the end-of-iteration push_status delivers it.
+            let _ = proxy.send_event(UserEvent::CaptureReady);
         }
         Some("workflow") => {
             let Some(single_flight) =
@@ -3580,6 +3641,16 @@ where
     if let Some(m) = v.get("talk_mode").and_then(|x| x.as_str()) {
         next.talk_mode = m.to_string();
     }
+    if let Some(b) = v.get("double_tap_lock").and_then(Value::as_bool) {
+        next.double_tap_lock = b;
+    }
+    if let Some(b) = v.get("mute_while_dictating").and_then(Value::as_bool) {
+        next.mute_while_dictating = b;
+    }
+    if let Some(writing) = v.get("writing") {
+        next.writing = serde_json::from_value(writing.clone())
+            .map_err(|_| "writing settings are malformed".to_string())?;
+    }
     if let Some(onboarded) = v.get("onboarded").and_then(Value::as_bool) {
         next.onboarded = onboarded;
     }
@@ -3795,6 +3866,10 @@ fn init_config_json(
     initial["desktop_control"] = serde_json::json!(c.desktop_control);
     initial["desktop_control_edge"] = serde_json::json!(c.desktop_control_edge);
     initial["desktop_control_available"] = serde_json::json!(cfg!(windows));
+    initial["double_tap_lock"] = serde_json::json!(c.double_tap_lock);
+    initial["mute_while_dictating"] = serde_json::json!(c.mute_while_dictating);
+    initial["mute_available"] = serde_json::json!(cfg!(windows));
+    initial["writing"] = serde_json::json!(c.writing);
     initial.to_string()
 }
 
@@ -8950,7 +9025,7 @@ mod webui_copy_contract_tests {
         assert!(html.contains("class=\"meeting-keep-short\">Keep audio</span>"));
         assert!(html.contains(".meeting-retention{align-items:center;flex-wrap:nowrap}"));
         assert!(html.contains(".usage,.footline{display:none}"));
-        assert_eq!(html.matches("class=\"nav-label\"").count(), 7);
+        assert_eq!(html.matches("class=\"nav-label\"").count(), 8);
         assert!(html.contains(
             ".nav-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
         ));

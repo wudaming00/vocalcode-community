@@ -17,6 +17,7 @@ pub mod resample;
 pub mod segmentation;
 pub mod traits;
 pub mod trigger_bus;
+pub mod writing;
 
 pub use config::{Config, MouseExtra, Trigger};
 pub use engine::{Engine, Outcome};
