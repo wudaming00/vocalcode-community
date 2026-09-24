@@ -327,8 +327,12 @@ pub fn expand_snippet(text: &str, entries: &[Entry]) -> Option<String> {
         .trim_end_matches(['.', '。', '!', '！'])
         .trim()
         .to_lowercase();
+    // "Snippets signature." is how recognisers often hear "snippet signature".
     let name = normalized
         .strip_prefix("snippet ")
+        .or_else(|| normalized.strip_prefix("snippets "))
+        .or_else(|| normalized.strip_prefix("snip it "))
+        .or_else(|| normalized.strip_prefix("snipit "))
         .or_else(|| normalized.strip_prefix("插入词块"))?
         .trim();
     entries

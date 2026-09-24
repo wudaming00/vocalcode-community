@@ -280,6 +280,22 @@ fn clean_chinese(text: &str) -> Cleaned {
         let after = text[b..].trim_start_matches(' ');
         let left = before.chars().next_back();
         let right = after.chars().next();
+        // SenseVoice rarely brackets a hesitation with commas: it writes
+        // "这件事情呃需要再讨论一下" (voice-corpus replay, 2026-09-24). 呃 between
+        // Chinese characters is still a pause, except in the word 呃逆
+        // (hiccup). 嗯 keeps the stricter comma-only rule: it is often a word.
+        let han = |ch: char| matches!(ch as u32, 0x3400..=0x4DBF | 0x4E00..=0x9FFF);
+        let han_word = |ch: char| han(ch) && ch != '逆';
+        let glued_pause = c == '呃'
+            && (left.is_some_and(han) || right.is_some_and(han_word))
+            && left.is_none_or(|ch| han(ch) || comma(ch) || stop(ch))
+            && right.is_none_or(|ch| han_word(ch) || comma(ch) || stop(ch));
+        if glued_pause {
+            // Only the hesitation goes; surrounding punctuation stays, so no
+            // two clauses are ever merged.
+            spans.push((a, b));
+            continue;
+        }
         if left.is_some_and(|ch| !(comma(ch) || stop(ch)))
             || right.is_some_and(|ch| !(comma(ch) || stop(ch)))
         {
@@ -447,6 +463,23 @@ mod tests {
             );
         }
     }
+    /// SenseVoice output from the 2026-09-24 voice-corpus replay: the pause
+    /// arrives glued to the sentence, without the commas the rule expected.
+    #[test]
+    fn chinese_glued_hesitation_from_real_recognition() {
+        for (text, expected) in [
+            ("这件事情呃需要再讨论一下。", "这件事情需要再讨论一下。"),
+            ("这件事情呃，需要再讨论一下。", "这件事情，需要再讨论一下。"),
+            ("这件事情，呃需要再讨论一下。", "这件事情，需要再讨论一下。"),
+            ("呃我想试一下。", "我想试一下。"),
+        ] {
+            assert_eq!(clean(text, "zh").text, expected, "{text}");
+        }
+        for text in ["呃逆", "他一直在呃逆。", "变量呃=3", "这个嗯需要改"] {
+            assert_eq!(clean(text, "zh").removed, 0, "{text}");
+        }
+    }
+
     #[test]
     fn chinese_keeps_quotes_code_and_discussions_of_words() {
         for text in [

@@ -1,0 +1,64 @@
+{
+  "format": "vocalcode-voice-corpus",
+  "version": 1,
+  "notes": "Synthetic test script only: every sentence here was written for testing and is spoken by generic TTS voices, never a person's recording. 'expect' is checked on the final text VocalCode would type; 'reference' is the intended words for WER/CER. Negative cases (feature 'guard') must NOT trigger any rule.",
+  "cases": [
+    {"id": "en-plain-pr", "language": "en", "feature": "plain", "say": "Could you open the pull request and check whether the build passed on Windows?", "reference": "Could you open the pull request and check whether the build passed on Windows?"},
+    {"id": "en-plain-meeting", "language": "en", "feature": "plain", "say": "Let's move the meeting to Thursday afternoon and send the notes to the whole team.", "reference": "Let's move the meeting to Thursday afternoon and send the notes to the whole team."},
+    {"id": "en-plain-service", "language": "en", "feature": "plain", "say": "Please rename the config file and restart the Python service before running the tests.", "reference": "Please rename the config file and restart the Python service before running the tests."},
+    {"id": "en-plain-cache", "language": "en", "feature": "plain", "say": "The dashboard loads slowly on older laptops, so we should cache the chart data.", "reference": "The dashboard loads slowly on older laptops, so we should cache the chart data."},
+    {"id": "en-plain-onboarding", "language": "en", "feature": "plain", "say": "I think the new onboarding flow is much clearer than the old one.", "reference": "I think the new onboarding flow is much clearer than the old one."},
+
+    {"id": "en-nl-greeting", "language": "en", "feature": "commands", "say": "Hi Sam, new line. Thanks for the quick fix.", "reference": "Hi Sam, Thanks for the quick fix.", "expect": {"newlines": 1, "absent": ["new line"], "present": ["Sam", "quick fix"]}},
+    {"id": "en-nl-paragraph", "language": "en", "feature": "commands", "say": "Summary of today. New paragraph. The release is blocked by one failing test.", "reference": "Summary of today. The release is blocked by one failing test.", "expect": {"blank_lines": 1, "absent": ["new paragraph"], "present": ["failing test"]}},
+    {"id": "en-nl-two", "language": "en", "feature": "commands", "say": "Dear team, new line. The demo is ready. New line. Please review it tonight.", "reference": "Dear team, The demo is ready. Please review it tonight.", "expect": {"newlines": 2, "absent": ["new line"], "present": ["demo", "tonight"]}},
+    {"id": "en-nl-guard", "language": "en", "feature": "guard", "say": "Add a new line to the end of the config file.", "reference": "Add a new line to the end of the config file.", "expect": {"newlines": 0, "present": ["new line"]}},
+
+    {"id": "en-st-day", "language": "en", "feature": "backtrack", "say": "Let's meet on Tuesday. Scratch that. Let's meet on Wednesday at ten.", "reference": "Let's meet on Wednesday at ten.", "expect": {"absent": ["Tuesday", "scratch"], "present": ["Wednesday"]}},
+    {"id": "en-st-budget", "language": "en", "feature": "backtrack", "say": "The budget is five hundred dollars. Scratch that. The budget is eight hundred dollars.", "reference": "The budget is eight hundred dollars.", "expect": {"absent": ["scratch"], "absent_any": [["five hundred", "500"]], "present_any": [["eight hundred", "800"]]}},
+    {"id": "en-st-guard", "language": "en", "feature": "guard", "say": "Let's scratch that idea and try something simpler.", "reference": "Let's scratch that idea and try something simpler.", "expect": {"present": ["scratch that idea"]}},
+
+    {"id": "en-li-plan", "language": "en", "feature": "lists", "say": "Here's the plan. First, pull the latest branch. Second, run the unit tests. Third, ship the release.", "reference": "Here's the plan. Pull the latest branch. Run the unit tests. Ship the release.", "expect": {"list_items": 3, "present": ["branch", "unit tests", "release"]}},
+    {"id": "en-li-numbered", "language": "en", "feature": "lists", "say": "Shopping list. Number one, milk. Number two, eggs. Number three, bread.", "reference": "Shopping list. Milk. Eggs. Bread.", "expect": {"list_items": 3, "present": ["milk", "eggs", "bread"]}},
+    {"id": "en-li-guard", "language": "en", "feature": "guard", "say": "First of all, thanks for joining the call today.", "reference": "First of all, thanks for joining the call today.", "expect": {"list_items": 0}},
+
+    {"id": "en-cd-camel", "language": "en", "feature": "code", "say": "Rename camel case user name to camel case display name.", "reference": "Rename userName to displayName.", "expect": {"present": ["userName", "displayName"], "absent": ["camel"]}},
+    {"id": "en-cd-snake", "language": "en", "feature": "code", "say": "Set snake case max retry count to five.", "reference": "Set max_retry_count to five.", "expect": {"present": ["max_retry_count"]}},
+    {"id": "en-cd-paren", "language": "en", "feature": "code", "say": "Call the function, open paren, user id, close paren.", "reference": "Call the function (user id).", "expect": {"present": ["(", ")"], "absent": ["paren"]}},
+    {"id": "en-cd-question", "language": "en", "feature": "code", "say": "Is the cache warm question mark", "reference": "Is the cache warm?", "expect": {"ends_with": "?", "absent": ["question mark"]}},
+    {"id": "en-cd-guard", "language": "en", "feature": "guard", "say": "Put a question mark at the end of that title.", "reference": "Put a question mark at the end of that title.", "expect": {"present": ["question mark"]}},
+
+    {"id": "en-pe-send", "language": "en", "feature": "press_enter", "say": "Run the tests and show me the failures, press enter.", "reference": "Run the tests and show me the failures", "expect": {"send": true, "absent": ["press enter"]}},
+    {"id": "en-pe-guard", "language": "en", "feature": "guard", "say": "Open the terminal and press enter.", "reference": "Open the terminal and press enter.", "expect": {"send": false, "present": ["press enter"]}},
+
+    {"id": "en-style-casual", "language": "en", "feature": "style", "style": "casual", "say": "Sounds good. See you at five.", "reference": "Sounds good. See you at five", "expect": {"not_ends_with": "."}},
+    {"id": "en-style-verycasual", "language": "en", "feature": "style", "style": "very_casual", "say": "Sounds good. See you tomorrow.", "reference": "sounds good. see you tomorrow", "expect": {"not_ends_with": ".", "starts_lower": true}},
+
+    {"id": "en-filler", "language": "en", "feature": "fillers", "say": "So, um, I think we should, uh, ship it tomorrow.", "reference": "So, I think we should, ship it tomorrow.", "expect": {"absent_words": ["um", "uh"], "present": ["ship it tomorrow"]}},
+    {"id": "en-snippet", "language": "en", "feature": "snippet", "say": "Snippet signature.", "reference": "Best regards, Daming", "expect": {"equals": "Best regards,\nDaming"}},
+
+    {"id": "zh-plain-pr", "language": "zh", "feature": "plain", "say": "帮我看一下这个拉取请求有没有通过测试。", "reference": "帮我看一下这个拉取请求有没有通过测试。"},
+    {"id": "zh-plain-meeting", "language": "zh", "feature": "plain", "say": "明天下午三点开会，记得把会议记录发给大家。", "reference": "明天下午三点开会，记得把会议记录发给大家。"},
+    {"id": "zh-plain-cache", "language": "zh", "feature": "plain", "say": "这个页面在旧电脑上加载很慢，我们要把图表数据缓存起来。", "reference": "这个页面在旧电脑上加载很慢，我们要把图表数据缓存起来。"},
+    {"id": "zh-plain-mixed", "language": "zh", "feature": "plain", "say": "把这个 bug 修一下，然后提交一个新的 PR。", "reference": "把这个 bug 修一下，然后提交一个新的 PR。"},
+    {"id": "zh-plain-onboarding", "language": "zh", "feature": "plain", "say": "我觉得新的引导流程比以前清楚多了。", "reference": "我觉得新的引导流程比以前清楚多了。"},
+
+    {"id": "zh-nl-letter", "language": "zh", "feature": "commands", "say": "张总您好，换行。附件是这周的周报，请查收。", "reference": "张总您好，附件是这周的周报，请查收。", "expect": {"newlines": 1, "absent": ["换行"], "present": ["周报"]}},
+    {"id": "zh-nl-paragraph", "language": "zh", "feature": "commands", "say": "第一部分写完了。另起一段。第二部分我们明天再讨论。", "reference": "第一部分写完了。第二部分我们明天再讨论。", "expect": {"blank_lines": 1, "absent": ["另起一段"], "present": ["明天"]}},
+    {"id": "zh-nl-guard", "language": "zh", "feature": "guard", "say": "这一段是不是太长了，需要换行吗？", "reference": "这一段是不是太长了，需要换行吗？", "expect": {"newlines": 0, "present": ["换行"]}},
+
+    {"id": "zh-st-day", "language": "zh", "feature": "backtrack", "say": "我们周二开会。删掉上一句。我们周三上午十点开会。", "reference": "我们周三上午十点开会。", "expect": {"absent": ["周二", "删掉"], "present": ["周三"]}},
+    {"id": "zh-st-guard", "language": "zh", "feature": "guard", "say": "我想删掉上一句话里的错别字。", "reference": "我想删掉上一句话里的错别字。", "expect": {"present": ["删掉上一句话"]}},
+
+    {"id": "zh-li-tasks", "language": "zh", "feature": "lists", "say": "明天要做三件事。第一，合并分支。第二，运行测试。第三，发布新版本。", "reference": "明天要做三件事：合并分支运行测试发布新版本", "expect": {"list_items": 3, "present": ["分支", "测试", "版本"]}},
+    {"id": "zh-li-points", "language": "zh", "feature": "lists", "say": "这个方案有两个问题。第一点，成本太高。第二点，时间太紧。", "reference": "这个方案有两个问题：成本太高时间太紧", "expect": {"list_items": 2, "present": ["成本", "时间"]}},
+    {"id": "zh-li-guard", "language": "zh", "feature": "guard", "say": "这是我第一次来北京，感觉很好。", "reference": "这是我第一次来北京，感觉很好。", "expect": {"list_items": 0}},
+
+    {"id": "zh-pe-send", "language": "zh", "feature": "press_enter", "say": "好的，就按这个方案执行。回车。", "reference": "好的，就按这个方案执行。", "expect": {"send": true, "absent": ["回车"]}},
+    {"id": "zh-pe-guard", "language": "zh", "feature": "guard", "say": "我按了回车，但是页面没有反应。", "reference": "我按了回车，但是页面没有反应。", "expect": {"send": false, "present": ["回车"]}},
+
+    {"id": "zh-style-casual", "language": "zh", "feature": "style", "style": "casual", "say": "好的，明天见。", "reference": "好的，明天见", "expect": {"not_ends_with": "。"}},
+    {"id": "zh-filler", "language": "zh", "feature": "fillers", "say": "这件事情，呃，需要再讨论一下。", "reference": "这件事情，需要再讨论一下。", "expect": {"absent": ["呃"], "present": ["讨论"]}},
+    {"id": "zh-snippet", "language": "zh", "feature": "snippet", "say": "插入词块签名。", "reference": "此致 敬礼", "expect": {"equals": "此致\n敬礼"}}
+  ]
+}

@@ -1,0 +1,256 @@
+{
+ "notes": "Generic synthetic voices only. Fish voices are restricted to the 'Fish Official' author (d8b0991f96b44e489422ca2ddf0bd31d); community voices are often clones of real people and must never be used. Variants are applied to a subset so the corpus stays manageable.",
+ "voices": [
+  {
+   "id": "edge-en-us-andrew",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-US-AndrewNeural",
+   "variants": [
+    "noisy",
+    "fast",
+    "quiet"
+   ]
+  },
+  {
+   "id": "edge-en-us-ava",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-US-AvaNeural",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "edge-en-us-guy",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-US-GuyNeural",
+   "rate": "+10%"
+  },
+  {
+   "id": "edge-en-gb-sonia",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-GB-SoniaNeural"
+  },
+  {
+   "id": "edge-en-in-prabhat",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-IN-PrabhatNeural",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "edge-en-au-natasha",
+   "provider": "edge",
+   "language": "en",
+   "voice": "en-AU-NatashaNeural"
+  },
+  {
+   "id": "sapi-en-david",
+   "provider": "sapi",
+   "language": "en",
+   "voice": "Microsoft David Desktop"
+  },
+  {
+   "id": "edge-zh-xiaoxiao",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-CN-XiaoxiaoNeural",
+   "variants": [
+    "noisy",
+    "fast",
+    "quiet"
+   ]
+  },
+  {
+   "id": "edge-zh-yunxi",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-CN-YunxiNeural",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "edge-zh-yunjian",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-CN-YunjianNeural",
+   "rate": "+10%"
+  },
+  {
+   "id": "edge-zh-xiaoyi",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-CN-XiaoyiNeural"
+  },
+  {
+   "id": "edge-zh-tw-hsiaochen",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-TW-HsiaoChenNeural"
+  },
+  {
+   "id": "edge-zh-liaoning-xiaobei",
+   "provider": "edge",
+   "language": "zh",
+   "voice": "zh-CN-liaoning-XiaobeiNeural",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "sapi-zh-huihui",
+   "provider": "sapi",
+   "language": "zh",
+   "voice": "Microsoft Huihui Desktop"
+  },
+  {
+   "id": "fish-en-sarah",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "933563129e564b19a115bedd57b7406a",
+   "author": "Fish Official",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "fish-en-ethan",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "536d3a5e000945adb7038665781a4aca",
+   "author": "Fish Official",
+   "variants": [
+    "fast"
+   ]
+  },
+  {
+   "id": "fish-en-hannah",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "9a9cf47702da476aa4629e2506d4a857",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-adrian",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "bf322df2096a46f18c579d0baa36f41d",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-freya-gb",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "8abfa9ebd4c24a3399b68c3cdac8c7b5",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-oliver-gb",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "8d8aec63a56c460cb7def795bdf754fa",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-ananya-in",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "18b1276891524bd786fb8a59ecd3630a",
+   "author": "Fish Official",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "fish-en-arjun-in",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "2e8a3bd7fb474d80b4e7966d678fb777",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-chloe-au",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "b121b91872f54f04ba9f6da08b8b6253",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-en-jack-au",
+   "provider": "fish",
+   "language": "en",
+   "reference_id": "a92fb82d739d428a80d4645c5cf91e38",
+   "author": "Fish Official",
+   "variants": [
+    "quiet"
+   ]
+  },
+  {
+   "id": "fish-zh-yutong",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "74c6aba5cbf94a15bbdc547ffce5cb38",
+   "author": "Fish Official",
+   "variants": [
+    "noisy",
+    "fast"
+   ]
+  },
+  {
+   "id": "fish-zh-zixuan",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "5d29a99739c14d4ca3e4fe42193105b2",
+   "author": "Fish Official",
+   "variants": [
+    "quiet"
+   ]
+  },
+  {
+   "id": "fish-zh-chenghan-tw",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "1e85fd1e0d3e4cc2b79fbca800e7e3fe",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-zh-shihan-tw",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "91ec588cf8ef443a9c0d5b21d0c1fa36",
+   "author": "Fish Official",
+   "variants": []
+  },
+  {
+   "id": "fish-zh-haoran",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "d675c275d1d44e57b4ef3840c5a23209",
+   "author": "Fish Official",
+   "variants": [
+    "noisy"
+   ]
+  },
+  {
+   "id": "fish-zh-bingbing",
+   "provider": "fish",
+   "language": "zh",
+   "reference_id": "e98fa6cdad6946bf8d9bb8f9cb8c2532",
+   "author": "Fish Official",
+   "variants": []
+  }
+ ]
+}

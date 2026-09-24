@@ -26,6 +26,8 @@ mod paths;
 mod rewrite;
 mod rewrite_cli;
 mod storage;
+#[cfg(test)]
+mod voice_corpus;
 mod webui;
 mod workflows;
 

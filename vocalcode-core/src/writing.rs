@@ -318,23 +318,48 @@ fn capitalize_first_word(text: &str) -> String {
 const EN_BACKTRACK: &[&[&str]] = &[&["scratch", "that"], &["strike", "that"]];
 const ZH_BACKTRACK: &[&str] = &["删掉上一句", "删除上一句", "上一句删掉", "撤回上一句"];
 
+/// SenseVoice routinely renders a spoken "scratch" as a vowel-less stub —
+/// "Sctch", "Scch", "Sct", "Sc" (voice-corpus replay, 2026-09-24). No English
+/// word is "sc" plus consonants only, so the stub is safe to accept.
+fn is_garbled_scratch(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    lower.len() <= 6
+        && lower.starts_with("sc")
+        && lower.chars().all(|c| c.is_ascii_alphabetic())
+        && !lower[2..].contains(['a', 'e', 'i', 'o', 'u', 'y'])
+}
+
 /// Find the first retraction command that stands as its own clause.
 fn find_backtrack(text: &str, english: bool, chinese: bool) -> Option<(usize, usize)> {
     let mut best: Option<(usize, usize)> = None;
     if english || chinese {
         let toks = tokens(text);
         for i in 0..toks.len() {
-            for phrase in EN_BACKTRACK {
-                if let Some(end) = phrase_at(text, &toks, i, phrase) {
-                    let start = toks[i].start;
-                    if stands_alone_en(text, start, end) {
-                        best = Some((start, end));
-                        break;
-                    }
+            let garbled = is_garbled_scratch(word(text, &toks[i]))
+                .then(|| {
+                    toks.get(i + 1).filter(|t| {
+                        word(text, t).eq_ignore_ascii_case("that")
+                            && text[toks[i].end..t.start].chars().all(char::is_whitespace)
+                    })
+                })
+                .flatten()
+                .map(|t| t.end);
+            let found = EN_BACKTRACK
+                .iter()
+                .find_map(|phrase| phrase_at(text, &toks, i, phrase))
+                .or(garbled);
+            if let Some(end) = found {
+                let start = toks[i].start;
+                // A capital mid-utterance is the recogniser starting a new
+                // sentence ("…$500 Sctch that the budget is…"), even where it
+                // dropped the punctuation after the command.
+                let capital_mid = start > 0 && starts_capitalized(text, start);
+                if stands_alone_en(text, start, end)
+                    || (capital_mid && !text[end..].trim().is_empty())
+                {
+                    best = Some((start, end));
+                    break;
                 }
-            }
-            if best.is_some() {
-                break;
             }
         }
     }
@@ -436,7 +461,12 @@ const ZH_BREAKS: &[(&str, &str)] = &[
     ("新的一段", "\n\n"),
     ("另起一行", "\n"),
     ("换行", "\n"),
+    // Homophones SenseVoice produces for a spoken 换行 (huàn háng).
+    ("换航", "\n"),
+    ("唤行", "\n"),
 ];
+/// Characters that, right after a break phrase, make it prose, not a command.
+const ZH_BREAK_NEXT_BLOCK: &str = "的了吗呢吧啊时后前符键是就不也还都和与及过么";
 
 /// Words that make "new line" a noun phrase or a topic rather than a command:
 /// "add a new line", "the new line character", "new line between them".
@@ -623,9 +653,17 @@ fn spoken_breaks(text: &str, english: bool, chinese: bool) -> (String, u32) {
                 let start = from + found;
                 let end = start + phrase.len();
                 from = end;
-                // A Chinese command must be its own clause: "这里需要换行"
-                // is a sentence about line breaks, "…，换行，…" is a command.
-                if !(at_clause_start(text, start) && at_clause_end(text, end)) {
+                // A Chinese command opens its own clause: "这里需要换行" is a
+                // sentence about line breaks, "…，换行，…" is a command. The
+                // recogniser often drops the comma after it ("…，换行附件是…"),
+                // so the clause may run on unless the next character makes
+                // the phrase a noun or a question ("换行的时候", "换行吗").
+                let runs_on_as_prose = text[end..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| ZH_BREAK_NEXT_BLOCK.contains(c));
+                if !at_clause_start(text, start) || (!at_clause_end(text, end) && runs_on_as_prose)
+                {
                     continue;
                 }
                 if spans.iter().any(|s| start < s.end && s.start < end) {
@@ -692,6 +730,14 @@ struct Marker {
     content: usize,
 }
 
+/// Words before a mid-clause ordinal that make it an adjective or a rank,
+/// not an item marker: "the second draft", "came third", "a first step".
+const LIST_PREV_BLOCK: &[&str] = &[
+    "the", "a", "an", "this", "that", "my", "your", "our", "their", "his", "her", "its", "every",
+    "each", "per", "in", "on", "at", "of", "for", "to", "came", "come", "comes", "finished",
+    "finish", "placed", "ranked", "rank", "is", "was", "are", "were", "be", "been", "am",
+];
+
 fn en_marker(text: &str, toks: &[Tok], i: usize, n: usize) -> Option<(Marker, usize)> {
     let start = toks[i].start;
     // "…, and third, …" / "…, then second …": a conjunction may sit between
@@ -703,20 +749,45 @@ fn en_marker(text: &str, toks: &[Tok], i: usize, n: usize) -> Option<(Marker, us
         ) && text[toks[p].end..start].chars().all(char::is_whitespace)
             && at_clause_start(text, toks[p].start)
     });
+    let ordinal = EN_ORDINALS[n]
+        .iter()
+        .any(|w| word(text, &toks[i]).eq_ignore_ascii_case(w));
+    let (end, used) = if ordinal {
+        (toks[i].end, 1)
+    } else {
+        let digit = (n + 1).to_string();
+        (
+            phrase_at(text, toks, i, &["number", EN_NUMBERS[n]])
+                .or_else(|| phrase_at(text, toks, i, &["number", &digit]))?,
+            2,
+        )
+    };
+    let prev_word = i
+        .checked_sub(1)
+        .filter(|&p| text[toks[p].end..start].chars().all(char::is_whitespace))
+        .map(|p| word(text, &toks[p]).to_ascii_lowercase());
+    // Recognisers often drop the punctuation around spoken items ("Shopping
+    // list number one milk number two eggs", "the plan first, pull…").
+    // Beyond a clause start or a capital, accept: any "number N" (a list
+    // only forms from a complete 1, 2, … sequence); a first ordinal that is
+    // followed by its own comma; and a later ordinal once a list has begun,
+    // unless the word before makes it an adjective ("the second draft").
+    let relaxed = if !ordinal {
+        true
+    } else if n == 0 {
+        text[end..].starts_with(',')
+    } else {
+        prev_word
+            .as_deref()
+            .is_none_or(|w| !LIST_PREV_BLOCK.contains(&w))
+    };
     if !at_clause_start(text, start)
         && !starts_capitalized(text, start)
         && !(n > 0 && after_conjunction)
+        && !relaxed
     {
         return None;
     }
-    let (end, used) = if EN_ORDINALS[n]
-        .iter()
-        .any(|w| word(text, &toks[i]).eq_ignore_ascii_case(w))
-    {
-        (toks[i].end, 1)
-    } else {
-        (phrase_at(text, toks, i, &["number", EN_NUMBERS[n]])?, 2)
-    };
     // "First of all" and "first things first" are idioms, not list items.
     if n == 0 {
         let following: Vec<String> = toks[i + used..]
@@ -775,26 +846,36 @@ fn zh_markers(text: &str) -> Vec<Marker> {
             search = end;
             // "第十" must not be the head of "第十一"; "第一" not of "第一次".
             let rest = &text[end..];
-            let rest = if let Some(r) = rest.strip_prefix(['点', '条', '步']) {
+            let (rest, suffixed) = if let Some(r) = rest.strip_prefix(['点', '条', '步']) {
                 end += rest.len() - r.len();
-                r
+                (r, true)
             } else {
-                rest
+                (rest, false)
             };
             if !at_clause_start(text, start) {
                 continue;
             }
-            let Some(mark) = rest
+            let mark = rest
                 .chars()
                 .next()
                 // A recogniser may close the ordinal with a full stop at the
                 // pause ("第二。运行测试"); the ordinal itself still has to
                 // open a clause, so "他得了第二。" is not a marker.
-                .filter(|c| matches!(c, '，' | ',' | '：' | ':' | '、' | '。' | '.'))
-            else {
-                continue;
+                .filter(|c| matches!(c, '，' | ',' | '：' | ':' | '、' | '。' | '.'));
+            // With 点/条/步 the ordinal is unambiguous ("第二点时间太紧"), so
+            // the recogniser's missing comma does not matter.
+            let content = match mark {
+                Some(mark) => end + mark.len_utf8(),
+                None if suffixed
+                    && rest
+                        .chars()
+                        .next()
+                        .is_some_and(|c| is_cjk(c) || c.is_alphanumeric()) =>
+                {
+                    end
+                }
+                None => continue,
             };
-            let content = end + mark.len_utf8();
             let content = content + (text[content..].len() - text[content..].trim_start().len());
             if text[content..].is_empty() {
                 continue;
@@ -900,7 +981,8 @@ fn spoken_list(text: &str, english: bool, chinese: bool) -> (String, u32) {
     }
     out.push_str(&items.join("\n"));
     let tail = text[tail_at..].trim();
-    if !tail.is_empty() {
+    // A lone "." from a nearly silent final segment is not text to keep.
+    if tail.chars().any(|c| c.is_alphanumeric() || is_cjk(c)) {
         out.push('\n');
         out.push_str(tail);
     }
@@ -943,7 +1025,12 @@ fn strip_press_enter(text: &str, chinese: bool) -> Option<String> {
     if chinese {
         for phrase in ["按回车", "回车"] {
             if let Some(head) = body.strip_suffix(phrase) {
-                if prev_char(head, head.len()).is_none_or(is_mark) {
+                // The recogniser often glues the final command onto the
+                // sentence ("就按这个方案执行回车。"). Glued is still a
+                // command, unless the character before makes it a report of
+                // pressing the key ("他按了回车", "敲回车", "一个回车").
+                let prev = prev_char(head, head.len());
+                if prev.is_none_or(|c| is_mark(c) || !ZH_PRESS_PREV_BLOCK.contains(c)) {
                     return Some(finish_head(head));
                 }
             }
@@ -951,6 +1038,9 @@ fn strip_press_enter(text: &str, chinese: bool) -> Option<String> {
     }
     None
 }
+
+/// Characters right before a final 回车 that describe the key, not command it.
+const ZH_PRESS_PREV_BLOCK: &str = "按敲点了的个下是用过在";
 
 /// What precedes a removed trailing command: drop the separating comma, keep
 /// a real sentence end.
@@ -995,6 +1085,13 @@ const CASE_STOP: &[&str] = &[
 ];
 const CASE_MAX_WORDS: usize = 6;
 
+/// "to5", "at10": a stop word the recogniser glued to a number.
+fn glued_stop_word(word: &str) -> bool {
+    let lower = word.to_ascii_lowercase();
+    let letters = lower.trim_end_matches(|c: char| c.is_ascii_digit());
+    letters.len() < lower.len() && CASE_STOP.contains(&letters)
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Glue {
     /// Spaces on both sides are kept.
@@ -1007,15 +1104,17 @@ enum Glue {
     Both,
 }
 
+/// Parentheses are spoken in many shapes, and recognisers add more:
+/// "open paren", "open_paran" (Qwen3), "open Par" / "open parent"
+/// (SenseVoice). The unambiguous nouns always count; "par" and "parent" are
+/// ordinary words, so they count only when a matching close/open appears in
+/// the same dictation or the phrase ends a clause.
+const PAREN_STRONG: &[&str] = &["paren", "parens", "parenthesis", "paran"];
+const PAREN_WEAK: &[&str] = &["par", "parent"];
+const PAREN_OPEN: &[&str] = &["open", "left"];
+const PAREN_CLOSE: &[&str] = &["close", "right"];
+
 const SYMBOLS: &[(&[&str], &str, Glue)] = &[
-    (&["open", "parenthesis"], "(", Glue::Right),
-    (&["open", "paren"], "(", Glue::Right),
-    (&["openparen"], "(", Glue::Right),
-    (&["left", "paren"], "(", Glue::Right),
-    (&["close", "parenthesis"], ")", Glue::Left),
-    (&["close", "paren"], ")", Glue::Left),
-    (&["closeparen"], ")", Glue::Left),
-    (&["right", "paren"], ")", Glue::Left),
     (&["open", "bracket"], "[", Glue::Right),
     (&["close", "bracket"], "]", Glue::Left),
     (&["open", "curly", "brace"], "{", Glue::Right),
@@ -1052,8 +1151,35 @@ struct Piece {
     glue: Glue,
 }
 
+/// "DisplayName" / "userID" arrive as one word; split them at their own case
+/// boundaries so re-casing keeps every part ("displayName", "display_name").
+fn case_parts(word: &str) -> Vec<String> {
+    let chars: Vec<char> = word.chars().collect();
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    for (k, &c) in chars.iter().enumerate() {
+        let boundary = k > 0
+            && c.is_uppercase()
+            && (chars[k - 1].is_lowercase()
+                || chars.get(k + 1).is_some_and(|n| n.is_lowercase())
+                    && chars[k - 1].is_uppercase());
+        if boundary && !current.is_empty() {
+            parts.push(std::mem::take(&mut current));
+        }
+        current.push(c);
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+    parts
+}
+
 fn case_join(words: &[String], case: Case) -> String {
-    let lower: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+    let lower: Vec<String> = words
+        .iter()
+        .flat_map(|w| case_parts(w))
+        .map(|w| w.to_lowercase())
+        .collect();
     let cap = |w: &str| {
         let mut c = w.chars();
         c.next()
@@ -1071,6 +1197,66 @@ fn case_join(words: &[String], case: Case) -> String {
         Case::Kebab => lower.join("-"),
         Case::Constant => lower.join("_").to_uppercase(),
     }
+}
+
+/// Word gap inside a spoken symbol: spaces, or the recogniser's own `_`/`-`
+/// ("open_paran").
+fn symbol_gap(gap: &str) -> bool {
+    !gap.is_empty()
+        && gap
+            .chars()
+            .all(|c| c.is_whitespace() || c == '_' || c == '-')
+}
+
+/// A parenthesis at token `i`: (end byte, tokens used, symbol).
+fn paren_at(text: &str, toks: &[Tok], i: usize) -> Option<(usize, usize, &'static str)> {
+    let first = word(text, &toks[i]).to_ascii_lowercase();
+    // One glued token: "openparen", and Parakeet's "openParon"/"CloseParin".
+    // No English word is open/close + "par…", so the stub is unambiguous.
+    if first.len() <= 14 {
+        for (prefix, symbol) in [("open", "("), ("left", "("), ("close", ")"), ("right", ")")] {
+            if first
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with("par") && rest.len() <= 11 && rest != "parent")
+            {
+                return Some((toks[i].end, 1, symbol));
+            }
+        }
+    }
+    let symbol = if PAREN_OPEN.contains(&first.as_str()) {
+        "("
+    } else if PAREN_CLOSE.contains(&first.as_str()) {
+        ")"
+    } else {
+        return None;
+    };
+    let next = toks.get(i + 1)?;
+    if !symbol_gap(&text[toks[i].end..next.start]) {
+        return None;
+    }
+    let noun = word(text, next).to_ascii_lowercase();
+    if PAREN_STRONG.contains(&noun.as_str()) {
+        return Some((next.end, 2, symbol));
+    }
+    if !PAREN_WEAK.contains(&noun.as_str()) {
+        return None;
+    }
+    // Weak noun: needs its partner somewhere in the dictation, or to stand
+    // at the end of a clause ("…, open Par, user ID, Close Par.").
+    let partner = if symbol == "(" {
+        PAREN_CLOSE
+    } else {
+        PAREN_OPEN
+    };
+    let paired = toks.windows(2).any(|w| {
+        partner.contains(&word(text, &w[0]).to_ascii_lowercase().as_str())
+            && symbol_gap(&text[w[0].end..w[1].start])
+            && {
+                let n = word(text, &w[1]).to_ascii_lowercase();
+                PAREN_WEAK.contains(&n.as_str()) || PAREN_STRONG.contains(&n.as_str())
+            }
+    });
+    (paired || at_clause_end(text, next.end)).then_some((next.end, 2, symbol))
 }
 
 fn code_words(text: &str) -> (String, u32) {
@@ -1096,14 +1282,12 @@ fn code_words(text: &str) -> (String, u32) {
             while j < toks.len() && words.len() < CASE_MAX_WORDS {
                 let gap = &text[end..toks[j].start];
                 let w = word(text, &toks[j]);
-                // A Titlecase word after the first ("…account ID Press …") is
-                // the recogniser starting a new clause, not part of the name.
-                let titlecase = w.chars().next().is_some_and(char::is_uppercase)
-                    && w.chars().count() > 1
-                    && w.chars().skip(1).all(|c| !c.is_uppercase());
+                // Title Case is no boundary: Qwen3 writes "Snake Case Max
+                // Retry Count". Stop words and punctuation end the name.
                 if !gap.chars().all(char::is_whitespace)
                     || (!words.is_empty()
-                        && (titlecase || CASE_STOP.contains(&w.to_ascii_lowercase().as_str())))
+                        && (CASE_STOP.contains(&w.to_ascii_lowercase().as_str())
+                            || glued_stop_word(w)))
                 {
                     break;
                 }
@@ -1127,6 +1311,20 @@ fn code_words(text: &str) -> (String, u32) {
             .as_deref()
             .is_none_or(|w| !EN_BREAK_PREV_BLOCK.contains(&w))
         {
+            if let Some((end, used, symbol)) = paren_at(text, &toks, i) {
+                pieces.push(Piece {
+                    start: toks[i].start,
+                    end,
+                    text: symbol.to_string(),
+                    glue: if symbol == "(" {
+                        Glue::Right
+                    } else {
+                        Glue::Left
+                    },
+                });
+                i += used;
+                continue 'scan;
+            }
             for (phrase, symbol, glue) in SYMBOLS {
                 if let Some(end) = phrase_at(text, &toks, i, phrase) {
                     pieces.push(Piece {
@@ -1149,27 +1347,40 @@ fn code_words(text: &str) -> (String, u32) {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0;
     let mut glue_next = false;
+    let mut swallow = false;
     for piece in &pieces {
         let mut gap = &text[cursor..piece.start];
         let attach_left = matches!(piece.glue, Glue::Left | Glue::Both);
+        if swallow {
+            // The recogniser's own "." or "," right after a spoken ? ! ;
+            gap = gap.trim_start_matches(['.', ',', '。', '，']);
+        }
         if glue_next {
-            gap = gap.trim_start_matches([' ', '\t']);
+            gap = gap.trim_start_matches([' ', '\t', ',', '，']);
         }
         if attach_left {
-            gap = gap.trim_end_matches([' ', '\t']);
+            gap = gap.trim_end_matches([' ', '\t', ',', '，']);
         }
         out.push_str(gap);
         if attach_left {
-            let trimmed = out.trim_end_matches([' ', '\t']).len();
+            let trimmed = out.trim_end_matches([' ', '\t', ',', '，']).len();
             out.truncate(trimmed);
         }
-        out.push_str(&piece.text);
+        let sentence_symbol = matches!(piece.text.as_str(), "?" | "!" | ";");
+        // "Is the cache warm? Question mark." — Qwen3 already wrote the "?".
+        if !(sentence_symbol && out.ends_with(piece.text.as_str())) {
+            out.push_str(&piece.text);
+        }
         glue_next = matches!(piece.glue, Glue::Right | Glue::Both);
+        swallow = sentence_symbol;
         cursor = piece.end;
     }
-    let rest = &text[cursor..];
+    let mut rest = &text[cursor..];
+    if swallow {
+        rest = rest.trim_start_matches(['.', ',', '。', '，']);
+    }
     if glue_next {
-        out.push_str(rest.trim_start_matches([' ', '\t']));
+        out.push_str(rest.trim_start_matches([' ', '\t', ',', '，']));
     } else {
         out.push_str(rest);
     }
@@ -1220,12 +1431,12 @@ fn strip_final_period(line: &str) -> Option<&str> {
     if last_word.contains('.') {
         return None;
     }
-    // "…in the U" / list numbering "1." are left alone.
-    if last_word.len() == 1
-        && last_word
-            .chars()
-            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-    {
+    // An initial ("…Harry S.") is left alone; a number is a sentence end
+    // ("See you at 5."), except a bare list number on its own ("1.").
+    if last_word.len() == 1 && last_word.chars().all(|c| c.is_ascii_uppercase()) {
+        return None;
+    }
+    if last_word == head.trim() && last_word.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
     Some(head)
@@ -1736,6 +1947,165 @@ mod tests {
         assert_eq!(
             en("I came first and you came second", all),
             "I came first and you came second"
+        );
+    }
+
+    /// Verbatim recogniser output from the 2026-09-24 voice-corpus replay
+    /// (SenseVoice zh/en, Qwen3-ASR en; edge/SAPI voices). Each line failed
+    /// before this fix. They pin the rules without needing a model in CI.
+    #[test]
+    fn voice_corpus_regressions_zh() {
+        let all = Options {
+            commands: true,
+            backtrack: true,
+            lists: true,
+            code: true,
+            press_enter: true,
+            style: Style::Formal,
+        };
+        let w = apply("好的，就按这个方案执行回车。", "zh", &all);
+        assert_eq!((w.text.as_str(), w.send), ("好的，就按这个方案执行", true));
+        let w = apply("我按了回车，但是页面没有反应。", "zh", &all);
+        assert!(!w.send);
+        assert!(!apply("他刚才按了回车。", "zh", &all).send);
+        assert_eq!(
+            zh("张总您好，换行附件是这周的周报，请查收。", all),
+            "张总您好，\n附件是这周的周报，请查收。"
+        );
+        assert_eq!(
+            zh("张总，您好，换航附件是这周的周报，请查收。", all),
+            "张总，您好，\n附件是这周的周报，请查收。"
+        );
+        assert_eq!(
+            zh("这一段是不是太长了，需要换航吗？", all),
+            "这一段是不是太长了，需要换航吗？"
+        );
+        assert_eq!(zh("换行的时候要注意缩进。", all), "换行的时候要注意缩进。");
+        assert_eq!(
+            zh(
+                "这个方案有两个问题，第一点，成本太高。第二点时间太紧。",
+                all
+            ),
+            "这个方案有两个问题：\n1. 成本太高\n2. 时间太紧"
+        );
+        assert_eq!(
+            zh("这个方案有两个问题，第一点成本太高，第二点时间太紧。", all),
+            "这个方案有两个问题：\n1. 成本太高\n2. 时间太紧"
+        );
+        assert_eq!(
+            zh("这是第一次，也是第二次。", all),
+            "这是第一次，也是第二次。"
+        );
+    }
+
+    #[test]
+    fn voice_corpus_regressions_en() {
+        let all = Options {
+            commands: true,
+            backtrack: true,
+            lists: true,
+            code: true,
+            press_enter: true,
+            style: Style::Formal,
+        };
+        assert_eq!(
+            en(
+                "Let's meet on Tuesday Sctch that Let's meet on Wednesday at 10.",
+                all
+            ),
+            "Let's meet on Wednesday at 10."
+        );
+        assert_eq!(
+            en(
+                "Let's meet on Tuesday, Scch that, Let's meet on Wednesday at 10.",
+                all
+            ),
+            "Let's meet on Wednesday at 10."
+        );
+        assert_eq!(
+            en("The budget is $500 Sctch that the budget is $800.", all),
+            "The budget is $800."
+        );
+        assert_eq!(en("Scan that page first.", all), "Scan that page first.");
+        assert_eq!(
+            en(
+                "Shopping list number one milk number two eggs number three bread.",
+                all
+            ),
+            "Shopping list\n1. Milk\n2. Eggs\n3. Bread"
+        );
+        assert_eq!(
+            en("Here's the plan first, pull the latest branch, second, run the unit tests, third, ship the release.", all),
+            "Here's the plan\n1. Pull the latest branch\n2. Run the unit tests\n3. Ship the release"
+        );
+        assert_eq!(
+            en("Here's the plan First pull the latest branch Second, run the unit tests third ship the release. .", all),
+            "Here's the plan\n1. Pull the latest branch\n2. Run the unit tests\n3. Ship the release"
+        );
+        assert_eq!(
+            en("First, finish the second draft.", all),
+            "First, finish the second draft."
+        );
+        assert_eq!(
+            en("I came first, and you came second.", all),
+            "I came first, and you came second."
+        );
+        assert_eq!(
+            en("Is the cache warm? Question mark.", all),
+            "Is the cache warm?"
+        );
+        assert_eq!(en("Is the cash1 question mark.", all), "Is the cash1?");
+        assert_eq!(
+            en("Set Snake Case Max Retry Count to five.", all),
+            "Set max_retry_count to five."
+        );
+        assert_eq!(
+            en("Set snake case max retry count to5.", all),
+            "Set max_retry_count to5."
+        );
+        assert_eq!(
+            en("Call the function, open Par, user ID, Close Par.", all),
+            "Call the function, (user ID)."
+        );
+        assert_eq!(
+            en("Call the function open parent user ID close parent.", all),
+            "Call the function (user ID)."
+        );
+        assert_eq!(
+            en("Call it open_paran x close_paran now", all),
+            "Call it (x) now"
+        );
+        assert_eq!(
+            en("Open the parent folder.", all),
+            "Open the parent folder."
+        );
+        // Parakeet: digits, glued parens, Title Case and an existing camelCase word.
+        assert_eq!(
+            en(
+                "Shopping list number 1 milk number 2 eggs number 3 bread",
+                all
+            ),
+            "Shopping list\n1. Milk\n2. Eggs\n3. Bread"
+        );
+        assert_eq!(
+            en("Call the function, openParon, user ID, CloseParin.", all),
+            "Call the function, (user ID)."
+        );
+        assert_eq!(
+            en("Rename Camel Case User Name to Camel Case DisplayName", all),
+            "Rename userName to displayName"
+        );
+        assert_eq!(
+            en("Snake case HTTPServer config", all),
+            "http_server_config"
+        );
+        assert_eq!(
+            en("We opened a partnership.", all),
+            "We opened a partnership."
+        );
+        assert_eq!(
+            en("Sounds good. See you at 5.", style(Style::Casual)),
+            "Sounds good. See you at 5"
         );
     }
 
