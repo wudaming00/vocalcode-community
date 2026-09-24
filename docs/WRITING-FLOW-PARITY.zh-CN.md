@@ -1,6 +1,6 @@
 # 写作功能与竞品对齐（2026-09-23 夜）
 
-分支 `feat/flow-parity-20260923`，基于 `snapshot/product-polish-20260923`（当天白天未提交的胶囊 / 改写工作区的原样快照，原工作树未改动）。本地提交，未推送、未签名、未发布。
+分支 `feat/flow-parity-20260923`，基于 `snapshot/product-polish-20260923`（当天白天未提交的胶囊 / 改写工作区的原样快照，原工作树未改动）。语音语料测试全部通过后，作为社区版 1.4.0 合入 main 发布。
 
 对标对象：Wispr Flow（Smart formatting、Backtrack、Styles、"press enter"、双击免提、听写时静音、Insights、Command Mode / Transforms）和 Typeless（翻译模式、Ask anything、连续天数 / 热力图）。只做**不需要云端模型**的部分；所有文字规则默认关闭。
 
@@ -38,10 +38,41 @@
 
 实测中发现并修复的真 bug：写作页自己的中文示例「你好，换行，…。删掉上一句。…」会把问候语一起删掉（撤回先于换行执行，看不到换行边界）。
 
+## 语音语料发布测试（`packaging/voice-corpus/`）
+
+`python packaging/voice-corpus/run.py --models <模型目录>`：生成 → 回放 → 打分，一条命令。
+
+- **语料**：44 个用例（普通口述 10、命令 5、撤回 3、列表 4、代码词 4、回车 2、风格 3、语气词 2、片段 2、防误触 9）× 30 个声音（Edge 神经语音 12，含美/英/澳/印口音；Fish Official 16；Windows SAPI 2），再加噪声、1.25 倍速、低音量三种变体，共 1072 段。音频不入库（`target/voice-corpus/`，按声音 + 句子哈希缓存）；Fish 只用官方声音，不用社区克隆声音。
+- **回放**：`vocalcode-app` 里被 `#[ignore]` 的 `voice_corpus` 测试。每段走生产路径：`models::build_asr`、该路线的清理链、带语音门的推理线程（含停顿处的后台预解码）、内置词典、片段、Engine 的逐句设置；虚拟 80 ms 时钟。每段跑两遍：规则全开 / 全关。四条路线：zh SenseVoice、en SenseVoice、en Qwen3-ASR 0.6B、en Parakeet TDT v3。
+- **闸门**（`score.py`，全部满足才返回 0）：G1 防误触用例在任何声音、变体下一条规则都不许触发；G2 规则全关时什么都不发送、普通文字逐字节相同；G3 识别结果里已经有命令词（且整句词错误率 ≤ 50%）、输出却不对（算我们的 bug）≤ 2%；G4 干净神经语音上功能成功率每条路线 ≥ 85%（不管识别对错）。每个失败都归因为 `rule_miss` 或 `asr_miss`。
+
+第一轮（旧规则）中文 59%、英文 SenseVoice 66%：规则假设识别结果带标点、拼写正确，真实输出并非如此。按逐字识别输出修正的规则（每条都有原样回归测试和防误触用例）：
+
+- 中文：句中没有标点的「换行」、识别成「换航 / 唤行」；列表开始后不带标点的「第二运行测试」（「第二天 / 第二次」等序数名词除外）；「第一点 / 第二条」不带逗号；粘在汉字间的「呃」；「插入此块」。
+- 英文：「Sctch that / Scch thought / Scrach that」这类残片（没有英文单词是 sc + 纯辅音，也没有「scratch 少一个字母」的词）；没有句号但下一句首字母大写时的撤回；「first」后无逗号但后面有真正的「second,」；「number3」「number 2」数字形式；「openParon / open_paran / Close Peran / openPan / open. Pern / closePerren」等括号误听；句末「press En」；Qwen3 的 Title Case（「Snake Case Max Retry Count」）、粘连的「CamelCaseDisplayName」和自己补的问号。
+
+回放还抓到两个跟规则无关的真 bug 和一处打分归因问题，都已修：
+
+- **Qwen3 整句丢失**：Qwen3 偶尔在正文前吐出一个多余的词和换行（`提纲\nlanguage English<asr_text>Is the cache warm?`）。sherpa-onnx 的 JSON 输出不转义控制字符，Rust 封装解析失败返回 `None`，这句听写直接报错丢掉。修法：vendored 封装在解析前转义字符串里的控制字符（标注为 VocalCode patch）；Qwen3 路线只保留最后一个 `<asr_text>` 之后的文字，不再把提示头打给用户。
+- **es/fr/de 缺 32 条界面文字**（日历、改写草稿板）：付费版仓库的合约测试发现，社区版没有这条测试；已补译并加上同样的测试。
+- 打分器曾把「Snippet Sign.」（识别器把 signature 听成 Sign）和 Qwen3 幻觉出的「提纲」算成规则漏判；归因改为要求片段名也被听到、整句基本听对。
+
+最终一轮（全部规则修正后，1072 段 × 对应路线，共 2424 次回放）：
+
+| 路线 | 干净神经语音功能成功率 | 规则漏判 | 普通口述 WER/CER（干净） |
+| --- | --- | --- | --- |
+| zh SenseVoice | 97%（105/108） | 0 | Edge 3.3%，Fish 1.1% |
+| en SenseVoice | 91%（232/256） | 0 | Edge 1.4%，Fish 0.1% |
+| en Qwen3-ASR 0.6B | 99%（254/256） | 1（识别成「Use a name」） | Edge 0.3%，Fish 0% |
+| en Parakeet TDT v3 | 98%（250/256） | 0 | Edge 0.2%，Fish 0.7% |
+
+四道闸门全部通过；防误触 0 次触发，规则全关时 0 差异。英文 SenseVoice 剩下的失败几乎都是识别本身：「snake case」被听成 Sake / Scase / Setnake 等十几种写法，代码词约 69%。写代码的英文口述建议用 Qwen3 或 Parakeet。
+
 ## 已知限制 / 没做的
 
 - 规则是确定性的：说法必须接近列出的短语；识别错一个字就不会触发。Wispr 那种「actually 3 → 改成 3」的语义纠正需要语言模型，没有做。
 - 按应用风格只认程序名，浏览器里的 Slack / Gmail 算同一个浏览器。
 - 语音改写目前在草稿板里完成；「选中任意程序里的文字 + 快捷键 + 口述指令 + 原地替换」需要新的全局快捷键和跨程序替换，涉及输入钩子和焦点安全，未做。
 - 静音只作用于默认播放设备上已经在播放的会话；听写开始后才开始播放的声音不会被静音。
-- macOS：静音为空实现；其余规则是跨平台代码，但未在 Mac 上编译或实测。
+- macOS：静音为空实现；其余规则是跨平台代码，由公开 CI 在 macOS 上编译和测试，但未在 Mac 真机上实测。
+- 语音语料是合成语音（神经 TTS + 加噪/变速/低音量），能代表识别器的典型错误，但不等于真人、口音、远场麦克风和真实环境噪声。
