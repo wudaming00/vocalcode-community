@@ -28,9 +28,11 @@ ROUTES = "zh:sensevoice,en:sensevoice,en:qwen3-asr-0.6b,en:parakeet-tdt-v3"
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--corpus", type=Path, default=Path(r"C:\workspace\vocalcode-voice-corpus"))
-    parser.add_argument("--models", type=Path, default=Path(r"C:\workspace\vocalcode-qa-models"),
-                        help="directory with one sub-directory per model id (sha256-verified copies)")
+    parser.add_argument("--corpus", type=Path, default=ROOT / "target" / "voice-corpus")
+    parser.add_argument("--models", type=Path, default=Path(os.environ.get("VOCALCODE_QA_MODELS", "")),
+                        required=not os.environ.get("VOCALCODE_QA_MODELS"),
+                        help="directory with one sub-directory per model id (sha256-verified copies, "
+                             "see packaging/models.json)")
     parser.add_argument("--routes", default=ROUTES)
     parser.add_argument("--skip-generate", action="store_true")
     args = parser.parse_args()

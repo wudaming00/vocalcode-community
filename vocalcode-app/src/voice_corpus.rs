@@ -11,10 +11,10 @@
 //! reproducible and faster than real time.
 //!
 //! ```text
-//! VOCALCODE_QA_MODELS=C:/workspace/vocalcode-qa-models
-//! VOCALCODE_VOICE_CORPUS=C:/workspace/vocalcode-voice-corpus
+//! VOCALCODE_QA_MODELS=<dir with one sub-directory per model id>
+//! VOCALCODE_VOICE_CORPUS=<generate.py output, containing clips.json>
 //! VOCALCODE_VOICE_ROUTES=zh:sensevoice,en:sensevoice,en:qwen3-asr-0.6b,en:parakeet-tdt-v3
-//! VOCALCODE_VOICE_RESULTS=C:/workspace/vocalcode-voice-corpus/results.jsonl
+//! VOCALCODE_VOICE_RESULTS=<results.jsonl to write>
 //! cargo test --release -p vocalcode-app voice_corpus -- --ignored --nocapture
 //! ```
 //! Scoring: packaging/voice-corpus/score.py.

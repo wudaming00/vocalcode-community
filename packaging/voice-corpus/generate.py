@@ -2,10 +2,9 @@
 
 Every clip is synthetic: a test sentence written for this corpus, spoken by a
 generic TTS voice. No person's recording, dictation history or voice clone is
-used. Audio is written OUTSIDE the repository (default
-C:/workspace/vocalcode-voice-corpus) because provider terms for redistributing
-generated audio differ; the manifest and this generator are the reproducible,
-committed part.
+used. Audio is never committed (default output: target/voice-corpus, which
+is ignored) because provider terms for redistributing generated audio differ;
+the manifest and this generator are the reproducible, committed part.
 
     python packaging/voice-corpus/generate.py [--out DIR] [--voices voices.json]
         [--only-provider edge|sapi|fish] [--limit N]
@@ -13,7 +12,12 @@ committed part.
 Providers:
   edge  Microsoft neural voices through `python3 -m edge_tts` in WSL (network)
   sapi  Windows SAPI desktop voices (offline, robotic: a deliberately hard case)
-  fish  Fish Audio through the existing credential-safe Collie adapter
+  fish  Fish Audio through a credential-safe adapter you already trust:
+        VOCALCODE_FISH_ADAPTER = directory whose `harness/` package provides
+        tts_fish (FishTts, FishTtsRequest, VaultApiKeySource) and
+        identityvault; VOCALCODE_FISH_STATE = its state directory holding
+        fish-tts.json. The key stays inside that adapter; nothing here reads
+        or prints it.
 
 Variants (applied with ffmpeg after rendering a clean 16 kHz clip):
   clean  as rendered
@@ -36,7 +40,7 @@ import wave
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_OUT = Path(r"C:\workspace\vocalcode-voice-corpus")
+DEFAULT_OUT = HERE.parent.parent / "target" / "voice-corpus"
 
 
 def ffmpeg() -> str:
@@ -110,11 +114,15 @@ _FISH = None
 def render_fish(voice: dict, text: str, target: Path) -> None:
     global _FISH
     if _FISH is None:
-        sys.path.insert(0, r"C:\workspace\collie-sauna-personal-ai-public")
+        adapter = os.environ.get("VOCALCODE_FISH_ADAPTER")
+        state_dir = os.environ.get("VOCALCODE_FISH_STATE")
+        if not adapter or not state_dir:
+            raise RuntimeError("set VOCALCODE_FISH_ADAPTER and VOCALCODE_FISH_STATE to use Fish voices")
+        sys.path.insert(0, adapter)
         from harness.identityvault import IdentityVault
         from harness.tts_fish import FishTts, FishTtsConfig, VaultApiKeySource
 
-        state = Path(r"C:\Users\Sining Xu\.collie")
+        state = Path(state_dir)
         config = json.loads((state / "fish-tts.json").read_text(encoding="utf-8-sig"))
         source = VaultApiKeySource(
             vault=IdentityVault(state_dir=state), ref=config["api_key_ref"],

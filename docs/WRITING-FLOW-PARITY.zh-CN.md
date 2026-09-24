@@ -38,12 +38,6 @@
 
 实测中发现并修复的真 bug：写作页自己的中文示例「你好，换行，…。删掉上一句。…」会把问候语一起删掉（撤回先于换行执行，看不到换行边界）。
 
-## 本机安装状态与回滚
-
-- 当前安装：本分支 release 构建；原 exe 保存为 `VocalCode.exe.pre-flow-parity-20260923.bak`。
-- 实测留下的 13 条诊断记录、`activity.json` 和测试期间的配置已移到 `C:\workspace\vocalcode-flow-parity-qa\removed-test-data\`；`vocalcode.toml`、`totals.json` 已恢复为安装前备份，813 个受保护文件逐一核对与安装前一致。
-- 回滚：从托盘退出 VocalCode 后运行 `C:\workspace\vocalcode-flow-parity-qa\rollback.ps1`。
-
 ## 已知限制 / 没做的
 
 - 规则是确定性的：说法必须接近列出的短语；识别错一个字就不会触发。Wispr 那种「actually 3 → 改成 3」的语义纠正需要语言模型，没有做。
