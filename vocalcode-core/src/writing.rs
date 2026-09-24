@@ -1044,7 +1044,10 @@ fn strip_press_enter(text: &str, chinese: bool) -> Option<String> {
     let toks = tokens(body);
     if toks.len() >= 2 {
         let i = toks.len() - 2;
-        if phrase_at(body, &toks, i, &["press", "enter"]).is_some_and(|end| end == body.len()) {
+        // SenseVoice cuts a final "enter" to "En" ("…the failures, press En.").
+        let command = phrase_at(body, &toks, i, &["press", "enter"])
+            .or_else(|| phrase_at(body, &toks, i, &["press", "en"]));
+        if command.is_some_and(|end| end == body.len()) {
             let blocked = i
                 .checked_sub(1)
                 .filter(|&p| {
@@ -2012,7 +2015,7 @@ mod tests {
                 "Rename Caml case user ID to Caml case account ID press En.",
                 all
             ),
-            "Rename userId to accountId press En."
+            "Rename userId to accountId"
         );
         // Lower case keeps prose prose even without punctuation.
         assert_eq!(
@@ -2239,6 +2242,14 @@ mod tests {
             "Call the function (user Id)."
         );
         assert_eq!(en("Put it in an open pan.", all), "Put it in an open pan.");
+        assert_eq!(
+            en("Run the tests and show me the failures, press En.", all),
+            "Run the tests and show me the failures"
+        );
+        assert_eq!(
+            en("Open the terminal and press En.", all),
+            "Open the terminal and press En."
+        );
         // Round 3 (Qwen3-ASR): a glued marker and a full stop inside "open paren".
         assert_eq!(
             en("Rename CamelCase username to CamelCaseDisplayName.", all),
