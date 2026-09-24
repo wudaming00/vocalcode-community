@@ -1069,6 +1069,8 @@
           <div class="w-try-meta"><span class="k">Spoken language</span><select id="wTryLang" aria-label="Spoken language"><option value="en">English</option><option value="zh">中文</option></select><span class="k">Typing into</span><select id="wTryApp" aria-label="Typing into"><option value="">Any app</option></select></div>
           <div class="w-try-out empty" id="wTryOut" role="status" aria-live="polite"></div>
         </div>
+        <div class="lbl">Rewrite &amp; translate</div>
+        <div class="card"><div class="row"><div class="k">Rewrite, translate or give an instruction<small>Paste or dictate text, then ask for a polish, a translation, or your own instruction such as “make it shorter”. You review every candidate; nothing is replaced automatically.</small></div><button type="button" class="setbtn" id="wOpenRewrite">Open scratchpad</button></div></div>
         <p class="fine" style="margin:12px 2px 0">Rules apply to complete dictations when you release the key — not to progressive typing, meetings or snippets. History keeps the original recognition.</p>
       </div>
 
@@ -1181,7 +1183,8 @@
         <div class="c-head"><h2 tabindex="-1">History</h2><span class="statuschip"><span class="d"></span> <span id="histCount">0</span></span></div>
         <details class="card" id="rewriteDetails" style="margin-bottom:14px"><summary>Rewrite scratchpad · optional Beta</summary>
           <p class="fine">Paste only the text you want to review. Local Ollama is the default: 127.0.0.1:11434, verified local GGUF models up to 8B / 8 GiB, CPU-only. Optional CLI providers may send text to the cloud and use your subscription or API quota. Detection sends no source text. Nothing is installed, downloaded or connected automatically; no fallback.</p>
-          <div class="migration-tools"><button class="setbtn" id="rewriteModels">Detect installed providers</button><select id="rewriteProvider" aria-label="Rewrite provider"><option value="ollama">Ollama · local CPU</option></select><select id="rewriteModel" aria-label="Local rewrite model"></select><select id="rewriteAction" aria-label="Rewrite action"><option value="polish">Light polish</option><option value="bullets">Bullet list</option><option value="summary">Summary</option></select></div>
+          <div class="migration-tools"><button class="setbtn" id="rewriteModels">Detect installed providers</button><select id="rewriteProvider" aria-label="Rewrite provider"><option value="ollama">Ollama · local CPU</option></select><select id="rewriteModel" aria-label="Local rewrite model"></select><select id="rewriteAction" aria-label="Rewrite action"><option value="polish">Light polish</option><option value="bullets">Bullet list</option><option value="summary">Summary</option><option value="translate_en">Translate to English</option><option value="translate_zh">Translate to Chinese</option><option value="custom">Custom instruction…</option></select></div>
+          <div class="migration-tools" id="rewriteInstructionRow" hidden><label class="migration-label" for="rewriteInstruction">What should change?</label><input class="w-input" style="flex:1 1 260px;width:auto" id="rewriteInstruction" maxlength="400" spellcheck="false" autocomplete="off" placeholder="e.g. make it shorter and friendlier — you can dictate this"/></div>
           <p class="fine" id="rewriteProviderNotes" role="status">No CLI or cloud request is made until you choose it. Generation has a 60-second timeout; checking a CLI can take a few more seconds.</p>
           <select id="rewriteCliModel" aria-label="Claude Code model" hidden><option value="configured">CLI configured model</option><option value="haiku">Haiku · lightweight</option><option value="sonnet">Sonnet</option></select>
           <label class="migration-label" id="rewriteCloudConsentRow" hidden><input type="checkbox" id="rewriteCloudConsent"> Send this candidate's source text to Claude Code's configured service. This is not local inference and may use paid quota. The CLI is a separate trusted program; its provider and managed policies apply.</label>
@@ -1321,6 +1324,16 @@
   // pitch in French should not be handed an English app.
   const DICTS = {
     zh: {
+      "Translate to English":"翻译成英文",
+      "Translate to Chinese":"翻译成中文",
+      "Custom instruction…":"自定义指令…",
+      "What should change?":"要怎么改？",
+      "e.g. make it shorter and friendlier — you can dictate this":"例如：改短一点、语气更友好——可以直接口述",
+      "Say or type what to change first.":"请先说出或输入要怎么改。",
+      "Rewrite & translate":"改写与翻译",
+      "Rewrite, translate or give an instruction":"改写、翻译或下指令",
+      "Paste or dictate text, then ask for a polish, a translation, or your own instruction such as “make it shorter”. You review every candidate; nothing is replaced automatically.":"粘贴或口述文字，然后选择润色、翻译，或给出你自己的指令（比如「改短一点」）。每个结果都由你确认，不会自动替换原文。",
+      "Open scratchpad":"打开草稿板",
       "Format with your voice":"用声音排版",
       "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"可开启「换行」「删掉上一句」、口述列表或「回车」发送，还能为不同应用选择风格。",
       "Insights":"统计",
@@ -1937,6 +1950,16 @@
       "Transcribing meeting":"正在转写会议"
     },
     es: {
+      "Translate to English":"Traducir al inglés",
+      "Translate to Chinese":"Traducir al chino",
+      "Custom instruction…":"Instrucción personalizada…",
+      "What should change?":"¿Qué debe cambiar?",
+      "e.g. make it shorter and friendlier — you can dictate this":"p. ej. hazlo más corto y amable — puedes dictarlo",
+      "Say or type what to change first.":"Primero di o escribe qué cambiar.",
+      "Rewrite & translate":"Reescribir y traducir",
+      "Rewrite, translate or give an instruction":"Reescribir, traducir o dar una instrucción",
+      "Paste or dictate text, then ask for a polish, a translation, or your own instruction such as “make it shorter”. You review every candidate; nothing is replaced automatically.":"Pega o dicta texto y pide un pulido, una traducción o tu propia instrucción, como “hazlo más corto”. Revisas cada propuesta; nada se reemplaza automáticamente.",
+      "Open scratchpad":"Abrir borrador",
       "Format with your voice":"Da formato con la voz",
       "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Activa “new line”, “scratch that”, listas habladas o “press enter”, y elige un estilo por app.",
       "Insights":"Estadísticas",
@@ -2481,6 +2504,16 @@
       "Transcribing meeting":"Transcribiendo reunión",
     },
     fr: {
+      "Translate to English":"Traduire en anglais",
+      "Translate to Chinese":"Traduire en chinois",
+      "Custom instruction…":"Instruction personnalisée…",
+      "What should change?":"Que faut-il changer ?",
+      "e.g. make it shorter and friendlier — you can dictate this":"p. ex. plus court et plus aimable — vous pouvez le dicter",
+      "Say or type what to change first.":"Dites ou tapez d’abord ce qu’il faut changer.",
+      "Rewrite & translate":"Réécrire et traduire",
+      "Rewrite, translate or give an instruction":"Réécrire, traduire ou donner une instruction",
+      "Paste or dictate text, then ask for a polish, a translation, or your own instruction such as “make it shorter”. You review every candidate; nothing is replaced automatically.":"Collez ou dictez du texte, puis demandez une retouche, une traduction ou votre propre instruction, comme « plus court ». Vous validez chaque proposition ; rien n’est remplacé automatiquement.",
+      "Open scratchpad":"Ouvrir le brouillon",
       "Format with your voice":"Mettez en forme à la voix",
       "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Activez « new line », « scratch that », les listes dictées ou « press enter », et choisissez un style par application.",
       "Insights":"Statistiques",
@@ -3025,6 +3058,16 @@
       "Transcribing meeting":"Transcription de la réunion",
     },
     de: {
+      "Translate to English":"Ins Englische übersetzen",
+      "Translate to Chinese":"Ins Chinesische übersetzen",
+      "Custom instruction…":"Eigene Anweisung…",
+      "What should change?":"Was soll sich ändern?",
+      "e.g. make it shorter and friendlier — you can dictate this":"z. B. kürzer und freundlicher – du kannst es diktieren",
+      "Say or type what to change first.":"Sag oder tippe zuerst, was sich ändern soll.",
+      "Rewrite & translate":"Umschreiben & übersetzen",
+      "Rewrite, translate or give an instruction":"Umschreiben, übersetzen oder anweisen",
+      "Paste or dictate text, then ask for a polish, a translation, or your own instruction such as “make it shorter”. You review every candidate; nothing is replaced automatically.":"Text einfügen oder diktieren, dann Glättung, Übersetzung oder eine eigene Anweisung wie „kürzer“ anfordern. Du prüfst jeden Vorschlag; nichts wird automatisch ersetzt.",
+      "Open scratchpad":"Notizblock öffnen",
       "Format with your voice":"Mit der Stimme formatieren",
       "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Aktiviere „new line“, „scratch that“, gesprochene Listen oder „press enter“ und wähle einen Stil pro App.",
       "Insights":"Statistik",
@@ -4228,6 +4271,7 @@
     else toast(t("Chat apps already have a style."));
     tryWriting();
   };
+  document.getElementById("wOpenRewrite").onclick=function(){ window.vocalcodeControlOpen("rewrite"); };
   var writingSeq=0, writingTimer=null;
   function tryWriting(){
     clearTimeout(writingTimer);
@@ -5751,14 +5795,19 @@
   workflowEl("diagnosticExport").onclick=()=>workflowRequest("export_history");
   workflowEl("rewriteProvider").onchange=rewriteProviderChanged;
   for(const id of ["rewriteAction","rewriteModel","rewriteCliModel"])workflowEl(id).onchange=rewriteContextChanged;
+  // Custom instruction: the person's own edit request, dictated or typed.
+  function rewriteInstructionVisibility(){workflowEl("rewriteInstructionRow").hidden=workflowEl("rewriteAction").value!=="custom";}
+  workflowEl("rewriteAction").onchange=()=>{rewriteContextChanged();rewriteInstructionVisibility();};
+  workflowEl("rewriteInstruction").oninput=rewriteContextChanged;
   workflowEl("rewriteModels").onclick=()=>{if(workflowBusy)return;workflowEl("rewriteMessage").textContent=t("Checking installed providers… No source text is sent.");workflowRequest("rewrite_providers");};
   workflowEl("rewritePreview").onclick=()=>{
     if(workflowBusy)return;const provider=workflowEl("rewriteProvider").value||"ollama",consent=workflowEl("rewriteCloudConsent").checked===true;
     if(!rewriteSize()){workflowEl("rewriteMessage").textContent=t("Paste 1–3000 UTF-8 bytes of text, without null characters.");return;}
     if(provider==="claude"&&!consent){workflowEl("rewriteMessage").textContent=t("Confirm cloud processing for this candidate first. A local CLI is not local inference.");return;}
+    if(workflowEl("rewriteAction").value==="custom"&&!String(workflowEl("rewriteInstruction").value||"").trim()){workflowEl("rewriteMessage").textContent=t("Say or type what to change first.");return;}
     rewritePendingSource=workflowEl("rewriteSource").value;rewriteCandidateSource=null;workflowEl("rewriteCandidate").value="";
     workflowEl("rewriteMessage").textContent=t(provider==="claude"?"Generating with Claude Code… Source remains unchanged.":"Generating on CPU… Source remains unchanged.");
-    workflowRequest("rewrite_preview",{provider,cli_model:workflowEl("rewriteCliModel").value||"configured",cloud_consent:provider==="claude"&&consent,action:workflowEl("rewriteAction").value,model:workflowEl("rewriteModel").value,text:rewritePendingSource});
+    workflowRequest("rewrite_preview",{provider,cli_model:workflowEl("rewriteCliModel").value||"configured",cloud_consent:provider==="claude"&&consent,action:workflowEl("rewriteAction").value,instruction:String(workflowEl("rewriteInstruction").value||""),model:workflowEl("rewriteModel").value,text:rewritePendingSource});
     workflowEl("rewriteCloudConsent").checked=false;
   };
   workflowEl("rewriteDiscard").onclick=()=>{rewritePendingSource=null;rewriteCandidateSource=null;workflowEl("rewriteCandidate").value="";workflowEl("rewriteMessage").textContent=t("Candidate discarded. This does not recall an already-sent request; processing may continue until its timeout.");};

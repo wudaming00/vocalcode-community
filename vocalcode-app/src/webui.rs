@@ -8987,6 +8987,49 @@ mod webui_copy_contract_tests {
     use super::*;
 
     #[test]
+    fn writing_page_is_wired_to_the_host_rules_and_translated() {
+        let html = include_str!("webui.html");
+        assert!(html.contains(r#"class="nav" data-panel="writing""#));
+        assert!(html.contains(r#"class="panel" data-panel="writing""#));
+        for id in [
+            "wCommands",
+            "wBacktrack",
+            "wLists",
+            "wCode",
+            "wPressEnter",
+            "wStyleSeg",
+            "wAppAdd",
+            "wChatPreset",
+            "wTry",
+            "wTryOut",
+            "doubleTap",
+            "muteDictating",
+            "insights",
+            "insHeat",
+        ] {
+            assert!(html.contains(&format!(r#"id="{id}""#)), "{id}");
+        }
+        // The Try-it box runs the real Rust rules, never a JavaScript copy.
+        assert!(html.contains(r#"send({type:"writing_preview""#));
+        assert!(html.contains("window.vocalcodeWritingPreview=function"));
+        assert!(!html.contains("function applyWritingRules"));
+        // Spoken phrases stay visible in compact layout.
+        assert!(html.contains(".row .k small.w-say{display:block}"));
+        for (english, chinese) in [
+            ("Writing", "写作"),
+            ("Scratch that", "撤回上一句"),
+            ("Double-tap to lock", "双击锁定免提"),
+            ("Mute other audio while dictating", "听写时静音其他声音"),
+            ("Words per minute", "每分钟字数"),
+        ] {
+            assert!(
+                html.contains(&format!(r#""{english}":"{chinese}""#)),
+                "{english}"
+            );
+        }
+    }
+
+    #[test]
     fn smart_meeting_reminder_only_opens_review_and_never_starts_capture() {
         let html = include_str!("webui.html");
         let start = html

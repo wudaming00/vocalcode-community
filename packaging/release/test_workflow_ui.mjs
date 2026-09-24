@@ -258,3 +258,20 @@ test('Chinese opt-in never inherits English opt-in and supports an explicit app 
   const p=f.sent.at(-1).preferences;assert.equal(p.remove_fillers,true);assert.equal(p.chinese_fillers,true);
   assert.equal(p.diagnostics,false);assert.equal(p.profiles[0].remove_fillers,null);assert.equal(p.profiles[0].chinese_fillers,false);
 });
+test('custom rewrite instruction is required, travels with the request, and edits invalidate it',()=>{
+  const f=setup();f.node('rewriteSource').value='Can we ship on Friday?';
+  f.node('rewriteModel').value='local';f.node('rewriteAction').value='custom';f.node('rewriteAction').onchange();
+  assert.equal(f.node('rewriteInstructionRow').hidden,false);
+  f.node('rewriteInstruction').value='   ';f.node('rewritePreview').onclick();
+  assert.equal(f.sent.length,0);assert.match(f.node('rewriteMessage').textContent,/what to change/);
+  f.node('rewriteInstruction').value='make it more formal';f.node('rewritePreview').onclick();
+  assert.equal(f.sent.at(-1).action,'custom');assert.equal(f.sent.at(-1).instruction,'make it more formal');
+  f.node('rewriteInstruction').oninput();
+  f.receive({candidate:'Could we release on Friday?',source:'Can we ship on Friday?',elapsed_ms:1,warnings:[]});
+  assert.equal(f.node('rewriteCandidate').value,'','a changed instruction discards the late reply');
+  f.node('rewriteAction').value='translate_zh';f.node('rewriteAction').onchange();
+  assert.equal(f.node('rewriteInstructionRow').hidden,true);
+});
+test('scratchpad offers translation and custom instructions',()=>{
+  for(const option of ['value="translate_en"','value="translate_zh"','value="custom"','id="rewriteInstruction"']) assert.ok(html.includes(option),option);
+});
