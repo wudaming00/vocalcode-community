@@ -1151,12 +1151,32 @@ enum Glue {
 const PAREN_STRONG: &[&str] = &["paren", "parens", "parenthesis", "paran"];
 const PAREN_WEAK: &[&str] = &["par", "parent"];
 
-/// SenseVoice's renderings of "paren": "Peran", "Peren", "Parin", "Paron".
-/// None is an English word, so they count as strongly as "paren".
+/// Recognisers' renderings of "paren": SenseVoice's "Peran", "Peren",
+/// "Parin", "Paron"; Qwen3's "Perren", "Pern". None is an everyday English
+/// word, so they count as strongly as "paren".
 fn garbled_paren(noun: &str) -> bool {
-    let b = noun.as_bytes();
-    let vowel = |c: u8| matches!(c, b'a' | b'e' | b'i' | b'o' | b'u');
-    b.len() == 5 && b[0] == b'p' && vowel(b[1]) && b[2] == b'r' && vowel(b[3]) && b[4] == b'n'
+    let vowel = |c: &u8| matches!(c, b'a' | b'e' | b'i' | b'o' | b'u');
+    match noun.as_bytes() {
+        [b'p', v1, b'r', v2, b'n'] | [b'p', v1, b'r', b'r', v2, b'n'] => vowel(v1) && vowel(v2),
+        _ => noun == "pern",
+    }
+}
+
+/// Qwen3 glues the case marker to the name: "CamelCaseDisplayName".
+fn glued_case_marker(word: &str) -> Option<(Case, &str)> {
+    [
+        ("camelcase", Case::Camel),
+        ("pascalcase", Case::Pascal),
+        ("snakecase", Case::Snake),
+        ("kebabcase", Case::Kebab),
+    ]
+    .into_iter()
+    .find_map(|(glued, case)| {
+        let rest = word.get(glued.len()..)?;
+        (word[..glued.len()].eq_ignore_ascii_case(glued)
+            && rest.starts_with(|c: char| c.is_ascii_uppercase()))
+        .then_some((case, rest))
+    })
 }
 const PAREN_OPEN: &[&str] = &["open", "left"];
 const PAREN_CLOSE: &[&str] = &["close", "right"];
@@ -1279,11 +1299,15 @@ fn paren_at(text: &str, toks: &[Tok], i: usize) -> Option<(usize, usize, &'stati
         return None;
     };
     let next = toks.get(i + 1)?;
-    if !symbol_gap(&text[toks[i].end..next.start]) {
+    let gap = &text[toks[i].end..next.start];
+    let noun = word(text, next).to_ascii_lowercase();
+    let strong = PAREN_STRONG.contains(&noun.as_str()) || garbled_paren(&noun);
+    // Qwen3 sometimes puts a full stop inside the command: "open. Pern".
+    let dotted = strong && gap.strip_prefix('.').is_some_and(symbol_gap);
+    if !symbol_gap(gap) && !dotted {
         return None;
     }
-    let noun = word(text, next).to_ascii_lowercase();
-    if PAREN_STRONG.contains(&noun.as_str()) || garbled_paren(&noun) {
+    if strong {
         return Some((next.end, 2, symbol));
     }
     if !PAREN_WEAK.contains(&noun.as_str()) {
@@ -1322,13 +1346,14 @@ fn code_words(text: &str) -> (String, u32) {
                     .all(char::is_whitespace)
             })
             .map(|p| word(text, &toks[p]).to_ascii_lowercase());
-        for (marker, case) in CASE_MARKERS {
-            let Some(marker_end) = phrase_at(text, &toks, i, marker) else {
-                continue;
-            };
-            let mut words = Vec::new();
-            let mut j = i + marker.len();
-            let mut end = marker_end;
+        let glued = glued_case_marker(word(text, &toks[i]))
+            .map(|(case, rest)| (vec![rest.to_string()], i + 1, toks[i].end, case));
+        let at = i;
+        let markers = CASE_MARKERS.iter().filter_map(|(marker, case)| {
+            phrase_at(text, &toks, at, marker)
+                .map(|marker_end| (Vec::new(), at + marker.len(), marker_end, *case))
+        });
+        for (mut words, mut j, mut end, case) in glued.into_iter().chain(markers) {
             while j < toks.len() && words.len() < CASE_MAX_WORDS {
                 let gap = &text[end..toks[j].start];
                 let w = word(text, &toks[j]);
@@ -1351,7 +1376,7 @@ fn code_words(text: &str) -> (String, u32) {
             pieces.push(Piece {
                 start: toks[i].start,
                 end,
-                text: case_join(&words, *case),
+                text: case_join(&words, case),
                 glue: Glue::Spaced,
             });
             i = j;
@@ -2214,6 +2239,27 @@ mod tests {
             "Call the function (user Id)."
         );
         assert_eq!(en("Put it in an open pan.", all), "Put it in an open pan.");
+        // Round 3 (Qwen3-ASR): a glued marker and a full stop inside "open paren".
+        assert_eq!(
+            en("Rename CamelCase username to CamelCaseDisplayName.", all),
+            "Rename username to displayName."
+        );
+        assert_eq!(
+            en("Call the function open. Pern user ID close. Pern.", all),
+            "Call the function (user ID)."
+        );
+        assert_eq!(
+            en("Call the function openPerren, user ID, closePerren.", all),
+            "Call the function (user ID)."
+        );
+        assert_eq!(
+            en("Keep the door open. Parents will arrive soon.", all),
+            "Keep the door open. Parents will arrive soon."
+        );
+        assert_eq!(
+            en("The camelcased names stay.", all),
+            "The camelcased names stay."
+        );
     }
 
     #[test]

@@ -206,7 +206,12 @@ def main() -> int:
             # structure the rules own.
             structural = [p for p in problems
                           if not (p.startswith("missing ") and any(ch.isalnum() for ch in p[8:]))]
-            cause = "rule_miss" if structural and heard_triggers(case, on["heard"]) else "asr_miss"
+            # A recognition that is mostly wrong words ("提纲" for "Sounds
+            # good. See you at five.") is the recogniser's miss even where the
+            # feature has no command words to look for.
+            recognised = error_rate(case["say"], on["heard"], case["language"]) <= 0.5
+            cause = ("rule_miss" if structural and recognised and heard_triggers(case, on["heard"])
+                     else "asr_miss")
             stats[cause] += 1
             feature_failures.append({"route": route, "cause": cause, "case": case["id"], "feature": feature,
                                      "voice": on["voice"], "variant": on["variant"], "problems": problems,
