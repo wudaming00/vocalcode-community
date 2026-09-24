@@ -143,6 +143,7 @@
   .nav[data-panel="dictionary"].ic,.nav[data-panel="dictionary"] .ic{background:linear-gradient(180deg,#64D2FF,#0A84FF)}
   .nav[data-panel="history"]   .ic{background:linear-gradient(180deg,#FF6482,#D63B5C)}
   .nav[data-panel="meetings"]  .ic{background:linear-gradient(180deg,#FFD46A,#E88A35)}
+  .nav[data-panel="writing"]   .ic{background:linear-gradient(180deg,#34C7A0,#0F9D7A);font-weight:700}
   .nav[data-panel="license"]   .ic{background:linear-gradient(180deg,#30D158,#248A3D)}
   .nav.on{background:var(--sel);color:var(--ink)}
   .navsplit{height:1px;margin:8px 11px;background:var(--hair)}
@@ -395,7 +396,7 @@
   .hist-row{display:flex;gap:13px;align-items:flex-start;padding:11px 2px;border-top:1px solid var(--hair)}
   .hist-row:first-child{border-top:0}
   .hist-row .t{font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:0 0 auto;padding-top:3px}
-  .hist-row .x{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:1.5;word-break:break-word}
+  .hist-row .x{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:1.5;word-break:break-word;white-space:pre-line}
   .hist-original{margin-top:7px;font-size:12px;color:var(--mut)}
   .hist-original summary{cursor:pointer}.hist-original p{white-space:pre-wrap;overflow-wrap:anywhere}
   .hist-row .cp{appearance:none;flex:0 0 auto;border:0;background:transparent;font-family:var(--mono);font-size:11px;color:var(--mut);cursor:pointer;padding:3px 4px;min-height:24px}
@@ -706,15 +707,18 @@
   .migration-row small{color:var(--mut)}
   .migration-label{display:block;margin:12px 0 6px}
   /* Writing page: voice commands, style and the local "Try it" preview. */
+  /* The spoken phrases are the instructions, so they survive compact mode
+     (which hides ordinary row descriptions). */
+  .row .k small.w-say{display:block}
   .w-say{display:block;margin-top:3px;color:var(--amber-2);font:10.5px/1.45 var(--mono);white-space:normal;overflow-wrap:anywhere}
   .w-input{min-width:0;width:170px;height:32px;box-sizing:border-box;border:1px solid var(--hair-2);border-radius:8px;background:#0e1115;color:var(--ink);padding:0 10px;font:12px var(--mono)}
   .w-input:focus{outline:none;border-color:var(--amber)}
   .w-add{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-  .w-apps{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px}
+  .w-apps{display:flex;flex-wrap:wrap;gap:6px;padding:0 13px 12px;max-height:118px;overflow:auto}
   .w-apps[hidden]{display:none}
   .w-app{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--hair-2);border-radius:20px;padding:3px 4px 3px 10px;font:11px var(--mono);color:var(--sub);background:#15171a;max-width:100%}
   .w-app b{font-weight:600;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:190px}
-  .w-app select{padding:3px 22px 3px 7px;font-size:11px;border-radius:12px}
+  .w-app select{min-height:0;height:24px;padding:0 20px 0 8px;font-size:11px;border-radius:12px;background-position:right 6px center}
   .w-app button{appearance:none;border:0;background:transparent;color:var(--mut);cursor:pointer;font-size:14px;line-height:1;padding:2px 6px;border-radius:10px}
   .w-app button:hover{color:var(--ink);background:rgba(255,255,255,.06)}
   .w-try{padding:12px 13px;display:grid;gap:9px}
@@ -1317,6 +1321,8 @@
   // pitch in French should not be handed an English app.
   const DICTS = {
     zh: {
+      "Format with your voice":"用声音排版",
+      "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"可开启「换行」「删掉上一句」、口述列表或「回车」发送，还能为不同应用选择风格。",
       "Insights":"统计",
       "Counts only · stays on this device":"只记数量 · 仅保存在本机",
       "Day streak":"连续天数",
@@ -1931,6 +1937,8 @@
       "Transcribing meeting":"正在转写会议"
     },
     es: {
+      "Format with your voice":"Da formato con la voz",
+      "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Activa “new line”, “scratch that”, listas habladas o “press enter”, y elige un estilo por app.",
       "Insights":"Estadísticas",
       "Counts only · stays on this device":"Solo recuentos · se queda en este dispositivo",
       "Day streak":"Racha actual",
@@ -2473,6 +2481,8 @@
       "Transcribing meeting":"Transcribiendo reunión",
     },
     fr: {
+      "Format with your voice":"Mettez en forme à la voix",
+      "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Activez « new line », « scratch that », les listes dictées ou « press enter », et choisissez un style par application.",
       "Insights":"Statistiques",
       "Counts only · stays on this device":"Compteurs uniquement · restent sur cet appareil",
       "Day streak":"Série en cours",
@@ -3015,6 +3025,8 @@
       "Transcribing meeting":"Transcription de la réunion",
     },
     de: {
+      "Format with your voice":"Mit der Stimme formatieren",
+      "Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app.":"Aktiviere „new line“, „scratch that“, gesprochene Listen oder „press enter“ und wähle einen Stil pro App.",
       "Insights":"Statistik",
       "Counts only · stays on this device":"Nur Zähler · bleibt auf diesem Gerät",
       "Day streak":"Aktuelle Serie",
@@ -4455,6 +4467,7 @@
     {selector:".home-shortcut",title:"Hold your key and speak",copy:"One simple flow — no mode or menu to open first."},
     {selector:".nav[data-panel='triggers']",title:"Your shortcuts live here",copy:"Change talk, send, or Teach a word controls here."},
     {selector:".nav[data-panel='language']",title:"Choose what you speak",copy:"VocalCode picks the matching on-device model automatically."},
+    {selector:".nav[data-panel='writing']",title:"Format with your voice",copy:"Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app."},
     {selector:".nav[data-panel='behaviour']",title:"Fine-tune VocalCode here",copy:"Audio, insertion, startup, updates, and app language all live in Settings."}
   ];
 

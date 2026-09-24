@@ -119,16 +119,17 @@ pub fn apply(text: &str, language: &str, options: &Options) -> Written {
             edits += 1;
         }
     }
-    // Order matters: deleting a retracted clause first means a "new line"
-    // inside the retracted part is never typed, and list items are split
-    // before the style pass trims their punctuation.
-    if options.backtrack && (english || chinese) {
-        let (next, n) = backtrack(&out, english, chinese);
+    // Order matters: line breaks first, because a spoken "new line" is a
+    // boundary "scratch that" must not retract across ("你好，换行，…。删掉上一句。"
+    // keeps the greeting); list items are split before the style pass trims
+    // their punctuation.
+    if options.commands && (english || chinese) && !looks_like_code(&out) {
+        let (next, n) = spoken_breaks(&out, english, chinese);
         out = next;
         edits += n;
     }
-    if options.commands && (english || chinese) && !looks_like_code(&out) {
-        let (next, n) = spoken_breaks(&out, english, chinese);
+    if options.backtrack && (english || chinese) {
+        let (next, n) = backtrack(&out, english, chinese);
         out = next;
         edits += n;
     }
@@ -361,10 +362,12 @@ fn backtrack(text: &str, english: bool, chinese: bool) -> (String, u32) {
         let Some((start, end)) = find_backtrack(&out, english, chinese) else {
             break;
         };
-        let before = out[..start].trim_end();
+        // Trim spaces only: a line break right before the command is itself
+        // the boundary it follows.
+        let before = out[..start].trim_end_matches([' ', '\t']);
         // What the command retracts depends on the punctuation it followed:
-        // after a comma, the clause since the previous mark; after a full stop,
-        // the sentence since the previous full stop.
+        // after a comma, the clause since the previous mark; after a full stop
+        // or a line break, the sentence since the previous one.
         let cut = match before.chars().next_back() {
             None => 0,
             Some(d) => {
@@ -379,7 +382,8 @@ fn backtrack(text: &str, english: bool, chinese: bool) -> (String, u32) {
                     .unwrap_or(0)
             }
         };
-        let prefix = out[..cut].trim_end().to_string();
+        // Keep a line break that ends the kept part; it was spoken, not retracted.
+        let prefix = out[..cut].trim_end_matches([' ', '\t']).to_string();
         let rest = out[skip_marks_and_space(&out, end)..].to_string();
         let cjk_rest = rest.chars().next().is_some_and(is_cjk);
         let mut next = prefix.clone();
@@ -397,7 +401,10 @@ fn backtrack(text: &str, english: bool, chinese: bool) -> (String, u32) {
             };
         } else {
             let sentence_end = prefix.chars().next_back().is_some_and(is_sentence_mark);
-            if !cjk_rest && !prefix.ends_with(|c: char| is_cjk(c) || is_cjk_punct(c)) {
+            if !cjk_rest
+                && !prefix.ends_with('\n')
+                && !prefix.ends_with(|c: char| is_cjk(c) || is_cjk_punct(c))
+            {
                 next.push(' ');
             }
             if sentence_end && english {
@@ -727,7 +734,9 @@ fn en_marker(text: &str, toks: &[Tok], i: usize, n: usize) -> Option<(Marker, us
     let after = &text[end..];
     let lead = after.len()
         - after
-            .trim_start_matches(|c: char| c.is_whitespace() || matches!(c, ',' | ':' | '，' | '：'))
+            .trim_start_matches(|c: char| {
+                c.is_whitespace() || matches!(c, ',' | ':' | '.' | '，' | '：')
+            })
             .len();
     if lead == 0 {
         return None;
@@ -778,7 +787,10 @@ fn zh_markers(text: &str) -> Vec<Marker> {
             let Some(mark) = rest
                 .chars()
                 .next()
-                .filter(|c| matches!(c, '，' | ',' | '：' | ':' | '、'))
+                // A recogniser may close the ordinal with a full stop at the
+                // pause ("第二。运行测试"); the ordinal itself still has to
+                // open a clause, so "他得了第二。" is not a marker.
+                .filter(|c| matches!(c, '，' | ',' | '：' | ':' | '、' | '。' | '.'))
             else {
                 continue;
             };
@@ -1424,6 +1436,31 @@ mod tests {
     }
 
     #[test]
+    fn a_spoken_line_break_is_a_boundary_for_scratch_that() {
+        let both = Options {
+            commands: true,
+            backtrack: true,
+            ..Options::default()
+        };
+        // Found by using the Writing page's own Try-it example.
+        assert_eq!(
+            zh("你好，换行，今天三点开会。删掉上一句。今天四点开会。", both),
+            "你好，\n今天四点开会。"
+        );
+        assert_eq!(
+            en(
+                "Hi Sam, new line. It's at three. Scratch that. It's at four.",
+                both
+            ),
+            "Hi Sam,\nIt's at four."
+        );
+        assert_eq!(
+            zh("你好，换行。今天三点开会删掉上一句，今天4点开会。", both),
+            "你好，\n今天4点开会。"
+        );
+    }
+
+    #[test]
     fn repeated_retractions_apply_in_order() {
         assert_eq!(
             en("One. Two. Scratch that. Three. Scratch that. Four.", BACK),
@@ -1450,6 +1487,26 @@ mod tests {
         assert_eq!(
             en("Number one, fix login. Number two, add tests.", LIST),
             "1. Fix login\n2. Add tests"
+        );
+    }
+
+    #[test]
+    fn an_ordinal_closed_by_a_full_stop_still_opens_an_item() {
+        // Live microphone run, 2026-09-23: the recogniser put 。 after 第二.
+        assert_eq!(
+            zh(
+                "明天要做三件事，第一，合并分支。第二。运行测试。第三，发布新版本。",
+                LIST
+            ),
+            "明天要做三件事：\n1. 合并分支\n2. 运行测试\n3. 发布新版本"
+        );
+        assert_eq!(
+            en("Plan. First. Pull the branch. Second. Run the tests.", LIST),
+            "Plan.\n1. Pull the branch\n2. Run the tests"
+        );
+        assert_eq!(
+            zh("他得了第二。我们很高兴。", LIST),
+            "他得了第二。我们很高兴。"
         );
     }
 
