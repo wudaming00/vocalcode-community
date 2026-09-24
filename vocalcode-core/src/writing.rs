@@ -337,8 +337,10 @@ fn find_backtrack(text: &str, english: bool, chinese: bool) -> Option<(usize, us
         for i in 0..toks.len() {
             let garbled = is_garbled_scratch(word(text, &toks[i]))
                 .then(|| {
+                    // After the stub, "that" also arrives as "thought".
                     toks.get(i + 1).filter(|t| {
-                        word(text, t).eq_ignore_ascii_case("that")
+                        let next = word(text, t);
+                        (next.eq_ignore_ascii_case("that") || next.eq_ignore_ascii_case("thought"))
                             && text[toks[i].end..t.start].chars().all(char::is_whitespace)
                     })
                 })
@@ -719,6 +721,8 @@ const EN_ORDINALS: &[&[&str]] = &[
 const EN_NUMBERS: &[&str] = &[
     "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
 ];
+/// Characters that turn 第N into an ordinal noun phrase rather than an item.
+const ZH_ORDINAL_NOUNS: &str = "天次个名年月周章节期季种位批轮届页行号层代回场家阶部集版遍份组";
 const ZH_ORDINALS: &[&str] = &[
     "第一", "第二", "第三", "第四", "第五", "第六", "第七", "第八", "第九", "第十",
 ];
@@ -752,10 +756,15 @@ fn en_marker(text: &str, toks: &[Tok], i: usize, n: usize) -> Option<(Marker, us
     let ordinal = EN_ORDINALS[n]
         .iter()
         .any(|w| word(text, &toks[i]).eq_ignore_ascii_case(w));
-    let (end, used) = if ordinal {
+    let digit = (n + 1).to_string();
+    let glued = word(text, &toks[i])
+        .get(..6)
+        .is_some_and(|w| w.eq_ignore_ascii_case("number"))
+        && word(text, &toks[i])[6..] == digit;
+    let (end, used) = if ordinal || glued {
+        // "number3": SenseVoice sometimes glues the digit to the word.
         (toks[i].end, 1)
     } else {
-        let digit = (n + 1).to_string();
         (
             phrase_at(text, toks, i, &["number", EN_NUMBERS[n]])
                 .or_else(|| phrase_at(text, toks, i, &["number", &digit]))?,
@@ -770,12 +779,22 @@ fn en_marker(text: &str, toks: &[Tok], i: usize, n: usize) -> Option<(Marker, us
     // list number one milk number two eggs", "the plan first, pull…").
     // Beyond a clause start or a capital, accept: any "number N" (a list
     // only forms from a complete 1, 2, … sequence); a first ordinal that is
-    // followed by its own comma; and a later ordinal once a list has begun,
-    // unless the word before makes it an adjective ("the second draft").
+    // followed by its own comma, or by a genuine "second" item marker later;
+    // and a later ordinal once a list has begun, unless the word before
+    // makes it an adjective ("the second draft").
     let relaxed = if !ordinal {
         true
     } else if n == 0 {
         text[end..].starts_with(',')
+            || (prev_word
+                .as_deref()
+                .is_none_or(|w| !LIST_PREV_BLOCK.contains(&w))
+                && (i + 1..toks.len()).any(|j| {
+                    EN_ORDINALS[1]
+                        .iter()
+                        .any(|w| word(text, &toks[j]).eq_ignore_ascii_case(w))
+                        && en_marker(text, toks, j, 1).is_some()
+                }))
     } else {
         prev_word
             .as_deref()
@@ -871,6 +890,17 @@ fn zh_markers(text: &str) -> Vec<Marker> {
                         .chars()
                         .next()
                         .is_some_and(|c| is_cjk(c) || c.is_alphanumeric()) =>
+                {
+                    end
+                }
+                // A bare "第二运行测试" once a list has begun ("第一，…。"),
+                // unless the next character makes it an ordinal noun phrase
+                // ("第二天", "第二次", "第二个人").
+                None if !markers.is_empty()
+                    && rest
+                        .chars()
+                        .next()
+                        .is_some_and(|c| is_cjk(c) && !ZH_ORDINAL_NOUNS.contains(c)) =>
                 {
                     end
                 }
@@ -1111,6 +1141,14 @@ enum Glue {
 /// the same dictation or the phrase ends a clause.
 const PAREN_STRONG: &[&str] = &["paren", "parens", "parenthesis", "paran"];
 const PAREN_WEAK: &[&str] = &["par", "parent"];
+
+/// SenseVoice's renderings of "paren": "Peran", "Peren", "Parin", "Paron".
+/// None is an English word, so they count as strongly as "paren".
+fn garbled_paren(noun: &str) -> bool {
+    let b = noun.as_bytes();
+    let vowel = |c: u8| matches!(c, b'a' | b'e' | b'i' | b'o' | b'u');
+    b.len() == 5 && b[0] == b'p' && vowel(b[1]) && b[2] == b'r' && vowel(b[3]) && b[4] == b'n'
+}
 const PAREN_OPEN: &[&str] = &["open", "left"];
 const PAREN_CLOSE: &[&str] = &["close", "right"];
 
@@ -1215,10 +1253,11 @@ fn paren_at(text: &str, toks: &[Tok], i: usize) -> Option<(usize, usize, &'stati
     // No English word is open/close + "par…", so the stub is unambiguous.
     if first.len() <= 14 {
         for (prefix, symbol) in [("open", "("), ("left", "("), ("close", ")"), ("right", ")")] {
-            if first
-                .strip_prefix(prefix)
-                .is_some_and(|rest| rest.starts_with("par") && rest.len() <= 11 && rest != "parent")
-            {
+            if first.strip_prefix(prefix).is_some_and(|rest| {
+                (rest.starts_with("par") && rest.len() <= 11 && rest != "parent")
+                    || rest == "pan"
+                    || garbled_paren(rest)
+            }) {
                 return Some((toks[i].end, 1, symbol));
             }
         }
@@ -1235,7 +1274,7 @@ fn paren_at(text: &str, toks: &[Tok], i: usize) -> Option<(usize, usize, &'stati
         return None;
     }
     let noun = word(text, next).to_ascii_lowercase();
-    if PAREN_STRONG.contains(&noun.as_str()) {
+    if PAREN_STRONG.contains(&noun.as_str()) || garbled_paren(&noun) {
         return Some((next.end, 2, symbol));
     }
     if !PAREN_WEAK.contains(&noun.as_str()) {
@@ -1253,7 +1292,9 @@ fn paren_at(text: &str, toks: &[Tok], i: usize) -> Option<(usize, usize, &'stati
             && symbol_gap(&text[w[0].end..w[1].start])
             && {
                 let n = word(text, &w[1]).to_ascii_lowercase();
-                PAREN_WEAK.contains(&n.as_str()) || PAREN_STRONG.contains(&n.as_str())
+                PAREN_WEAK.contains(&n.as_str())
+                    || PAREN_STRONG.contains(&n.as_str())
+                    || garbled_paren(&n)
             }
     });
     (paired || at_clause_end(text, next.end)).then_some((next.end, 2, symbol))
@@ -1996,6 +2037,17 @@ mod tests {
             zh("这是第一次，也是第二次。", all),
             "这是第一次，也是第二次。"
         );
+        assert_eq!(
+            zh(
+                "明天要做三件事，第一，合并分支。第二运行测试。第三，发布新版本。",
+                all
+            ),
+            "明天要做三件事：\n1. 合并分支\n2. 运行测试\n3. 发布新版本"
+        );
+        assert_eq!(
+            zh("第一，先休息。第二天我们再讨论。", all),
+            "第一，先休息。第二天我们再讨论。"
+        );
     }
 
     #[test]
@@ -2107,6 +2159,48 @@ mod tests {
             en("Sounds good. See you at 5.", style(Style::Casual)),
             "Sounds good. See you at 5"
         );
+        // Round 2 of the voice corpus (SenseVoice, English).
+        assert_eq!(
+            en("Here's the plan first pull the latest branch, second, run the unit tests, third, ship the release.", all),
+            "Here's the plan
+1. Pull the latest branch
+2. Run the unit tests
+3. Ship the release"
+        );
+        assert_eq!(
+            en("At first pull the branch, then the second draft.", all),
+            "At first pull the branch, then the second draft."
+        );
+        assert_eq!(
+            en("The budget is $500 Scch thought the budget is $800.", all),
+            "The budget is $800."
+        );
+        assert_eq!(
+            en(
+                "Let's meet on Tuesday. Scch thought, Let's meet on Wednesday at 10.",
+                all
+            ),
+            "Let's meet on Wednesday at 10."
+        );
+        assert_eq!(
+            en(
+                "Shopping list number one, milk. number two, eggs. number3, bread.",
+                all
+            ),
+            "Shopping list
+1. Milk
+2. Eggs
+3. Bread"
+        );
+        assert_eq!(
+            en("Call the function, openPan, user ID, Close Peran.", all),
+            "Call the function, (user ID)."
+        );
+        assert_eq!(
+            en("Call the function openpar, user Id, Close Peren.", all),
+            "Call the function (user Id)."
+        );
+        assert_eq!(en("Put it in an open pan.", all), "Put it in an open pan.");
     }
 
     #[test]

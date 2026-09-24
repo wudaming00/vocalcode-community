@@ -333,7 +333,8 @@ pub fn expand_snippet(text: &str, entries: &[Entry]) -> Option<String> {
         .or_else(|| normalized.strip_prefix("snippets "))
         .or_else(|| normalized.strip_prefix("snip it "))
         .or_else(|| normalized.strip_prefix("snipit "))
-        .or_else(|| normalized.strip_prefix("插入词块"))?
+        .or_else(|| normalized.strip_prefix("插入词块"))
+        .or_else(|| normalized.strip_prefix("插入此块"))?
         .trim();
     entries
         .iter()
