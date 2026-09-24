@@ -33,3 +33,11 @@ test('legacy paid and basic UI behavior is unchanged',()=>{
   assert.equal(node('licBuy').style.display,'');
   assert.equal(node('correctionWindow').disabled,true);
 });
+test('every interface language translates every string',()=>{
+  const from=html.indexOf('const DICTS = ')+'const DICTS = '.length;
+  const to=html.indexOf('\n  };',from)+4;
+  const dicts=vm.runInNewContext('('+html.slice(from,to)+')');
+  const reference=Object.keys(dicts.zh).sort();
+  assert.deepEqual(Object.keys(dicts).sort(),['de','es','fr','zh']);
+  for (const language of ['es','fr','de']) assert.deepEqual(Object.keys(dicts[language]).sort(),reference,language);
+});
