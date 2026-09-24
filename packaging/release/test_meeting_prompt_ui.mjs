@@ -55,4 +55,14 @@ test('review on main page only opens controls, without starting capture',()=>{co
 test('lost IPC acknowledgement restores actionable buttons with feedback',()=>{const s=setup();s.show();s.el('review').onclick();s.events.get('mouseleave')();assert.equal(s.timers.size,1);[...s.timers.values()][0].fn();assert.equal(s.el('review').disabled,false);assert.match(s.el('privacy').textContent,/try again/);assert.equal(s.timers.size,0);s.el('review').onclick();assert.equal(s.sent.length,3);assert.equal(s.sent.at(-1).id,1);});
 test('IPC exceptions do not strand disabled controls',()=>{const s=setup();s.show({language:'zh'});s.ctx.window.ipc.postMessage=()=>{throw Error('unavailable');};s.el('snooze').onclick();assert.equal(s.el('close').disabled,false);assert.match(s.el('privacy').textContent,/重试/);assert.equal(s.timers.size,0);});
 test('acknowledgement cancels watchdog and stale callbacks cannot alter a new card',()=>{const s=setup();s.show();s.el('review').onclick();const old=[...s.timers.values()][0].fn;s.ctx.window.hideReminder();assert.equal(s.timers.size,0);s.show({id:2});s.el('snooze').onclick();old();assert.equal(s.el('snooze').disabled,true);assert.equal(s.timers.size,1);assert.doesNotMatch(s.el('privacy').textContent,/try again/);s.ctx.window.hideReminder();assert.equal(s.timers.size,0);});
-test('explicit native actions are not conditional on busy settings or recording state',()=>{const main=readFileSync(new URL('../../vocalcode-app/src/webui.rs',import.meta.url),'utf8');const action=main.slice(main.indexOf('UserEvent::MeetingPrompt(crate::meeting_prompt::Event::Action(id, action)) =>'),main.indexOf('if let Some(o) = overlay.as_mut()'));assert.match(action,/prompt\.apply_action/);assert.doesNotMatch(action,/try_lock|status\.listening|status\.meetings\.is_active/);});
+test('explicit native actions are not conditional on busy settings or recording state',()=>{
+  const main=readFileSync(new URL('../../vocalcode-app/src/webui.rs',import.meta.url),'utf8');
+  const start=main.indexOf('UserEvent::MeetingPrompt(crate::meeting_prompt::Event::Action(id, action)) =>');
+  // Bound the assertion to this complete match arm, not unrelated per-frame
+  // desktop control/settings updates after the event dispatch has finished.
+  const end=main.indexOf('\n                }\n',start);
+  assert.ok(start>=0&&end>start,'meeting action match arm must be found');
+  const action=main.slice(start,end);
+  assert.match(action,/prompt\.apply_action/);assert.match(action,/open_review/);
+  assert.doesNotMatch(action,/try_lock|status\.listening|status\.meetings\.is_active/);
+});

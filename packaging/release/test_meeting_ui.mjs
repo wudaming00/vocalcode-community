@@ -6,19 +6,36 @@ const html=readFileSync(new URL('../../vocalcode-app/src/webui.html',import.meta
 const controller=html.slice(html.indexOf('  var meetingState='),html.indexOf('  // ── History'));
 function setup(){
   class Element {
-    constructor(){this.children=[];this.style={};this.dataset={};this.value='';this.checked=false;this.disabled=false;this.text='';this.classList={add(){},remove(){},toggle(){}};}
+    constructor(tag=''){this.tagName=tag;this.attributes={};this.children=[];this.style={};this.dataset={};this.value='';this.checked=false;this.disabled=false;this.text='';this.classList={add(){},remove(){},toggle(){}};}
     set textContent(v){this.text=String(v);this.children=[];} get textContent(){return this.text;}
-    appendChild(e){this.children.push(e);} setAttribute(){} focus(){}
+    appendChild(e){this.children.push(e);} setAttribute(k,v){this.attributes[k]=v;} focus(){}
     set innerHTML(_){throw Error('Unsafe meeting markup');}
   }
   const nodes=new Map(),sent=[],timers=[];
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-  const ctx={document:{getElementById:node,createElement:()=>new Element()},window:{},hasPro:true,t:x=>x,
+  const ctx={document:{getElementById:node,createElement:tag=>new Element(tag)},window:{},hasPro:true,t:x=>x,
     send:m=>sent.push(m),toast(){},showPanel(){},cfg:{},persist(){},setTimeout:()=>1,clearTimeout(){},setInterval:f=>timers.push(f),prompt:()=>'',confirm:()=>false};
   vm.createContext(ctx);vm.runInContext(controller,ctx);
-  return {node,sent,tick:()=>timers.forEach(f=>f()),receive:s=>ctx.window.vocalcodeMeetings(s)};
+  return {node,sent,ctx,tick:()=>timers.forEach(f=>f()),receive:s=>ctx.window.vocalcodeMeetings(s)};
 }
 const meeting={id:'1787796747000-1-1',title:'Live test',created_at_ms:1787796747000,started_at_ms:1787796747000,duration_ms:12000,status:'recording',segments:[]};
+
+test('speaker rename is keyboard-accessible and bound to the selected meeting',()=>{
+  const f=setup();f.receive({active:false,detail:{...meeting,segments:[{id:1,start_ms:0,text:'Synthetic text',speaker_id:'a'}],speakers:[{id:'a',label:'<img onerror=bad()>'}]}});
+  const speaker=f.node('meetingDetail').children.at(-1).children[0].children[1];
+  assert.equal(speaker.tagName,'button');assert.equal(speaker.type,'button');
+  assert.match(speaker.attributes['aria-label'],/rename this speaker/);
+  assert.equal(speaker.textContent,'<img onerror=bad()>');assert.deepEqual(f.sent,[]);
+  f.ctx.prompt=()=> ' QA participant ';speaker.onclick();
+  assert.equal(f.sent.at(-1).type,'meeting_rename_speaker');assert.equal(f.sent.at(-1).id,meeting.id);
+  assert.equal(f.sent.at(-1).speaker_id,'a');assert.equal(f.sent.at(-1).label,'QA participant');
+});
+
+test('narrow meetings stack the list above a real transcript and wrap tools',()=>{
+  assert.match(html,/@media\(max-width:640px\)\{[\s\S]*?\.meeting-workspace\{grid-template-columns:minmax\(0,1fr\);grid-template-rows:130px minmax\(260px,1fr\)/);
+  assert.doesNotMatch(html,/\.meeting-tools\{flex-wrap:nowrap\}/);
+  assert.match(html,/\.meeting-detail\{[^}]*overflow-wrap:anywhere/);
+});
 test('browsing an old meeting does not change the live banner',()=>{
   const f=setup(); f.receive({active:true,recording:meeting,detail:{...meeting,title:'Old meeting'},meetings:[]});
   assert.equal(f.node('meetingLiveTitle').textContent,'Live test');

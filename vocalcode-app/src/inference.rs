@@ -145,11 +145,21 @@ impl Drop for Worker {
 }
 impl Asr for SpeechProxy {
     fn transcribe(&mut self, samples: &[f32], rate: u32) -> Result<String> {
+        self.transcribe_async(samples, rate)?
+            .expect("worker supports asynchronous decoding")
+            .recv()
+            .map_err(|_| unavailable())?
+    }
+    fn transcribe_async(
+        &mut self,
+        samples: &[f32],
+        rate: u32,
+    ) -> Result<Option<mpsc::Receiver<Result<String>>>> {
         let (reply, result) = reply_channel();
         self.sender
             .try_send(Job::Decode(samples.to_vec(), rate, reply))
             .map_err(|_| unavailable())?;
-        result.recv().map_err(|_| unavailable())?
+        Ok(Some(result))
     }
     fn model_label(&self) -> &str {
         &self.label
@@ -325,5 +335,37 @@ mod tests {
         drop(worker);
         assert!(asr.transcribe(&[0.1; 3200], 16000).is_err());
         assert!(cleaners[0].clean("text").is_err());
+    }
+
+    #[test]
+    fn asynchronous_dictation_submission_does_not_wait_for_a_busy_model() {
+        let (entered, entry) = mpsc::sync_channel(1);
+        let (release, wait) = mpsc::sync_channel(1);
+        let (worker, mut asr, _) = Worker::start(
+            Box::new(BlockingAsr {
+                entered,
+                release: wait,
+            }),
+            vec![],
+            None,
+        )
+        .unwrap();
+        let first = asr.transcribe_async(&[0.1; 3200], 16000).unwrap().unwrap();
+        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(matches!(first.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        // Discarding a cancelled result neither waits nor kills the model.
+        drop(first);
+        let second = asr.transcribe_async(&[0.2; 3200], 16000).unwrap().unwrap();
+        release.send(()).unwrap();
+        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        release.send(()).unwrap();
+        assert_eq!(
+            second
+                .recv_timeout(Duration::from_secs(2))
+                .unwrap()
+                .unwrap(),
+            "decoded"
+        );
+        drop(worker);
     }
 }

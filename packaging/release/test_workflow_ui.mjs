@@ -9,13 +9,14 @@ function setup(){
     constructor(){this.children=[];this.value='';this.checked=false;this.disabled=false;this.textContent='';}
     append(...items){this.children.push(...items);}
     replaceChildren(...items){this.children=items;}
+    focus(){this.focused=true;}scrollIntoView(){}
     set innerHTML(_){throw Error('Unsafe markup');}
   }
-  const nodes=new Map(),sent=[];
+  const nodes=new Map(),sent=[],timers=new Map();let timerId=0;
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-  const ctx={document:{getElementById:node,createElement:()=>new Element()},window:{},send:r=>{sent.push(r);return true;}};
+  const ctx={t:s=>s,confirm:()=>false,showPanel(){},utf8Bytes:s=>Buffer.byteLength(s,'utf8'),setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id),document:{getElementById:node,createElement:()=>new Element()},window:{},send:r=>{sent.push(r);return true;}};
   vm.createContext(ctx);vm.runInContext(controller,ctx);
-  return {node,sent,ctx,receive(data){ctx.window.vocalcodeWorkflowResult({id:sent.at(-1).id,ok:true,data});}};
+  return {node,sent,ctx,timers,receive(data){ctx.window.vocalcodeWorkflowResult({id:sent.at(-1).id,ok:true,data});}};
 }
 const prefs={schema:1,diagnostics:false,max_entries:100000,max_bytes:2147483648,cleanup:'light',profiles:[]};
 test('effective diagnostic switch and last saved time are visible after load',()=>{
@@ -56,10 +57,173 @@ test('rewrite only changes scratchpad on acceptance and undo refuses later edits
   f.node('rewriteSource').value='My manual revision';f.node('rewriteUndo').onclick();assert.equal(f.node('rewriteSource').value,'My manual revision');
   assert.ok(!f.sent.some(r=>r.type.includes('inject')));
 });
+
+test('acceptance and undo update the byte counter without a synthetic input event',()=>{
+  const f=setup();f.node('rewriteSource').value='原文';f.node('rewritePreview').onclick();
+  f.receive({candidate:'新的原文',source:'原文',elapsed_ms:1});
+  f.node('rewriteAccept').onclick();assert.equal(f.node('rewriteSize').textContent,'12 / 3000 UTF-8 bytes');
+  f.node('rewriteUndo').onclick();assert.equal(f.node('rewriteSource').value,'原文');
+  assert.equal(f.node('rewriteSize').textContent,'6 / 3000 UTF-8 bytes');
+  assert.match(f.node('rewriteMessage').textContent,/Restored/);
+});
+
+test('acceptance and undo clear cloud consent even without a keyboard input event',()=>{
+  const f=setup();f.node('rewriteSource').value='original';f.node('rewritePreview').onclick();
+  f.receive({candidate:'candidate',source:'original',elapsed_ms:1});
+  f.node('rewriteCloudConsent').checked=true;f.node('rewriteAccept').onclick();
+  assert.equal(f.node('rewriteCloudConsent').checked,false);
+  assert.equal(f.node('rewriteCandidate').value,'');
+  f.node('rewriteProvider').value='claude';f.node('rewriteCloudConsent').checked=true;
+  f.node('rewriteUndo').onclick();assert.equal(f.node('rewriteSource').value,'original');
+  assert.equal(f.node('rewriteCloudConsent').checked,false);
+  f.node('rewritePreview').onclick();assert.equal(f.sent.length,1);
+  assert.match(f.node('rewriteMessage').textContent,/Confirm cloud processing/);
+});
+
+test('undo during a later preview invalidates its candidate without another model request',()=>{
+  const f=setup();f.node('rewriteSource').value='original';f.node('rewritePreview').onclick();
+  f.receive({candidate:'accepted',source:'original',elapsed_ms:1});f.node('rewriteAccept').onclick();
+  f.node('rewritePreview').onclick();f.node('rewriteUndo').onclick();
+  f.receive({candidate:'late candidate',source:'accepted',elapsed_ms:1});
+  assert.equal(f.node('rewriteSource').value,'original');
+  assert.equal(f.node('rewriteCandidate').value,'');assert.equal(f.sent.length,2);
+});
+
+test('history review only loads an explicit local draft and resets cloud consent',()=>{
+  const f=setup();f.node('rewriteCloudConsent').checked=true;
+  assert.equal(f.ctx.reviewInScratchpad('不要发布 1200 USD。'),true);
+  assert.equal(f.node('rewriteSource').value,'不要发布 1200 USD。');
+  assert.equal(f.node('rewriteCloudConsent').checked,false);
+  assert.equal(f.node('rewriteDetails').open,true);assert.equal(f.node('rewriteSource').focused,true);
+  assert.deepEqual(f.sent,[]);
+});
+
+test('history review protects an existing draft and refuses silent truncation',()=>{
+  const f=setup();f.node('rewriteSource').value='My unsaved edits';
+  assert.equal(f.ctx.reviewInScratchpad('different'),false);
+  assert.equal(f.node('rewriteSource').value,'My unsaved edits');
+  f.ctx.confirm=()=>true;assert.equal(f.ctx.reviewInScratchpad('different'),true);
+  assert.equal(f.ctx.reviewInScratchpad('中'.repeat(1001)),false);
+  assert.equal(f.node('rewriteSource').value,'different');assert.deepEqual(f.sent,[]);
+});
+
+test('loading another history draft discards an in-flight candidate without sending again',()=>{
+  const f=setup();f.node('rewriteSource').value='first';f.node('rewritePreview').onclick();
+  f.ctx.confirm=()=>true;f.ctx.reviewInScratchpad('second');
+  f.receive({source:'first',candidate:'outdated',elapsed_ms:1});
+  assert.equal(f.node('rewriteSource').value,'second');assert.equal(f.node('rewriteCandidate').value,'');
+  assert.equal(f.sent.length,1);
+});
+
+test('expanded review and calendar cards cannot flex-shrink away their controls',()=>{
+  assert.match(html,/\.panel\[data-panel="history"\]>\.card\{flex-shrink:0\}/);
+  assert.match(html,/\.panel\[data-panel="meetings"\]>details\.card\{flex-shrink:0\}/);
+  assert.match(html,/\.meeting-workspace\{[^}]*min-height:220px;flex:1 0 220px/);
+  assert.ok(html.indexOf('id="meetingStop"')<html.indexOf('id="calendarConfigure"'));
+});
+
+test('long installed model names and calendar options stay inside their cards',()=>{
+  assert.match(html,/\.migration-tools>select\{min-width:0;max-width:100%\}/);
+  assert.match(html,/#rewriteProviderNotes\{white-space:pre-line;overflow-wrap:anywhere\}/);
+  assert.match(html,/#rewriteMessage,#calendarMessage,#calendarAssociation\{overflow-wrap:anywhere\}/);
+});
 test('edited or discarded source does not receive an outdated rewrite',()=>{
   const f=setup();f.node('rewriteSource').value='old';f.node('rewritePreview').onclick();
   f.node('rewriteSource').value='new';f.receive({source:'old',candidate:'candidate',elapsed_ms:1});
   assert.equal(f.node('rewriteCandidate').value,'');assert.equal(f.node('rewriteSource').value,'new');
+});
+
+test('provider discovery never sends scratchpad text or changes to a cloud provider',()=>{
+  const f=setup();f.node('rewriteSource').value='private source';f.node('rewriteModels').onclick();
+  assert.equal(f.sent.at(-1).op,'rewrite_providers');assert.equal(f.sent.at(-1).text,undefined);
+  f.receive({providers:[{id:'ollama',available:false,message:'No local service'},{id:'claude',available:true,version:'test',message:'Cloud'}],models:[]});
+  assert.equal(f.node('rewriteProvider').value,'ollama');assert.equal(f.node('rewriteCloudConsent').checked,false);
+});
+
+test('cloud processing requires fresh per-request consent and never falls back',()=>{
+  const f=setup();f.node('rewriteProvider').value='claude';f.node('rewriteProvider').onchange();
+  f.node('rewriteSource').value='A synthetic sentence';f.node('rewritePreview').onclick();assert.equal(f.sent.length,0);
+  assert.match(f.node('rewriteMessage').textContent,/Confirm cloud/);
+  f.node('rewriteCloudConsent').checked=true;f.node('rewritePreview').onclick();
+  assert.equal(f.sent.at(-1).provider,'claude');assert.equal(f.sent.at(-1).cloud_consent,true);
+  assert.equal(f.node('rewriteCloudConsent').checked,false);
+  f.ctx.window.vocalcodeWorkflowResult({id:f.sent.at(-1).id,ok:false,message:'No quota'});
+  f.node('rewritePreview').onclick();assert.equal(f.sent.length,1);assert.equal(f.node('rewriteSource').value,'A synthetic sentence');
+});
+
+test('changing provider discards an in-flight candidate without accepting it',()=>{
+  const f=setup();f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+  f.node('rewriteProvider').value='claude';f.node('rewriteProvider').onchange();
+  f.receive({source:'source',candidate:'old local candidate',elapsed_ms:1,provider:'ollama'});
+  assert.equal(f.node('rewriteCandidate').value,'');assert.equal(f.node('rewriteSource').value,'source');
+});
+
+test('source edits after generation and repeated acceptance cannot overwrite newer work',()=>{
+  const f=setup();f.node('rewriteSource').value='first';f.node('rewritePreview').onclick();
+  f.receive({source:'first',candidate:'second',elapsed_ms:1});
+  f.node('rewriteSource').value='my later edits';f.node('rewriteAccept').onclick();
+  assert.equal(f.node('rewriteSource').value,'my later edits');
+  f.node('rewritePreview').onclick();f.receive({source:'my later edits',candidate:'new candidate',elapsed_ms:1});
+  f.node('rewriteAccept').onclick();f.node('rewriteAccept').onclick();f.node('rewriteUndo').onclick();
+  assert.equal(f.node('rewriteSource').value,'my later edits');
+});
+
+test('source limit counts UTF-8 bytes for Chinese and emoji before any provider request',()=>{
+  const f=setup();
+  for(const source of ['中'.repeat(1001),'🙂'.repeat(751),'\0','  ']){
+    f.node('rewriteSource').value=source;f.node('rewriteSource').oninput();f.node('rewritePreview').onclick();
+    assert.equal(f.sent.length,0);
+  }
+  f.node('rewriteSource').value='中'.repeat(1000);f.node('rewritePreview').onclick();
+  assert.equal(f.sent.length,1);assert.equal(f.node('rewriteSize').textContent,'3000 / 3000 UTF-8 bytes');
+});
+
+test('changing model or operation invalidates the old candidate and renews consent',()=>{
+  for(const id of ['rewriteAction','rewriteModel','rewriteCliModel']){
+    const f=setup();f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+    f.node('rewriteCloudConsent').checked=true;f.node(id).onchange();
+    assert.equal(f.node('rewriteCloudConsent').checked,false);
+    f.receive({source:'source',candidate:'old-model candidate',elapsed_ms:1});
+    assert.equal(f.node('rewriteCandidate').value,'');
+  }
+});
+
+test('editing the source invalidates its candidate and requires new cloud consent',()=>{
+  const f=setup();f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+  f.receive({source:'source',candidate:'previous candidate',elapsed_ms:1});
+  f.node('rewriteProvider').value='claude';f.node('rewriteCloudConsent').checked=true;
+  f.node('rewriteSource').value='a different private draft';f.node('rewriteSource').oninput();
+  assert.equal(f.node('rewriteCloudConsent').checked,false);
+  assert.equal(f.node('rewriteCandidate').value,'');
+  f.node('rewritePreview').onclick();assert.equal(f.sent.length,1);
+  assert.match(f.node('rewriteMessage').textContent,/Confirm cloud/);
+});
+
+test('fidelity warnings remain inert text and use the selected interface language',()=>{
+  const f=setup();
+  f.ctx.t=s=>s==='Check changed number/unit/code: '?'请检查数字：':s;
+  f.node('rewriteSource').value='Budget 1200 USD.';f.node('rewritePreview').onclick();
+  f.receive({source:'Budget 1200 USD.',candidate:'Budget 12000 USD.',elapsed_ms:1,warnings:['Check changed number/unit/code: 1200','<script>untrusted()</script>']});
+  assert.match(f.node('rewriteMessage').textContent,/请检查数字：1200/);
+  assert.match(f.node('rewriteMessage').textContent,/<script>untrusted\(\)<\/script>/);
+});
+
+test('lost workflow acknowledgements recover without retry and ignore stale results',()=>{
+  const f=setup();f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+  const oldId=f.sent.at(-1).id,oldTimer=[...f.timers.values()][0];oldTimer();
+  assert.equal(f.timers.size,0);assert.equal(f.sent.length,1);
+  assert.match(f.node('rewriteMessage').textContent,/No confirmation/);
+  f.ctx.window.vocalcodeWorkflowResult({id:oldId,ok:true,data:{source:'source',candidate:'stale',elapsed_ms:1}});
+  assert.equal(f.node('rewriteCandidate').value,'');
+  f.node('rewritePreview').onclick();const next=f.sent.at(-1).id;assert.ok(next>oldId);
+  oldTimer();assert.equal(f.timers.size,1);
+  f.receive({source:'source',candidate:'new',elapsed_ms:1});assert.equal(f.node('rewriteCandidate').value,'new');assert.equal(f.timers.size,0);
+});
+
+test('workflow IPC exceptions release the page without reporting an accepted request',()=>{
+  const f=setup();f.ctx.send=()=>{throw Error('unavailable');};f.node('rewriteModels').onclick();
+  assert.equal(f.timers.size,0);assert.match(f.node('rewriteMessage').textContent,/Could not send/);
+  f.ctx.send=r=>{f.sent.push(r);return true;};f.node('rewriteModels').onclick();assert.equal(f.sent.length,1);
 });
 
 test('pause-word removal is off for old settings and needs explicit save',()=>{

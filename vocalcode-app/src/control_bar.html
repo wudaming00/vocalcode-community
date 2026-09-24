@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;color:#e9eaed;font:12px 'Segoe UI',sans-serif;user-select:none}
+body{width:var(--surface-width,100%);height:var(--surface-height,100%);max-width:100%;max-height:100%;border:1px solid transparent;border-radius:var(--surface-radius,9px);position:relative}
+/* Paint one CSS pixel inside the native hit region. Chromium can blend the
+   curve into the desktop instead of GDI cutting off its antialiased pixels. */
+body::before{content:'';position:absolute;inset:0;border-radius:inherit;background:linear-gradient(155deg,#202125,#121316 72%);box-shadow:inset 0 0 0 1px #ffffff12;pointer-events:none}
+#controls{height:min(16px,100%);position:absolute;bottom:0;left:0;display:flex;align-items:center;justify-content:center;gap:8px;padding:0;width:100%}
+body[data-expanded=true]{border-radius:var(--surface-radius,18px)}body[data-expanded=true] #controls{height:34px}
+#peek{width:46px;max-width:100%;height:min(16px,100%);padding:0;border-radius:8px;flex-shrink:0;order:2}#main{order:1}#more{order:3}#cancel,#recover{order:4}
+body[data-edge=left] #controls{justify-content:flex-start}body[data-edge=left] #peek{order:0}
+body[data-edge=right] #controls{justify-content:flex-end}body[data-edge=right] #peek{order:4}body[data-edge=right] #main{order:3}
+body[data-edge=right] #cancel{order:1}
+body[data-menu=true]{border-radius:var(--surface-radius,14px)}body[data-menu=true] #controls{border-top:1px solid #292a2e}
+#menu{position:absolute;bottom:34px;left:50%;transform:translate(-50%,calc((1 - var(--menu-reveal,1))*4px));opacity:var(--menu-reveal,1);height:min(164px,calc(100% - 34px));width:158px;max-width:100%;padding:6px;display:flex;flex-direction:column;gap:2px;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#555860 transparent}
+body[data-moving=true] #menu{overflow:hidden}
+body[data-expanded=true] #peek{transform:translateY(var(--peek-shift,0px))}
+body[data-expanded=true] #main,body[data-expanded=true] #more,body[data-expanded=true] #cancel{opacity:var(--reveal,1)}
+body[data-moving=true][data-phase=idle] button:not(#peek){pointer-events:none}
+#shortcuts{display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+#shortcuts button,#snooze{width:100%;height:28px;min-height:28px;border-radius:7px;display:flex;gap:8px;justify-content:flex-start;padding:4px 8px;color:#c6c8d0;font-size:11px;text-align:left}
+#shortcuts svg,#snooze svg{width:15px;height:15px;flex-shrink:0;color:#9296a0}
+#snooze{margin-top:2px;color:#9296a0}
+button{width:32px;height:32px;border:0;background:transparent;color:inherit;border-radius:50%;padding:6px;display:grid;place-items:center;cursor:pointer;flex-shrink:0;transition:background-color 120ms ease-out,color 120ms ease-out}
+button:hover{background:#ffffff0d}button:active{background:#ffffff18}button:focus-visible{outline:2px solid #fff;outline-offset:-3px}button:disabled{opacity:.4;cursor:default}
+svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform 120ms ease-out}
+button:active:not(:disabled)>svg{transform:scale(.92)}
+body[data-phase=idle] #peek:hover{background:transparent}
+body[data-phase=idle][data-expanded=true] #main>svg,body[data-phase=idle][data-expanded=true] #more>svg{translate:0 calc((1 - var(--reveal,1))*2px)}
+#main{background:transparent}#more{color:#979ba5}body[data-phase=recording] #main{color:#ffaf69;background:#33271f}body[data-phase=processing] #main svg{animation:spin 1.4s linear infinite}
+#label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;color:#bfc1c9;min-width:0;flex:1}
+body[data-status=true]{border-radius:var(--surface-radius,20px)}body[data-status=true] #controls{height:38px;gap:4px;padding:0 4px;justify-content:flex-start}
+body[data-status=true] #peek{order:0}body[data-status=true] #label{order:1}body[data-status=true] #main{order:2}body[data-status=true] #cancel,body[data-status=true] #recover{order:3}
+body[data-status=true][data-edge=right] #controls{flex-direction:row-reverse}
+body[data-notice=true]{border-radius:var(--surface-radius,14px)}body[data-notice=true] #controls{height:100%}
+#meter{display:flex;gap:2px;align-items:center;justify-content:center;height:12px;width:24px;flex-shrink:0}#meter i{display:block;background:#9296a0;border-radius:2px;width:3px;height:4px;transition:height 100ms ease-out,background-color 140ms ease-out}
+body[data-phase=idle][data-expanded=true] #meter{animation:greet 320ms ease-out both}
+body[data-phase=idle][data-expanded=true] #meter i{background:#c6c9d1}
+body[data-phase=recording] #meter i{background:#ffaa64;height:calc(3px + var(--level,0)*.8px)}#meter i:nth-child(2){transform:scaleY(.7)}#meter i:nth-child(4){transform:scaleY(.55)}
+body[data-phase=processing] #meter{animation:working 1.2s ease-in-out infinite alternate}body[data-phase=processing] #meter i{background:#c6c9d1}body[data-phase=processing] #meter i:nth-child(2){height:9px}body[data-phase=processing] #meter i:nth-child(3){height:6px}
+@keyframes working{from{opacity:.45;transform:scaleY(.75)}to{opacity:1;transform:scaleY(1)}}
+body[data-phase=idle] #meter i:nth-child(2){height:9px;transform:none}body[data-phase=idle] #meter i:nth-child(3){height:6px}
+[hidden]{display:none!important}@keyframes spin{to{transform:rotate(360deg)}}@keyframes greet{0%{transform:scaleY(.85)}45%{transform:scaleY(1.12)}100%{transform:scaleY(1)}}@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body data-phase="idle">
+<div id="menu" hidden aria-label="VocalCode shortcuts">
+<div id="shortcuts">
+<button id="history" hidden aria-label="Open history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 7M4 5v5h5M12 8v5l3 2"/></svg><span id="historyText">History</span></button>
+<button id="meetings" hidden aria-label="Open meetings"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M7 3v4M17 3v4M3 10h18M8 15h3"/></svg><span id="meetingsText">Meetings</span></button>
+<button id="rewrite" hidden aria-label="Open rewrite scratchpad"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 17 12-12 3 3-12 12H4v-3ZM14 7l3 3M16 18h5"/></svg><span id="rewriteText">Rewrite</span></button>
+<button id="settings" hidden aria-label="Open settings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6h14M5 12h14M5 18h14M9 4v4M15 10v4M10 16v4"/></svg><span id="settingsText">Settings</span></button>
+</div>
+<button id="snooze" hidden aria-label="Hide for one hour"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14a8 8 0 0 1-10-10 8 8 0 1 0 10 10"/></svg><span id="snoozeText">Hide for one hour</span></button>
+</div>
+<div id="controls">
+<button id="peek" aria-label="Show quick controls"><span id="meter" aria-hidden="true"><i></i><i></i><i></i><i></i></span></button>
+<span id="label" hidden></span>
+<button id="main" hidden aria-label="Start hands-free dictation" title="Start hands-free dictation"><svg id="mainIcon" viewBox="0 0 24 24" aria-hidden="true"></svg></button>
+<button id="more" hidden aria-label="More controls" title="More controls" aria-controls="menu" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg></button>
+<button id="recover" hidden aria-label="Open history" title="Open history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 10a8 8 0 1 1 1 7M4 5v5h5M12 8v5l3 2"/></svg></button>
+<button id="cancel" hidden aria-label="Cancel recording" title="Cancel recording"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
+</div>
+<script>
+(()=>{'use strict';const el=id=>document.getElementById(id);let state=null,pending=false,ackTimer=null,requestId=0,localError=false,renderedIcon='';
+const text={en:{start:'Start hands-free dictation',stop:'Stop and insert',cancel:'Cancel recording',more:'More controls',history:'Open history',meetings:'Open meetings',rewrite:'Open rewrite scratchpad',settings:'Open settings',snooze:'Hide for one hour',idle:'Ready',recording:'Listening',processing:'Working…',unavailable:'Open settings',waiting:'Please wait…',historyText:'History',meetingsText:'Meetings',rewriteText:'Rewrite',settingsText:'Settings'},zh:{start:'开始免按键听写',stop:'停止并输入',cancel:'取消录音',more:'更多功能',history:'打开历史记录',meetings:'打开会议记录',rewrite:'打开改写草稿',settings:'打开设置',snooze:'隐藏一小时',idle:'就绪',recording:'录音中',processing:'识别中…',unavailable:'打开设置',waiting:'请稍候…',historyText:'历史记录',meetingsText:'会议记录',rewriteText:'智能改写',settingsText:'设置'}};
+const icons={mic:'<rect x="9" y="3" width="6" height="12" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M9 21h6"/>',stop:'<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',working:'<path d="M20 12a8 8 0 1 1-8-8"/>'};
+const errorZh={
+  'That control is no longer available. Please try again.':'录音状态已改变，请重试。',
+  'Controls are busy. Please try again.':'控制条正忙，请稍后重试。',
+  'Dictation is not running yet.':'听写尚未准备好，请打开设置检查。',
+  'Please wait for the previous action.':'请等待上一个操作完成。',
+  'Dictation stopped. Open VocalCode to check its status.':'听写已停止，请打开 VocalCode 检查状态。',
+  'The recording state changed. Please try again.':'录音状态已改变，请重试。'
+};
+function send(value){try{if(window.ipc&&typeof window.ipc.postMessage==='function'){window.ipc.postMessage(JSON.stringify(value));return true;}}catch(_){}return false;}
+function clearAcknowledgement(){if(ackTimer!==null){clearTimeout(ackTimer);ackTimer=null;}requestId++;}
+function failedAcknowledgement(id){if(id!==requestId)return;clearAcknowledgement();pending=false;localError=true;draw();}
+function draw(){if(!state)return;const s=state;const language=s.language==='auto'?navigator.language:s.language;const t=language&&language.startsWith('zh')?text.zh:text.en;const error=t===text.zh?(errorZh[s.error]||s.error):s.error;
+document.documentElement.lang=t===text.zh?'zh':'en';document.body.dataset.phase=s.phase;document.body.dataset.edge=s.edge||'bottom';document.body.dataset.expanded=String(!!s.expanded);document.body.style.setProperty('--level',String(s.level||0));
+// WebView2's rounded viewport can exceed its HWND by a few physical pixels
+// with accessibility text enlargement. Paint inside the actual native size.
+const ratio=window.devicePixelRatio;
+for(const [key,value] of [['width',s.width_physical],['height',s.height_physical]])document.body.style.setProperty('--surface-'+key,Number.isFinite(ratio)&&ratio>0&&Number.isFinite(value)&&value>0?(value/ratio)+'px':'100%');
+const radius=Number.isFinite(s.radius_milli)?Math.max(0,Math.min(20,s.radius_milli/1000)):null;
+document.body.style.setProperty('--surface-radius',radius===null?'':radius+'px');
+document.body.style.setProperty('--menu-reveal',String(Number.isFinite(s.menu_reveal_milli)?Math.max(0,Math.min(1,s.menu_reveal_milli/1000)):1));
+const moving=s.moving===true;document.body.dataset.moving=String(moving);
+const progress=Number.isFinite(s.reveal_milli)?Math.max(0,Math.min(1,s.reveal_milli/1000)):1;
+document.body.style.setProperty('--reveal',String(moving?Math.max(0,(progress-.2)/.8):1));
+const recording=s.phase==='recording',working=s.phase==='processing',idle=!recording&&!working,recovery=idle&&s.recovery===true;const action=recording?'stop':s.ready?'start':'settings';
+const status=s.status===true||recovery||!!error||localError;
+document.body.dataset.status=String(status);document.body.dataset.notice=String(localError&&!s.status&&idle&&!recovery&&!error);
+document.body.style.setProperty('--peek-shift',(moving&&!status?9*(1-progress):0)+'px');
+el('main').hidden=!s.expanded;el('main').dataset.action=action;el('main').setAttribute('aria-label',working?t.processing:t[action]);el('main').title=working?t.processing:t[action];el('main').disabled=working||s.busy||pending||(moving&&idle);
+const peekName=idle?(t===text.zh?'展开快捷控制':'Show quick controls'):working?t.processing:(t===text.zh?'录音中；展开停止或取消':'Listening; show stop or cancel');
+el('peek').setAttribute('aria-label',peekName);el('peek').setAttribute('aria-expanded',String(!!s.expanded));
+const icon=working?'working':recording?'stop':'mic';if(icon!==renderedIcon){el('mainIcon').innerHTML=icons[icon];renderedIcon=icon;}
+const menu=s.expanded&&idle&&!status&&s.menu===true;if(menu&&document.body.dataset.menu!=='true')el('menu').scrollTop=0;el('menu').hidden=!menu;document.body.dataset.menu=String(menu);
+for(const id of ['cancel','history','meetings','rewrite','settings','snooze','more','recover']){el(id).hidden=!s.expanded||(id==='cancel'?!recording:id==='more'?!idle||status:id==='recover'?!recovery:!menu);el(id).disabled=s.busy||pending||(moving&&idle);const name=id==='recover'?t.history:t[id];el(id).title=name;el(id).setAttribute('aria-label',name);}
+el('more').setAttribute('aria-expanded',String(menu));
+for(const id of ['history','meetings','rewrite','settings'])el(id+'Text').textContent=t[id+'Text'];el('snoozeText').textContent=t.snooze;
+el('label').hidden=!s.expanded||!status;el('label').textContent=error||(localError?(t===text.zh?'状态未确认，请检查录音提示':'Status unconfirmed; check indicator'):((pending||s.busy)?t.waiting:recovery?(t===text.zh?'文字已保留在历史':'Text kept in history'):idle&&!s.ready?t.unavailable:t[s.phase]));el('label').title=error||(recovery?(t===text.zh?'打开历史找回文字；可能已有部分文字写入，请先检查。':'Open history to recover text; some words may already be inserted. Check before pasting.'):el('label').textContent);
+}
+window.vocalcodeControl=s=>{clearAcknowledgement();state=s;pending=false;localError=false;draw();};
+document.querySelectorAll('button').forEach(button=>button.addEventListener('click',()=>{if(!state||button.disabled||button.hidden)return;if(button.id==='peek'){send({type:'hover',inside:true});return;}const action=button.id==='main'?button.dataset.action:button.id==='recover'?'history':button.id;clearAcknowledgement();const id=requestId;pending=true;localError=false;draw();ackTimer=setTimeout(()=>failedAcknowledgement(id),2000);if(!send({type:'action',revision:state.revision,view_revision:state.view_revision,action}))failedAcknowledgement(id);}));
+document.documentElement.addEventListener('pointerenter',()=>send({type:'hover',inside:true}));document.documentElement.addEventListener('pointerleave',()=>send({type:'hover',inside:false}));
+document.addEventListener('contextmenu',event=>event.preventDefault());
+send({type:'ready'});
+let lastRatio=0,scaleQuery=null;
+function reportScale(){const ratio=window.devicePixelRatio;if(!Number.isFinite(ratio)||ratio<.5||ratio>16)return;const milli=Math.round(ratio*1000);if(milli!==lastRatio){lastRatio=milli;send({type:'scale',ratio_milli:milli});}
+if(window.matchMedia){if(scaleQuery)scaleQuery.removeEventListener('change',reportScale);scaleQuery=window.matchMedia('(resolution: '+ratio+'dppx)');scaleQuery.addEventListener('change',reportScale);}}
+if(window.addEventListener)window.addEventListener('resize',reportScale);
+reportScale();
+if(window.matchMedia){const motionQuery=window.matchMedia('(prefers-reduced-motion: reduce)');const reportMotion=()=>send({type:'motion',reduced:motionQuery.matches});motionQuery.addEventListener('change',reportMotion);reportMotion();}
+})();
+</script></body></html>

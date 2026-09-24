@@ -18,6 +18,11 @@ synthetic example. Do not access someone else's data to demonstrate a bug.
 - Download origins, hashes, archive extraction, and update signatures.
 - Local file permissions, symlink/reparse-point handling, and data removal.
 - Recording consent, cancellation, diagnostic exports, and retention controls.
+- Optional rewrite providers: no silent cloud fallback; explicit per-request
+  consent; native CLI resolution without shell shims; stdin-only source text;
+  bounded subprocesses; no tools/MCP/browser integration; stale preview and
+  undo protection. An external CLI remains a separately trusted program, not
+  an OS-sandboxed text processor. See [the provider boundaries](docs/SMART-REWRITE.md).
 
 Community mode changes product access, not these security boundaries. It does
 not introduce a universal licence key, weaken paid receipt verification, or

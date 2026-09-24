@@ -1,0 +1,32 @@
+[
+  {
+    "id": "english_review",
+    "language": "en",
+    "text": "I have been thinking about the notification settings, and I don't think we should turn everything on by default. People might be sharing their screen, or they might be in the middle of a presentation. Let's show a quiet reminder only when there is a clear reason to do so. If they dismiss it, remember that choice for the current meeting. We should still make the feature easy to find later in settings. Actually, there is one more thing. Closing the main window should not cancel a recording that the user deliberately started. It should leave a small, clear indicator with a stop button. But if the microphone disconnects, we must say that recording has stopped instead of leaving a green dot on the screen. Please write tests for both of those cases. After the tests pass, prepare a local build so we can try it ourselves. Do not publish it yet. I want to review the wording and make sure the recovery flow works before we ask other people to install it."
+  },
+  {
+    "id": "english_debugging",
+    "language": "en",
+    "text": "The Rust worker is still running when the WebSocket connection closes. Could you check the cancellation token and the timeout handler? The frontend uses React, but the backend is written in Python. Please compare the logs from the Docker container with the error shown in the browser. I suspect the retry loop is creating duplicate requests. We need to preserve the original transaction identifier, and we should not clear the cache until the server confirms the update. Add a regression test before changing the implementation. Then open a pull request with a short explanation of the failure."
+  },
+  {
+    "id": "english_constraints",
+    "language": "en",
+    "text": "Please don't change the password policy just to make the test pass. The customer did not approve that change, and we have not received permission to upload their recordings. We can use generated examples instead. The first request should be cancelled, while the second request should finish normally. If the network is unavailable, keep the draft on this device. Never send it to another provider automatically. I am not saying that cloud processing is always wrong. I am saying that the person using the app should choose it explicitly and understand where the text is going."
+  },
+  {
+    "id": "english_self_correction",
+    "language": "en",
+    "text": "Let's put the button on the left. Actually, no, keep it on the right for now. I meant the small button next to the microphone, not the main start button. When I click it, I want to see what happened to the last recording. Maybe we should call it history, or recent dictations. I'm not sure which label is clearer yet. Could you make a quick preview of both? Don't delete the original text while we are experimenting. I want to compare the versions and undo the change if the new one is harder to understand."
+  },
+  {
+    "id": "chinese_review",
+    "language": "zh",
+    "text": "我觉得这个提醒功能可以再仔细想一下。用户只是打开了会议软件，不代表他已经开始开会，更不代表他同意录音。我们可以先显示一个小提示，让他确认音频来源，再决定要不要开始。如果他点了这次不用，就不要隔几秒钟又弹出来。还有，会议结束之后应该先把录音状态停下来，再慢慢处理剩下的文字。处理的时候可以继续显示进度，但是不能让用户以为麦克风还在工作。你先把这些情况写成测试，尤其是设备断开和窗口关闭的时候。我们自己试过以后再发给别人。"
+  },
+  {
+    "id": "chinese_mixed",
+    "language": "zh",
+    "text": "你先看一下这个 Python 服务的日志。前端是 TypeScript，后端用了 Redis，但是我现在还不能确定问题是不是缓存造成的。不要直接把所有数据都清掉，先保留一个可以复现问题的例子。然后到 GitHub 上建一个新的分支，把这个测试补上。还有，Windows 里面这个输入框可能属于另外一个进程，所以不能只比较进程编号。应该继续检查它属于哪个窗口，确认用户最后选择的输入位置没有变化。代码改完以后先在本地测试，不要自动发布。"
+  }
+]

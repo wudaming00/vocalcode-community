@@ -196,14 +196,16 @@ pub(crate) fn handle(
     output: Option<PathBuf>,
 ) -> Result<Value, String> {
     match request["op"].as_str().unwrap_or("") {
-        "rewrite_models" | "rewrite_preview" => {
+        "rewrite_models" | "rewrite_providers" | "rewrite_preview" => {
             let mut request = request.clone();
             request["op"] = json!(if request["op"] == "rewrite_models" {
                 "models"
+            } else if request["op"] == "rewrite_providers" {
+                "providers"
             } else {
                 "preview"
             });
-            crate::rewrite::handle(status, &request)
+            crate::rewrite::handle(base, status, &request)
         }
         "load" | "save" => {
             let path = path(base)?;

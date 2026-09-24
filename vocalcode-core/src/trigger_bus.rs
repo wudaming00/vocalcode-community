@@ -61,6 +61,8 @@ impl EmergencyControls {
             | TriggerEvent::DeviceDisconnected(_)
             | TriggerEvent::ForceStop => FORCE_STOP_PENDING,
             TriggerEvent::TalkPressed(_)
+            | TriggerEvent::HandsFreeStart(_)
+            | TriggerEvent::Wake
             | TriggerEvent::SendTapped(_)
             | TriggerEvent::TeachTapped(_) => {
                 debug_assert!(false, "ordinary action published as an emergency control");
@@ -384,7 +386,11 @@ pub fn trigger_event_channel() -> (TriggerEventSender, TriggerEventReceiver) {
 fn is_action(event: TriggerEvent) -> bool {
     matches!(
         event,
-        TriggerEvent::TalkPressed(_) | TriggerEvent::SendTapped(_) | TriggerEvent::TeachTapped(_)
+        TriggerEvent::TalkPressed(_)
+            | TriggerEvent::HandsFreeStart(_)
+            | TriggerEvent::Wake
+            | TriggerEvent::SendTapped(_)
+            | TriggerEvent::TeachTapped(_)
     )
 }
 

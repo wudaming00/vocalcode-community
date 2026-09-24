@@ -57,6 +57,14 @@ and [who maintains it / how to get in touch](MAINTAINERS.md).
 
 This is a desktop tool, not a meeting bot or a cloud transcription subscription.
 
+The current **development tree** also includes an opt-in Windows desktop control
+bar and a manual rewrite scratchpad. The bar is off by default and uses the
+existing dictation engine; rewriting defaults to an already-installed local
+Ollama model, with a separately consented Claude CLI option. These changes have
+not been published as a new release by this work. See the
+[development evaluation](docs/product-polish-2026-09-23/RESULTS.zh-CN.md) and
+[rewrite boundaries](docs/SMART-REWRITE.md).
+
 ## Install or build
 
 Open [Releases](https://github.com/wudaming00/vocalcode-community/releases) and choose
@@ -93,6 +101,12 @@ Dictionary/snippet import is explicit; back up data before any manual migration.
   release channel; installation verifies size, SHA-256, publisher and edition.
 - External calendar URLs and other explicitly configured integrations have
   their own network behavior. Do not confuse local ASR with an air-gapped app.
+- The development [rewrite scratchpad](docs/SMART-REWRITE.md) defaults to local
+  Ollama. Optionally choosing Claude Code passes the manually supplied
+  source to that CLI, with fresh consent per preview. Its configured service,
+  account policies, and logging remain separate trust boundaries.
+  Installing a CLI locally does not make its inference local. Codex is
+  detected only, not used for generation.
 - Recording, clipboard history, exports, and optional diagnostic persistence
   can contain sensitive information. Review your OS sync and backup settings.
 

@@ -342,6 +342,11 @@ pub struct Config {
     /// window on a 13" display. Every comparable product ships this setting.
     #[serde(default = "default_overlay_style")]
     pub overlay_style: String,
+    /// Opt-in Windows desktop control. Does not imply an open microphone.
+    #[serde(default)]
+    pub desktop_control: bool,
+    #[serde(default = "default_desktop_control_edge")]
+    pub desktop_control_edge: String,
     /// Whether the user has been through the first-run language picker. Until
     /// they have, the app shows the picker and downloads nothing — so it never
     /// fetches a model for a language they don't speak. Existing installs are
@@ -386,6 +391,12 @@ impl Config {
             &self.overlay_style,
             MAX_CONFIG_TOKEN_UTF8_BYTES,
         )?;
+        if !matches!(
+            self.desktop_control_edge.as_str(),
+            "bottom" | "left" | "right"
+        ) {
+            return Err("Desktop control edge must be bottom, left or right.".into());
+        }
         if let Some(device) = self.input_device.as_deref() {
             bounded_config_text("input_device", device, MAX_INPUT_DEVICE_UTF8_BYTES)?;
         }
@@ -493,6 +504,10 @@ fn default_ui_lang() -> String {
 
 fn default_overlay_style() -> String {
     "classic".to_string()
+}
+
+fn default_desktop_control_edge() -> String {
+    "bottom".into()
 }
 
 fn default_correction_window_ms() -> u32 {
@@ -702,6 +717,8 @@ impl Default for Config {
             ui_lang: "auto".to_string(),
             talk_mode: default_talk_mode(),
             overlay_style: default_overlay_style(),
+            desktop_control: false,
+            desktop_control_edge: default_desktop_control_edge(),
             onboarded: false, // fresh install → show the first-run language picker
             config_version: CONFIG_VERSION,
         }
@@ -752,6 +769,24 @@ mod tests {
             .ignored_meeting_apps
             .push("contains a space".to_string());
         assert!(config.validate_bounds().is_err());
+    }
+
+    #[test]
+    fn desktop_controls_are_opt_in_and_edges_survive_roundtrip() {
+        let mut old: Config = toml::from_str("").unwrap();
+        assert!(!old.desktop_control);
+        assert_eq!(old.desktop_control_edge, "bottom");
+        old.desktop_control = true;
+        for edge in ["bottom", "left", "right"] {
+            old.desktop_control_edge = edge.into();
+            assert!(old.validate_bounds().is_ok());
+            let loaded: Config = toml::from_str(&toml::to_string(&old).unwrap()).unwrap();
+            assert!(loaded.desktop_control);
+            assert_eq!(loaded.desktop_control_edge, edge);
+        }
+        old.desktop_control_edge = "offscreen".into();
+        assert!(old.validate_bounds().is_err());
+        assert!(toml::from_str::<Config>("desktop_control = 'true'").is_err());
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -2,16 +2,16 @@
 //!
 //! Holding the talk key used to produce no visible feedback at all: the status
 //! lived in the settings window, which is normally closed, so the user pressed
-//! a key, spoke, and had no way to tell whether anything was listening. Every
-//! comparable product solves this the same way, and their agreement is what
-//! this follows.
+//! a key, spoke, and had no way to tell whether anything was listening. The
+//! recording indicator makes capture state clear without stealing focus
+//! from the destination field.
 //!
 //! # Shape of the thing
 //!
 //! A small dark capsule near the bottom of the screen showing a live level
-//! meter, and nothing else. Notably it does **not** show partial transcript —
-//! none of the products surveyed do; live text is consistently treated as a
-//! separate opt-in feature rather than a state of the indicator.
+//! meter, and nothing else. It does **not** show a private partial transcript.
+//! Progressive input and the optional interactive desktop control are separate
+//! features, not additional authority granted to this passive indicator.
 //!
 //! # Why it is inert
 //!
@@ -23,7 +23,9 @@
 //! It also has to float above the menu bar and appear on every Space including
 //! over full-screen apps, since dictation happens wherever the user already is.
 
-use std::sync::atomic::{AtomicU8, Ordering};
+#[cfg(windows)]
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use tao::event_loop::EventLoopWindowTarget;
@@ -51,10 +53,9 @@ const BOTTOM_MARGIN: f64 = 8.0;
 
 /// What the indicator is currently showing.
 ///
-/// Deliberately smaller than the state machines the surveyed apps use — they
-/// carry modes, polish passes and hands-free locks that this does not have.
-/// Adding a state it cannot actually reach would just be dead UI.
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Deliberately limited to states this passive indicator can actually show.
+/// Rewrite candidates and hands-free controls belong to their own UI surfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Phase {
     /// Nothing happening: the window is hidden entirely.
@@ -81,19 +82,38 @@ impl Phase {
 
 /// Shared handle the engine thread writes and the UI thread reads.
 #[derive(Clone, Default)]
-pub struct OverlayState(Arc<AtomicU8>);
+pub struct OverlayState(Arc<AtomicU64>);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Snapshot {
+    pub revision: u64,
+    pub phase: Phase,
+}
 
 impl OverlayState {
     pub fn set(&self, phase: Phase) {
-        self.0.store(phase as u8, Ordering::Relaxed);
+        // Phase and generation travel together. An old stop/start button may
+        // not control a later utterance that happens to have the same phase.
+        let _ = self
+            .0
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                ((old & 7) != phase as u64).then(|| ((old & !7).wrapping_add(8)) | phase as u64)
+            });
     }
     fn get(&self) -> Phase {
-        Phase::from_u8(self.0.load(Ordering::Relaxed))
+        self.snapshot().phase
+    }
+    pub fn snapshot(&self) -> Snapshot {
+        let value = self.0.load(Ordering::Acquire);
+        Snapshot {
+            revision: value >> 3,
+            phase: Phase::from_u8((value & 7) as u8),
+        }
     }
 }
 
 /// Which indicator the user asked for.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Style {
     /// The full capsule: meter, on-air dot, and a label while transcribing.
     Classic,
@@ -104,6 +124,16 @@ pub enum Style {
 }
 
 impl Style {
+    /// A visible interactive capsule owns the recording indication, even when
+    /// the config lock is temporarily unavailable. None preserves prior style.
+    pub fn alongside_capsule(configured: Option<Self>, capsule_visible: bool) -> Option<Self> {
+        if capsule_visible {
+            Some(Self::Off)
+        } else {
+            configured
+        }
+    }
+
     /// Parse the config string, falling back to the default rather than
     /// failing: a hand-edited config with a typo should still show *something*
     /// rather than silently leaving the user with no feedback at all.
@@ -113,6 +143,30 @@ impl Style {
             "off" => Style::Off,
             _ => Style::Classic,
         }
+    }
+}
+
+/// The DOM animates between levels itself. Do not feed a hidden/disabled
+/// WebView, and do not resend an unchanged thousandth on every UI-loop turn.
+#[derive(Default)]
+struct MeterUpdates(Option<u16>);
+
+impl MeterUpdates {
+    fn next(&mut self, shown: bool, phase: Phase, level: f32) -> Option<f32> {
+        if !shown || phase != Phase::Recording {
+            self.0 = None;
+            return None;
+        }
+        let level = if level.is_finite() {
+            (level.clamp(0.0, 1.0) * 1000.0).round() as u16
+        } else {
+            0
+        };
+        if self.0 == Some(level) {
+            return None;
+        }
+        self.0 = Some(level);
+        Some(f32::from(level) / 1000.0)
     }
 }
 
@@ -141,12 +195,19 @@ pub struct Overlay {
     _web_context: wry::WebContext,
     shown: bool,
     last_phase: Phase,
+    meter_updates: MeterUpdates,
     style: Style,
     /// The style changed and the page has not been told yet.
     style_pending: bool,
     /// The interface language preference, and whether the page has it yet.
     lang: String,
     lang_pending: bool,
+    #[cfg(windows)]
+    page_ratio: Arc<AtomicU32>,
+    #[cfg(windows)]
+    last_page_ratio: u32,
+    #[cfg(windows)]
+    text_scale: f64,
 }
 
 impl Overlay {
@@ -161,11 +222,32 @@ impl Overlay {
             .with_always_on_top(true)
             .with_resizable(false)
             .with_focused(false)
+            .with_focusable(false)
             .with_visible(false)
             .with_inner_size(tao::dpi::LogicalSize::new(WINDOW_W, WINDOW_H))
             .build(target)?;
 
         position_bottom_centre(&window, Style::Classic);
+        #[cfg(windows)]
+        {
+            use tao::platform::windows::WindowExtWindows;
+            use windows_sys::Win32::{Foundation::*, UI::WindowsAndMessaging::*};
+            window.set_ignore_cursor_events(true)?;
+            let hwnd = window.hwnd() as HWND;
+            let style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+            unsafe {
+                SetLastError(0);
+                let old = SetWindowLongPtrW(
+                    hwnd,
+                    GWL_EXSTYLE,
+                    ((style & !WS_EX_APPWINDOW) | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE) as isize,
+                );
+                anyhow::ensure!(
+                    old != 0 || GetLastError() == 0,
+                    "could not set passive indicator window style"
+                );
+            }
+        }
 
         // macOS composites a transparent WebView2/WKWebView, so the capsule can
         // float with a shadow. Windows WebView2 does not — a transparent window
@@ -179,12 +261,35 @@ impl Overlay {
             .with_transparent(true)
             .build(&window)?;
         #[cfg(windows)]
-        let webview = wry::WebViewBuilder::new_with_web_context(&mut web_context)
-            .with_html(include_str!("overlay.html"))
-            .with_background_color((13, 12, 11, 255))
-            .build(&window)?;
+        let page_ratio = Arc::new(AtomicU32::new(0));
         #[cfg(windows)]
-        let _ = webview.evaluate_script("document.documentElement.classList.add('solid')");
+        let webview = {
+            use base64::Engine;
+            // Solid mode is part of the initial document, not a script that can
+            // race navigation. IPC has only a bounded display-metrics message.
+            let html = include_str!("overlay.html").replacen(
+                "<html lang=\"en\">",
+                "<html lang=\"en\" class=\"solid\">",
+                1,
+            );
+            let document = format!(
+                "data:text/html;charset=utf-8;base64,{}",
+                base64::engine::general_purpose::STANDARD.encode(&html)
+            );
+            let metrics = page_ratio.clone();
+            wry::WebViewBuilder::new_with_web_context(&mut web_context)
+                .with_html(&html)
+                .with_focused(false)
+                .with_background_color((13, 12, 11, 255))
+                .with_navigation_handler(move |url| url == "about:blank" || url == document)
+                .with_new_window_req_handler(|_, _| wry::NewWindowResponse::Deny)
+                .with_ipc_handler(move |request| {
+                    if let Some(ratio) = parse_scale_message(request.body()) {
+                        metrics.store(ratio, Ordering::Release);
+                    }
+                })
+                .build(&window)?
+        };
 
         #[cfg(target_os = "macos")]
         let panel = {
@@ -207,10 +312,17 @@ impl Overlay {
             _web_context: web_context,
             shown: false,
             last_phase: Phase::Idle,
+            meter_updates: MeterUpdates::default(),
             style: Style::Classic,
             style_pending: false,
             lang: String::new(),
             lang_pending: false,
+            #[cfg(windows)]
+            page_ratio,
+            #[cfg(windows)]
+            last_page_ratio: 0,
+            #[cfg(windows)]
+            text_scale: 1.0,
         })
     }
 
@@ -223,9 +335,7 @@ impl Overlay {
         self.style = style;
         #[cfg(windows)]
         if style != Style::Off {
-            let (width, height) = window_logical_size(style);
-            self.window
-                .set_inner_size(tao::dpi::LogicalSize::new(width, height));
+            self.resize_windows_frame();
             // A live switch between Classic and Mini does not cross the
             // hidden/visible boundary below, so reposition at the same time as
             // the native resize instead of leaving the smaller capsule offset.
@@ -263,12 +373,54 @@ impl Overlay {
         self.lang_pending = true;
     }
 
+    /// Hidden, synthetic-only native layout inspection; absent from releases.
+    #[cfg(all(windows, debug_assertions))]
+    #[allow(dead_code)]
+    pub fn inspect_hidden_layout(
+        &mut self,
+        mini: bool,
+        phase: &str,
+        language: &str,
+        on_result: impl Fn(String) + Send + 'static,
+    ) -> anyhow::Result<()> {
+        use tao::platform::windows::WindowExtWindows;
+        use windows_sys::Win32::UI::WindowsAndMessaging::*;
+        let hwnd = self.window.hwnd() as windows_sys::Win32::Foundation::HWND;
+        anyhow::ensure!(
+            !self.shown && unsafe { IsWindowVisible(hwnd) } == 0,
+            "probe must remain hidden"
+        );
+        self.sync_windows_scale();
+        self.set_style(if mini { Style::Mini } else { Style::Classic });
+        let exstyle = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
+        let rounded = unsafe {
+            use windows_sys::Win32::Graphics::Gdi::*;
+            let region = CreateRectRgn(0, 0, 0, 0);
+            if region.is_null() {
+                false
+            } else {
+                let result = GetWindowRgn(hwnd, region) > 1 && PtInRegion(region, 0, 0) == 0;
+                DeleteObject(region);
+                result
+            }
+        };
+        let native = serde_json::json!({"visible":false,"rounded":rounded,"no_activate":exstyle&WS_EX_NOACTIVATE!=0,"click_through":exstyle&WS_EX_TRANSPARENT!=0,"not_in_taskbar":exstyle&WS_EX_APPWINDOW==0&&exstyle&WS_EX_TOOLWINDOW!=0});
+        // visualViewport reports fractional CSS bounds at accessibility scale;
+        // innerWidth rounds down and can falsely flag a fitting border as overflow.
+        let script=format!("(()=>{{if(!window.vcPhase)return JSON.stringify({{ready:false}});vcStyle({});vcLang({});vcPhase({});const pill=document.getElementById('pill').getBoundingClientRect();return JSON.stringify({{ready:true,native:{native},width:visualViewport.width,height:visualViewport.height,dpr:devicePixelRatio,solid:document.documentElement.classList.contains('solid'),pill:{{x:pill.x,y:pill.y,right:pill.right,bottom:pill.bottom}},content:Array.from(document.querySelectorAll('#pill>span')).filter(el=>getComputedStyle(el).display!=='none').map(el=>{{const r=el.getBoundingClientRect();return{{id:el.id,x:r.x,y:r.y,right:r.right,bottom:r.bottom}};}})}});}})()",serde_json::json!(if mini {"mini"}else{"classic"}),serde_json::json!(language),serde_json::json!(phase));
+        self.webview
+            .evaluate_script_with_callback(&script, on_result)?;
+        Ok(())
+    }
+
     /// Push the current phase and microphone level into the page.
     ///
     /// Called from the UI event loop's tick. The level is only a target: the
     /// page animates continuously on its own, so a coarse update rate here
     /// still yields a smooth meter.
     pub fn tick(&mut self, state: &OverlayState, level: f32) {
+        #[cfg(windows)]
+        self.sync_windows_scale();
         let phase = state.get();
 
         if phase != self.last_phase {
@@ -341,12 +493,76 @@ impl Overlay {
             self.shown = want;
         }
 
-        if phase == Phase::Recording {
+        if let Some(level) = self.meter_updates.next(self.shown, phase, level) {
             let _ = self
                 .webview
                 .evaluate_script(&format!("window.vcLevel && vcLevel({level:.3})"));
         }
     }
+
+    #[cfg(windows)]
+    fn sync_windows_scale(&mut self) {
+        let ratio = self.page_ratio.load(Ordering::Acquire);
+        if ratio == 0 || ratio == self.last_page_ratio {
+            return;
+        }
+        use tao::platform::windows::WindowExtWindows;
+        let dpi = unsafe {
+            windows_sys::Win32::UI::HiDpi::GetDpiForWindow(
+                self.window.hwnd() as windows_sys::Win32::Foundation::HWND
+            )
+        };
+        self.text_scale = windows_text_scale(ratio, dpi);
+        self.last_page_ratio = ratio;
+        self.resize_windows_frame();
+        position_bottom_centre(&self.window, self.style);
+    }
+
+    #[cfg(windows)]
+    fn resize_windows_frame(&self) {
+        use tao::platform::windows::WindowExtWindows;
+        use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
+        let (width, height) = window_logical_size(self.style);
+        self.window.set_inner_size(tao::dpi::LogicalSize::new(
+            width * self.text_scale,
+            height * self.text_scale,
+        ));
+        // WebView's opaque background otherwise leaves square dark corners
+        // outside the CSS capsule. Crop the native window too.
+        let hwnd = self.window.hwnd() as HWND;
+        let mut rect = RECT::default();
+        unsafe {
+            if GetWindowRect(hwnd, &mut rect) != 0 {
+                let width = rect.right.saturating_sub(rect.left).max(1);
+                let height = rect.bottom.saturating_sub(rect.top).max(1);
+                let region = CreateRoundRectRgn(0, 0, width + 1, height + 1, height, height);
+                if !region.is_null() && SetWindowRgn(hwnd, region, 1) == 0 {
+                    DeleteObject(region);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn parse_scale_message(body: &str) -> Option<u32> {
+    #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Metrics {
+        r#type: String,
+        ratio_milli: u32,
+    }
+    if body.len() > 128 {
+        return None;
+    }
+    let value: Metrics = serde_json::from_str(body).ok()?;
+    (value.r#type == "scale" && (500..=16000).contains(&value.ratio_milli))
+        .then_some(value.ratio_milli)
+}
+
+#[cfg(windows)]
+pub(crate) fn windows_text_scale(ratio_milli: u32, hwnd_dpi: u32) -> f64 {
+    (f64::from(ratio_milli) / 1000.0 / (f64::from(hwnd_dpi.max(96)) / 96.0)).clamp(1.0, 4.0)
 }
 
 /// Re-order an already visible indicator on every show.
@@ -800,8 +1016,87 @@ mod tests {
     use super::*;
     use vocalcode_core::Config;
 
+    #[test]
+    fn hidden_and_non_recording_indicators_never_receive_meter_updates() {
+        let mut meter = MeterUpdates::default();
+        for phase in [
+            Phase::Idle,
+            Phase::Recording,
+            Phase::Transcribing,
+            Phase::Learning,
+        ] {
+            assert_eq!(meter.next(false, phase, 0.5), None);
+        }
+        for phase in [Phase::Idle, Phase::Transcribing, Phase::Learning] {
+            assert_eq!(meter.next(true, phase, 0.5), None);
+        }
+    }
+
+    #[test]
+    fn meter_deduplicates_but_resends_when_a_new_visible_recording_starts() {
+        let mut meter = MeterUpdates::default();
+        assert_eq!(meter.next(true, Phase::Recording, 0.5), Some(0.5));
+        assert_eq!(meter.next(true, Phase::Recording, 0.5001), None);
+        assert_eq!(meter.next(true, Phase::Recording, 0.6), Some(0.6));
+        assert_eq!(meter.next(false, Phase::Recording, 0.6), None);
+        assert_eq!(meter.next(true, Phase::Recording, 0.6), Some(0.6));
+        assert_eq!(meter.next(true, Phase::Idle, 0.6), None);
+        assert_eq!(meter.next(true, Phase::Recording, 0.6), Some(0.6));
+    }
+
+    #[test]
+    fn invalid_audio_levels_never_reach_javascript_as_nan_or_infinity() {
+        for level in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
+            assert_eq!(
+                MeterUpdates::default().next(true, Phase::Recording, level),
+                Some(0.0)
+            );
+        }
+        assert_eq!(
+            MeterUpdates::default().next(true, Phase::Recording, 2.0),
+            Some(1.0)
+        );
+    }
+
+    #[test]
+    fn snapshot_generation_changes_only_with_phase_and_never_reuses_a_session() {
+        let state = OverlayState::default();
+        let first = state.snapshot();
+        assert_eq!(
+            first,
+            Snapshot {
+                revision: 0,
+                phase: Phase::Idle
+            }
+        );
+        state.set(Phase::Idle);
+        assert_eq!(state.snapshot(), first);
+        state.set(Phase::Recording);
+        let recording = state.snapshot();
+        state.set(Phase::Recording);
+        assert_eq!(state.snapshot(), recording);
+        state.set(Phase::Transcribing);
+        state.set(Phase::Idle);
+        state.set(Phase::Recording);
+        assert_ne!(state.snapshot(), recording);
+        assert_eq!(state.snapshot().phase, Phase::Recording);
+    }
+
     /// The three values the picker can write must all survive the round trip
     /// from the page, through the config file, back to a `Style`.
+    #[test]
+    fn visible_capsule_suppresses_passive_overlay_even_without_config_lock() {
+        for configured in [
+            None,
+            Some(Style::Classic),
+            Some(Style::Mini),
+            Some(Style::Off),
+        ] {
+            assert_eq!(Style::alongside_capsule(configured, true), Some(Style::Off));
+            assert_eq!(Style::alongside_capsule(configured, false), configured);
+        }
+    }
+
     #[test]
     fn every_offered_style_parses() {
         assert!(matches!(Style::parse("classic"), Style::Classic));
@@ -865,6 +1160,28 @@ mod tests {
         let html = include_str!("overlay.html");
         assert!(html.contains("html.solid.mini .pill"));
         assert!(html.contains("box-sizing:border-box"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn passive_metrics_ipc_has_no_capture_or_settings_authority() {
+        assert_eq!(
+            parse_scale_message(r#"{"type":"scale","ratio_milli":1270}"#),
+            Some(1270)
+        );
+        for invalid in [
+            r#"{"type":"start","ratio_milli":1270}"#,
+            r#"{"type":"scale","ratio_milli":1270,"text":"anything"}"#,
+            r#"{"type":"scale","ratio_milli":0}"#,
+            r#"{"type":"scale","ratio_milli":17000}"#,
+            r#"{"type":"scale","ratio_milli":"1270"}"#,
+        ] {
+            assert_eq!(parse_scale_message(invalid), None);
+        }
+        assert_eq!(parse_scale_message(&" ".repeat(129)), None);
+        assert!((windows_text_scale(1270, 96) - 1.27).abs() < 0.001);
+        assert!((windows_text_scale(2540, 192) - 1.27).abs() < 0.001);
+        assert_eq!(windows_text_scale(2000, 192), 1.0);
     }
 
     #[cfg(target_os = "windows")]

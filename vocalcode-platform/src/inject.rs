@@ -220,15 +220,22 @@ fn with_windows_focused<R>(
         FocusToken,
     ) -> Option<R>,
 ) -> Option<R> {
+    with_windows_automation(|automation| with_windows_focused_using(automation, operation))
+}
+
+/// Reuse only the COM client for one insertion transaction, never the observed
+/// focus element. A long paragraph formerly constructed/destroyed this client
+/// for every 20 characters, even though all identity checks still need to run.
+#[cfg(windows)]
+fn with_windows_automation<R>(
+    operation: impl FnOnce(&windows::Win32::UI::Accessibility::IUIAutomation) -> Option<R>,
+) -> Option<R> {
     use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER,
         COINIT_MULTITHREADED,
     };
     use windows::Win32::UI::Accessibility::{CUIAutomation, IUIAutomation};
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, GA_ROOT,
-    };
 
     struct ComApartment(bool);
     impl Drop for ComApartment {
@@ -250,6 +257,23 @@ fn with_windows_focused<R>(
         return None;
     };
 
+    let automation: IUIAutomation =
+        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.ok()?;
+    operation(&automation)
+}
+
+#[cfg(windows)]
+fn with_windows_focused_using<R>(
+    automation: &windows::Win32::UI::Accessibility::IUIAutomation,
+    operation: impl FnOnce(
+        &windows::Win32::UI::Accessibility::IUIAutomationElement,
+        FocusToken,
+    ) -> Option<R>,
+) -> Option<R> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, GA_ROOT,
+    };
+
     let foreground = unsafe { GetForegroundWindow() };
     if foreground.is_null() {
         return None;
@@ -261,8 +285,6 @@ fn with_windows_focused<R>(
         return None;
     }
 
-    let automation: IUIAutomation =
-        unsafe { CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER) }.ok()?;
     let element = unsafe { automation.GetFocusedElement() }.ok()?;
     // Keep the renderer PID in the identity token, but never compare it with
     // the host-window PID: WebView2 deliberately places them in different
@@ -273,7 +295,7 @@ fn with_windows_focused<R>(
     }
     let runtime_id = unsafe { element.GetRuntimeId() }.ok()?;
     let runtime_id = unsafe { copy_runtime_id(runtime_id) }?;
-    let native_window = windows_native_window_ancestor(&automation, &element)?;
+    let native_window = windows_native_window_ancestor(automation, &element)?;
     let native_root_window = unsafe { GetAncestor(native_window.0, GA_ROOT) };
     let candidate = WindowsFocusCandidate {
         foreground_window: foreground as usize as u64,
@@ -1755,23 +1777,58 @@ impl EnigoInjector {
     /// `CGEventKeyboardSetUnicodeString`, so the string arrives whole rather
     /// than a keystroke at a time.
     fn type_text(&self, text: &str) -> Result<()> {
-        self.ensure_focus()?;
+        #[cfg(windows)]
+        {
+            with_windows_automation(|automation| {
+                Some(self.type_text_with_check(text, || {
+                    validate_focus(
+                        self.expected_focus()?,
+                        with_windows_focused_using(automation, |_, token| Some(token)),
+                    )
+                }))
+            })
+            .unwrap_or_else(|| {
+                Err(VocalCodeError::Inject(
+                    "could not initialize focus validation".into(),
+                ))
+            })
+        }
+        #[cfg(not(windows))]
+        self.type_text_with_check(text, || self.ensure_focus())
+    }
+
+    fn type_text_with_check(
+        &self,
+        text: &str,
+        mut ensure_focus: impl FnMut() -> Result<()>,
+    ) -> Result<()> {
+        ensure_focus()?;
         let mut enigo = Self::enigo()?;
         // Initialising the native backend may block on OS services. Revalidate
         // after it is ready so that delay cannot widen the wrong-focus race.
-        self.ensure_focus()?;
+        ensure_focus()?;
         // Enigo/CGEvent splits long Unicode strings into 20-character events.
         // Own those chunks here so focus is revalidated between every event;
         // otherwise a control switch during a long insertion can send all
         // remaining chunks to the newly focused password field/chat/terminal.
-        for chunk in unicode_chunks(text, 20) {
-            self.ensure_focus()?;
+        type_checked_chunks(text, ensure_focus, |chunk| {
             enigo
                 .text(chunk)
-                .map_err(|e| VocalCodeError::Inject(format!("type text: {e}")))?;
-        }
-        Ok(())
+                .map_err(|e| VocalCodeError::Inject(format!("type text: {e}")))
+        })
     }
+}
+
+fn type_checked_chunks(
+    text: &str,
+    mut check: impl FnMut() -> Result<()>,
+    mut emit: impl FnMut(&str) -> Result<()>,
+) -> Result<()> {
+    for chunk in unicode_chunks(text, 20) {
+        check()?;
+        emit(chunk)?;
+    }
+    Ok(())
 }
 
 fn unicode_chunks(text: &str, max_chars: usize) -> Vec<&str> {
@@ -3057,6 +3114,64 @@ mod tests {
         assert_eq!(chunks.concat(), text);
         assert!(chunks.iter().all(|chunk| chunk.chars().count() <= 20));
         assert_eq!(unicode_chunks(text, 0), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn each_text_chunk_is_revalidated_and_a_focus_change_stops_the_rest() {
+        let mut checks = 0;
+        let mut inserted = String::new();
+        let text = "This paragraph is deliberately longer than sixty characters to span multiple guarded events.";
+        let result = type_checked_chunks(
+            text,
+            || {
+                checks += 1;
+                if checks == 3 {
+                    Err(VocalCodeError::Inject("focus changed".into()))
+                } else {
+                    Ok(())
+                }
+            },
+            |chunk| {
+                inserted.push_str(chunk);
+                Ok(())
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(checks, 3);
+        assert_eq!(inserted, text.chars().take(40).collect::<String>());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "read-only focus timing requires an active interactive Windows desktop"]
+    fn windows_focus_client_reuse_probe() {
+        let mut fresh_ms = Vec::new();
+        let mut reused_ms = Vec::new();
+        let mut valid = 0;
+        for _ in 0..10 {
+            let started = Instant::now();
+            valid += usize::from(current_focus().is_some());
+            fresh_ms.push(started.elapsed().as_secs_f64() * 1000.);
+        }
+        with_windows_automation(|automation| {
+            for _ in 0..10 {
+                let started = Instant::now();
+                valid += usize::from(
+                    with_windows_focused_using(automation, |_, token| Some(token)).is_some(),
+                );
+                reused_ms.push(started.elapsed().as_secs_f64() * 1000.);
+            }
+            Some(())
+        })
+        .expect("UI Automation client");
+        println!(
+            "{}",
+            serde_json::json!({"fresh_ms":fresh_ms,"reused_ms":reused_ms,"valid_focus_observations":valid,"no_text_injected":true})
+        );
+        assert_eq!(
+            valid, 20,
+            "focus observations were not all usable; do not compare these timings"
+        );
     }
 
     #[test]

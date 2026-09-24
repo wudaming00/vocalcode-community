@@ -12,9 +12,10 @@ function setup(){
     set innerHTML(_){throw Error('Unsafe history markup');}
   }
   const nodes=new Map(),sent=[];const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-  const ctx={document:{getElementById:node,createElement:()=>new Element()},window:{},hist:[],t:x=>x,send:m=>sent.push(m),teachWord(){}};
+  const drafts=[];
+  const ctx={document:{getElementById:node,createElement:()=>new Element()},window:{},hist:[],t:x=>x,send:m=>sent.push(m),teachWord(){},reviewInScratchpad:text=>drafts.push(text)};
   vm.createContext(ctx);vm.runInContext(controller,ctx);
-  return {node,sent,receive:items=>ctx.window.vocalcodeHistory(items)};
+  return {node,sent,drafts,receive:items=>ctx.window.vocalcodeHistory(items)};
 }
 test('original recognition stays inert and copying never injects or mutates final text',()=>{
   const f=setup();f.receive([{at:1,text:'Retry.',recognition:'uh <script>bad()</script>',filler_removed:1}]);
@@ -30,5 +31,11 @@ test('pause-only review is recoverable; legacy entries do not promise a missing 
   const [row,old]=f.node('histRows').children;
   assert.equal(row.children.at(-1).disabled,true);
   row.children[1].children[0].children[2].onclick();assert.equal(f.sent.at(-1).text,'um uh');
-  assert.equal(old.children[1].children.length,0);assert.equal(old.children[1].textContent,'legacy');
+  assert.equal(old.children[1].children.length,1);assert.equal(old.children[1].textContent,'legacy');
+});
+
+test('rendering history does not load a draft; the explicit review button does',()=>{
+  const f=setup();f.receive([[2,'A local synthetic entry']]);assert.deepEqual(f.drafts,[]);
+  f.node('histRows').children[0].children[1].children.at(-1).onclick();
+  assert.deepEqual(f.drafts,['A local synthetic entry']);assert.deepEqual(f.sent,[]);
 });

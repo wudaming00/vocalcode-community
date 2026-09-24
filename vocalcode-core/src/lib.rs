@@ -14,6 +14,7 @@ pub mod license;
 pub mod limits;
 pub mod migration;
 pub mod resample;
+pub mod segmentation;
 pub mod traits;
 pub mod trigger_bus;
 

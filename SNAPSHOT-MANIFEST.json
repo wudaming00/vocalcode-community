@@ -32,8 +32,8 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 5616,
-      "sha256": "336580405b2a8f10f1ae7328ad4eab4284143293e821f5074edd28021ffa4589"
+      "bytes": 5834,
+      "sha256": "409a60967339d598ee1dc960846d1af5e08bd34f8d2149bc7e5d8c6bb0be9976"
     },
     {
       "path": ".github/workflows/community-release.yml",
@@ -52,8 +52,8 @@
     },
     {
       "path": "BUILDING.md",
-      "bytes": 9378,
-      "sha256": "b43e8aa826f933f79505bd079526e836e7af26868d921719f10872f7f7ac943b"
+      "bytes": 10393,
+      "sha256": "04294e52382a8841f9414ebef5a29c543a350291e975e3e4f139d27f6492fa2f"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -92,13 +92,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 7895,
-      "sha256": "204fde3e889ba9d8c0f806755c4e318ada01f2beaefcb399602b9a3441bee7a4"
+      "bytes": 8798,
+      "sha256": "9e19d43d54c43d7b39f4735ce12dfb6734f7806dcc0cf66dac314443584ca493"
     },
     {
       "path": "README.zh-CN.md",
-      "bytes": 5474,
-      "sha256": "bc165b52d1b07f3a5a3bc23e5c53e3006bf2ab575fe67f3bbadb0212f6b49357"
+      "bytes": 6320,
+      "sha256": "498682aa210c4e78ff73eefc475ae19b559a49dc642b123a74a883f630a1d8b0"
     },
     {
       "path": "ROADMAP.md",
@@ -107,8 +107,8 @@
     },
     {
       "path": "SECURITY.md",
-      "bytes": 1944,
-      "sha256": "0e603c7896eee199a4452bd1bcd9aa586842f465d5c647d8aa6867b4f9d6b2a7"
+      "bytes": 2340,
+      "sha256": "710bbf60ad9ede904699f84a825a66da40e4719a7e3c836f613457bbf9effa11"
     },
     {
       "path": "THIRD-PARTY-LICENSES/Apache-2.0.txt",
@@ -311,9 +311,69 @@
       "sha256": "871483f0785f99990f23ebb412c432062b15eb968e34710e90c996ceffb2b8bc"
     },
     {
+      "path": "docs/SMART-REWRITE.md",
+      "bytes": 7067,
+      "sha256": "8bf8b9e3de95962dcda5c2ded63f8b3e3080da8cc877c50e4b477abe364c8a19"
+    },
+    {
       "path": "docs/assets/vocalcode-community.svg",
       "bytes": 2543,
       "sha256": "b48cf1c3f7d46744a40baf913ef073813fddd0acf9893e81cc0c4b78094ec22a"
+    },
+    {
+      "path": "docs/dictation-latency-2026-09-22.md",
+      "bytes": 6522,
+      "sha256": "a85ef000452461bd6d48f4d11d3e0b7d37654fa3a2b700a8e53f8c22192a0ece"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/CAPSULE-FINISHING.zh-CN.md",
+      "bytes": 7209,
+      "sha256": "4d4ef8db76dace243b4e9a56f64fd2d78a4fc61797feab7b30aa0ee0153aa79e"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/COMPETITOR-REVIEW.zh-CN.md",
+      "bytes": 19692,
+      "sha256": "b08096d056dca8ae719a55e4bf1156577af47dd152e59918e6dc8025563f9d53"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/ENGLISH-CPU-NEXT.zh-CN.md",
+      "bytes": 4936,
+      "sha256": "1192f69ae83aa882b47e412793513a6ca6789b2a6ad6084733b5ca55b76035e4"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/LOCAL-ACCEPTANCE.zh-CN.md",
+      "bytes": 5569,
+      "sha256": "986e59f2295749b095a1ce5180ffb5e3203908574e7e4a46bd244f936c6c23ee"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/OPEN-SOURCE-NOTES.zh-CN.md",
+      "bytes": 5766,
+      "sha256": "0aa66f72b3e529c09a514f49795d8dbe93e758f54a3668cd3b3cacfa0d3ba02d"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/PLAN.md",
+      "bytes": 11996,
+      "sha256": "38e302c9fdde9dcd55a3c369cc4da55164c9ffb536744525463bc2a03d6f9ab9"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/RESULTS.zh-CN.md",
+      "bytes": 22208,
+      "sha256": "86702f7de1a35e9e7dddc27bfd5d103e6722b51ffd4a4fdda2a7d328e473630d"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/SOFT-CAPSULE.zh-CN.md",
+      "bytes": 3848,
+      "sha256": "302a672b1652121dd3b91f1355d29ca18bfc4d133cf6de4ae9f450a736c25670"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/TINY-CAPSULE.zh-CN.md",
+      "bytes": 7775,
+      "sha256": "59edfe7425b0791728b846d74f36d82b9592c2582031264ea0897eb79b55e1cc"
+    },
+    {
+      "path": "docs/product-polish-2026-09-23/synthetic-heldout.json",
+      "bytes": 4293,
+      "sha256": "878ea741d7025414929862b7d3b4c864026fadb7caf5c6c29c2a3c1911fb3aca"
     },
     {
       "path": "packaging/community/RELEASE-NOTES.md",
@@ -391,9 +451,44 @@
       "sha256": "0bb9a273886b4c9f0fd7ccead1d4e77bf40c2512fcf6902bd465729fbfb73301"
     },
     {
+      "path": "packaging/release/benchmark_decode_settings.mjs",
+      "bytes": 4654,
+      "sha256": "b2640b7cd09ef263b5eea8218a7c708dbe31f634c6145bdc2fe9ec555274b869"
+    },
+    {
+      "path": "packaging/release/benchmark_long_stress.mjs",
+      "bytes": 6003,
+      "sha256": "43e30e9b0b7c58c8731580202276927e996657eeaeef8e76fa3635b34b454bf0"
+    },
+    {
+      "path": "packaging/release/benchmark_segment_context.mjs",
+      "bytes": 5537,
+      "sha256": "81e2e55adf25088cc9bc68105e7dd53f28cb811347d158210ac7426278e52462"
+    },
+    {
+      "path": "packaging/release/replay_metrics.mjs",
+      "bytes": 1911,
+      "sha256": "acb3f32fa33f31cf762059530d1868b058be602f4a9bcc4fcd89a50c5065f332"
+    },
+    {
+      "path": "packaging/release/summarize_replay.mjs",
+      "bytes": 2059,
+      "sha256": "b388c4686cb9c05ad9fec578fb1b6600fa30d79d1d22b67852526368f4ff2668"
+    },
+    {
+      "path": "packaging/release/summarize_replay_errors.mjs",
+      "bytes": 1038,
+      "sha256": "5a7b30521b15913608864acd3100c098cc21f52c6bb48a370b964ca4f04d3750"
+    },
+    {
       "path": "packaging/release/test_calendar_ui.mjs",
-      "bytes": 2007,
-      "sha256": "9f8950e7696f674b1a066feedcf5e7f77d381bb7ba28ae27e1533db8f2444283"
+      "bytes": 3465,
+      "sha256": "3eb678e5fa1aa83aba901b004f91825b5ab7fe17c7c68f6cda1a95011e1cd048"
+    },
+    {
+      "path": "packaging/release/test_control_bar_ui.mjs",
+      "bytes": 16851,
+      "sha256": "4fac32b93bc56a64d334de33936dda24e6a296f160e6d3f2c7df018674fe99cc"
     },
     {
       "path": "packaging/release/test_correction_review_ui.mjs",
@@ -402,18 +497,18 @@
     },
     {
       "path": "packaging/release/test_filler_history_ui.mjs",
-      "bytes": 2225,
-      "sha256": "7fdf7abf9a497176d1280bd3263daf1f405c5568a57cdc14cbf64d7e0d59dd9b"
+      "bytes": 2635,
+      "sha256": "e559943b9916d473600ac253b6c897ac32e719a882b8fc7c72fcbbe700e16d08"
     },
     {
       "path": "packaging/release/test_meeting_prompt_ui.mjs",
-      "bytes": 8221,
-      "sha256": "bc94f87f3474b7d422f86910d4abd1c3ee745fcf1d294d3706375e58b60e1406"
+      "bytes": 8530,
+      "sha256": "56d015059e8c0511bb4fa5822006df4b36cc9446fa41944f3b4cf656ef81fd30"
     },
     {
       "path": "packaging/release/test_meeting_ui.mjs",
-      "bytes": 5871,
-      "sha256": "b3f1d04edb056e77df5156a9b8e3e0b7a209d4fff6d132cae25608886fa38587"
+      "bytes": 7178,
+      "sha256": "a5cbd4ab954d23072fd58a83014f0b3d8b458a546b437075d868ace90be21129"
     },
     {
       "path": "packaging/release/test_migration_ui.mjs",
@@ -426,9 +521,14 @@
       "sha256": "75346309b4f86b1ce4b5825217c2adfb226f7f8d894eed21983834216cb6116d"
     },
     {
+      "path": "packaging/release/test_replay_metrics.mjs",
+      "bytes": 1229,
+      "sha256": "ebb15019a7b3087afae05c69d1c99e0c1c6b5c64413340ee392945f7d78f5554"
+    },
+    {
       "path": "packaging/release/test_workflow_ui.mjs",
-      "bytes": 7306,
-      "sha256": "34b2b8ce1371a68b59738d79b111cd99019c06971d8c093e890c5996f8ba2639"
+      "bytes": 18040,
+      "sha256": "16429cd95f29e6becf539de1a46913b25a8f893fd673c9dbc15856e2edcc8137"
     },
     {
       "path": "rust-toolchain.toml",
@@ -917,8 +1017,8 @@
     },
     {
       "path": "vocalcode-app/Cargo.toml",
-      "bytes": 3688,
-      "sha256": "1ef4c305dab663a35906f071d824dc7b403c5fec7201f472040e93563c3b16f5"
+      "bytes": 3722,
+      "sha256": "baea6241348cf494439a215f96190c02cf3f735f1af35e6008eff7406295bb1c"
     },
     {
       "path": "vocalcode-app/assets/README.md",
@@ -936,9 +1036,34 @@
       "sha256": "cbc472e09c853dff27252b8f3a2fc3e2108b873fa937b61f963a6e25f1f60b46"
     },
     {
+      "path": "vocalcode-app/examples/control_bar_composition_smoke.rs",
+      "bytes": 8005,
+      "sha256": "148f7fec444971aaf8c10e8c8c33a8c466e6a334841735ed298d1a1a2f8fc6c8"
+    },
+    {
+      "path": "vocalcode-app/examples/control_bar_hidden_smoke.rs",
+      "bytes": 8410,
+      "sha256": "a87950e4d94bcb8d11a3e6982a2d07b51267d018a783e246318f65452f4fc84a"
+    },
+    {
+      "path": "vocalcode-app/examples/control_bar_ipc_smoke.rs",
+      "bytes": 11378,
+      "sha256": "2497e11cfd738cc1d1ada99b58b361dbb976caad55d97ef9f463f42f00a525e4"
+    },
+    {
+      "path": "vocalcode-app/examples/control_bar_soak.rs",
+      "bytes": 12216,
+      "sha256": "e2a73b7a9c7938a9bc3b4474bd1b1e41ca09550877e6788f1a91b628b57180c7"
+    },
+    {
       "path": "vocalcode-app/examples/correction_review_smoke.rs",
       "bytes": 4051,
       "sha256": "31dcb6288aeba8e167e5eba26d81058bb3b07b954ffc1e5a17ef65ac6cccfa36"
+    },
+    {
+      "path": "vocalcode-app/examples/indicator_hidden_smoke.rs",
+      "bytes": 4308,
+      "sha256": "6ddeb388e1f384612c06307a96b25d07114547977fe5d2a375849a1b954ac526"
     },
     {
       "path": "vocalcode-app/examples/meeting_auto_end_smoke.rs",
@@ -949,6 +1074,11 @@
       "path": "vocalcode-app/examples/meeting_prompt_smoke.rs",
       "bytes": 11875,
       "sha256": "c7440b32b89bfd7b2c6da1a9650c5ca293eb94ea87f094ae76b8edf141f4ffb9"
+    },
+    {
+      "path": "vocalcode-app/examples/webui_hidden_smoke.rs",
+      "bytes": 9959,
+      "sha256": "f6635aa596fb8d99cf1c8ff7aecde321f1a98369e811ed95272c0e04cdf098ba"
     },
     {
       "path": "vocalcode-app/examples/workflow_ui_smoke.rs",
@@ -971,6 +1101,16 @@
       "sha256": "9d5e74149994e31519aadbd4c10e3c12517f6f07e9d9513035661434a0885a4d"
     },
     {
+      "path": "vocalcode-app/src/control_bar.html",
+      "bytes": 16119,
+      "sha256": "8ce5dd6754a93d9360490a1395a9e558d822af53952921c47e567a0041455b6e"
+    },
+    {
+      "path": "vocalcode-app/src/control_bar.rs",
+      "bytes": 62405,
+      "sha256": "26a3dc592fd8b28e014e01f63a289c4f835becdcf39172fa3af9c4b7398798f6"
+    },
+    {
       "path": "vocalcode-app/src/correction_review.html",
       "bytes": 9859,
       "sha256": "3fc0f91b67e8003437ddca27637fbf4fb7241f08d28194f062e46890714039ad"
@@ -986,9 +1126,14 @@
       "sha256": "672ccc3ff1c426699fc5747f1b6acbbbddd2dd747342274cd61d1e03a4481973"
     },
     {
+      "path": "vocalcode-app/src/dictation_control.rs",
+      "bytes": 15691,
+      "sha256": "62d3523101dae08293c7df20127fc8dd3fa62494ac3c039214a4765a0f1b63b7"
+    },
+    {
       "path": "vocalcode-app/src/inference.rs",
-      "bytes": 11274,
-      "sha256": "91f34d56d3547405b45eafb23a4bb9dbd4ab58dab70cdacef4f7ead4dd7b75a0"
+      "bytes": 12725,
+      "sha256": "009c5a70ec9e0b279e0195086ad2aa28ae0d18c023ff3079d9b42e31269e9a66"
     },
     {
       "path": "vocalcode-app/src/learning.rs",
@@ -1002,8 +1147,8 @@
     },
     {
       "path": "vocalcode-app/src/main.rs",
-      "bytes": 341581,
-      "sha256": "2e44a17c5f479cfbeeb0040a1d82f75a2cca52414dec8bf089c0b7f19bf2567b"
+      "bytes": 343333,
+      "sha256": "3bd90c0d6f7773abe214051c1c35a3cc778e8bad812d286c39b4f79affa0ad0e"
     },
     {
       "path": "vocalcode-app/src/meeting.rs",
@@ -1052,13 +1197,13 @@
     },
     {
       "path": "vocalcode-app/src/overlay.html",
-      "bytes": 10734,
-      "sha256": "cd35d4eaeb8ee8a1208b8d2c96dc9e057a13e73e0df04aa3f659288af4d26217"
+      "bytes": 11789,
+      "sha256": "de851e02c4ba60fd54b8930c228898b2cc8213797ba6814815888e99be606189"
     },
     {
       "path": "vocalcode-app/src/overlay.rs",
-      "bytes": 35588,
-      "sha256": "7d920611b4edbf593364eced2e5f6de2a9999aba50402e5d27d7c6d44adfc0b6"
+      "bytes": 48230,
+      "sha256": "c30385a64e085c3fbeebac8e10aa06dd815ce3749928928bee9a39c228e06d8d"
     },
     {
       "path": "vocalcode-app/src/paths.rs",
@@ -1067,8 +1212,13 @@
     },
     {
       "path": "vocalcode-app/src/rewrite.rs",
-      "bytes": 9950,
-      "sha256": "682b061810abc04803ea8e64a6e6690b625ed1470199bff1dd758f92e2e8ba40"
+      "bytes": 22300,
+      "sha256": "9274b92493f6dfeaf7a43a6641f069c81aa2e5fb086c1c6c1992573de5c187ac"
+    },
+    {
+      "path": "vocalcode-app/src/rewrite_cli.rs",
+      "bytes": 30339,
+      "sha256": "b154abb69714c03eea10ddd51aea15d71b181251aecbff47abf8cb5606f434b6"
     },
     {
       "path": "vocalcode-app/src/storage.rs",
@@ -1082,18 +1232,18 @@
     },
     {
       "path": "vocalcode-app/src/webui.html",
-      "bytes": 396040,
-      "sha256": "2dc32d64f24dcd986de031f68a758e714e4515ef13a1816c7ee18974c2ea6844"
+      "bytes": 418276,
+      "sha256": "18b5c97a651962713dc1f03827142a9eeff17bcf27f466dec742b81b91adf0bf"
     },
     {
       "path": "vocalcode-app/src/webui.rs",
-      "bytes": 426652,
-      "sha256": "42410add717a34095a6ddb17780b4aabda72b5e90eb54d1eece91a1fc44a67c5"
+      "bytes": 437486,
+      "sha256": "d550746cf2abef0056ba1e9ba81c4e7a9de1c0467b685d1bec64f196dc82e842"
     },
     {
       "path": "vocalcode-app/src/workflows.rs",
-      "bytes": 17861,
-      "sha256": "1cf6f6a31a632b9df528f7efcab63440dfb4a8f1e1e074729e3057c62469b9a5"
+      "bytes": 17978,
+      "sha256": "577a71aa8d2cec078da91e13004e0dfe21dd1d81b3c54cdb8585326b5ae62589"
     },
     {
       "path": "vocalcode-app/vocalcode.ico",
@@ -1107,13 +1257,13 @@
     },
     {
       "path": "vocalcode-core/src/config.rs",
-      "bytes": 43129,
-      "sha256": "f98ee86df1e6d2b37c615f1514b13e6f6be4d428e849ac49daca9b22a0e51406"
+      "bytes": 44558,
+      "sha256": "464b2ba2777919201eb1826d0f4a2b0c917f6ebd93129e4f1cb0cee0cd94789f"
     },
     {
       "path": "vocalcode-core/src/engine.rs",
-      "bytes": 104256,
-      "sha256": "f2ae00fa5bd91ebf8b5fe8231f86364111a6c53351a31d21053e1a6facecb928"
+      "bytes": 116113,
+      "sha256": "84a9195ca55c46b5f1d1e6ecfd52d46c8ccfb9865d02e9ea5cbe7459224f91eb"
     },
     {
       "path": "vocalcode-core/src/error.rs",
@@ -1127,8 +1277,8 @@
     },
     {
       "path": "vocalcode-core/src/lib.rs",
-      "bytes": 1018,
-      "sha256": "83669ecc348a40dc034cd6109e74e961334a7193dfc7ab65530653df0816ff42"
+      "bytes": 1040,
+      "sha256": "0cc97e07bc582a4c099d2c5475e392fc57df7a760f2ea77214dd6e75108e9f15"
     },
     {
       "path": "vocalcode-core/src/license.rs",
@@ -1151,14 +1301,24 @@
       "sha256": "83ba37f43b9130bc981350a59c038043b829e8194f9aa36b8cfcb3d169b74cc6"
     },
     {
+      "path": "vocalcode-core/src/segmentation.rs",
+      "bytes": 7012,
+      "sha256": "860aad6d408146104896866501867dcbdc2bee274ed15f6c5f4f2269236332dd"
+    },
+    {
       "path": "vocalcode-core/src/traits.rs",
-      "bytes": 6318,
-      "sha256": "28a79a2ef639b3ed20467f0fad006455a3b97b522ab73c3c0d44978c15d3edc6"
+      "bytes": 7154,
+      "sha256": "37c6e171447addabbc62596144ed8ef4b1899bc1c1ecdf7be796c08ed542ecf5"
     },
     {
       "path": "vocalcode-core/src/trigger_bus.rs",
-      "bytes": 24497,
-      "sha256": "31c47079c7ae86034705e5b2df5aa7a30e0a6180a2dde2067cbd2d34bd8097b3"
+      "bytes": 24679,
+      "sha256": "6368005d4db6113f11c18d08caf29b2440f57f73ea2361604efcf40bf9f28bf7"
+    },
+    {
+      "path": "vocalcode-core/tests/background_dictation.rs",
+      "bytes": 15216,
+      "sha256": "d73fabb518d5d226bba46ab8d5fcb10c8791934f11ca8d2d5ac4b901b2d6a8ed"
     },
     {
       "path": "vocalcode-meeting/Cargo.toml",
@@ -1242,13 +1402,23 @@
     },
     {
       "path": "vocalcode-platform/Cargo.toml",
-      "bytes": 2716,
-      "sha256": "68d8527cd78c55122fbe0bf08d4312812cfd92e67c17835f79d1eb40a84ae547"
+      "bytes": 2915,
+      "sha256": "101d22d1a395ab5e99dfbb21bab7daff73574a6a38edeaafa4e9ec0a60fbb421"
     },
     {
       "path": "vocalcode-platform/examples/assessment_asr.rs",
       "bytes": 4406,
       "sha256": "08d2a213d137bd8747f3e4716c8606f102a1c7522715d633264fe43170ea0044"
+    },
+    {
+      "path": "vocalcode-platform/examples/assessment_long_dictation.rs",
+      "bytes": 6338,
+      "sha256": "78c724a1162ce4f700236c6089a8312d1ceff957d14e7886ad6d8f842e279b08"
+    },
+    {
+      "path": "vocalcode-platform/examples/assessment_realtime_dictation.rs",
+      "bytes": 18039,
+      "sha256": "62454a8361bc7180847f4380023f2b07bd79933fe58a1f90cb5cd528b61c6803"
     },
     {
       "path": "vocalcode-platform/examples/input_xray.rs",
@@ -1322,8 +1492,8 @@
     },
     {
       "path": "vocalcode-platform/src/inject.rs",
-      "bytes": 122887,
-      "sha256": "f8f3ff7c394114f6961a7fed363c4ad62cce0a2df2ed1a9044ab7787f055b9a3"
+      "bytes": 126736,
+      "sha256": "b4f3a04e4bf30558f4597e7368d298af94f6a97c296935477b7a8d02702c20b2"
     },
     {
       "path": "vocalcode-platform/src/input_macos.rs",

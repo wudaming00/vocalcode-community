@@ -69,3 +69,7 @@ windows-sys = { version = "0.61.2", features = [
 
 [dev-dependencies]
 hound = "3.5.1"
+
+[target.'cfg(windows)'.dev-dependencies]
+# Headless QA probes only: sample our own process, never other applications.
+windows-sys = { version = "0.61.2", features = ["Win32_System_ProcessStatus"] }

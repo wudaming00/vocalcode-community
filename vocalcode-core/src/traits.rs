@@ -64,6 +64,12 @@ impl Recording {
 pub enum TriggerEvent {
     /// Talk key/button pressed down — start capturing.
     TalkPressed(TriggerId),
+    /// Explicit mouse/UI start, independent of the saved hold/toggle setting.
+    /// Idempotent while recording: repeated requests must never act as stop.
+    HandsFreeStart(TriggerId),
+    /// Wake the engine to inspect an application-owned control mailbox.
+    /// Carries no recording, text delivery or clipboard authority by itself.
+    Wake,
     /// Talk key/button released — stop, transcribe, insert.
     TalkReleased(TriggerId),
     /// The "send" trigger tapped (maps to Enter in target apps).
@@ -128,6 +134,17 @@ pub trait AudioCapture {
 /// layer; a stub lives in the app for wiring/tests.
 pub trait Asr: Send {
     fn transcribe(&mut self, samples: &[f32], sample_rate: u32) -> Result<String>;
+    /// Submit work without blocking the capture/control thread. At most one
+    /// request is outstanding per engine. Dropping the receiver discards a
+    /// cancelled utterance's result; a decoder must never inject text itself.
+    /// `None` preserves compatibility with synchronous adapters.
+    fn transcribe_async(
+        &mut self,
+        _samples: &[f32],
+        _sample_rate: u32,
+    ) -> Result<Option<std::sync::mpsc::Receiver<Result<String>>>> {
+        Ok(None)
+    }
     /// Human-readable name of the active model/tier, for the tray/logs.
     fn model_label(&self) -> &str;
 }

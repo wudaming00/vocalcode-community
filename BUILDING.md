@@ -56,14 +56,33 @@ cargo test --workspace --locked --features vocalcode-app/community
 cargo clippy --workspace --all-targets --locked --features vocalcode-app/community -- -D warnings
 node --test packaging/community/test-community-ui.mjs
 node --test packaging/community/test-licensing.mjs
+node --test packaging/release/test_replay_metrics.mjs
 python -m unittest discover -s packaging/community -p 'test_*.py' -v
-node --test packaging/release/test_calendar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
+node --test packaging/release/test_calendar_ui.mjs packaging/release/test_control_bar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
 ```
 
 Ignored tests are opt-in: some load large ASR models, capture devices, install
 global hooks, or inject text. Do not run every ignored test on an active desktop.
 `--offline` is useful after dependencies are cached; it does not make an empty
 machine self-contained, nor prohibit a native build script from downloading.
+
+## Optional hidden UI checks
+
+Windows-only, debug-build UI probes can be run without opening a recording or
+the installed app. They use isolated temporary WebView profiles and leave the
+native windows hidden:
+
+```powershell
+cargo run --locked -p vocalcode-app --features community --example control_bar_hidden_smoke
+cargo run --locked -p vocalcode-app --features community --example control_bar_ipc_smoke
+cargo run --locked -p vocalcode-app --features community --example indicator_hidden_smoke
+cargo run --locked -p vocalcode-app --features community --example webui_hidden_smoke -- en
+cargo run --locked -p vocalcode-app --features community --example webui_hidden_smoke -- zh
+```
+
+These exercise layout, native window flags and programmatic IPC, not real mouse
+input, microphones, speech quality or cross-application text injection. Do not
+interpret hidden-window checks as completed end-to-end desktop acceptance.
 
 ## Edition boundary
 

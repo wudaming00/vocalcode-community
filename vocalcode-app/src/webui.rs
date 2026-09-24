@@ -292,6 +292,7 @@ pub struct RuntimeStatus {
     /// network capability; all durable content lives under app-data/meetings.
     pub meetings: crate::meeting::Bridge,
     pub listening: AtomicBool,
+    pub dictation_control: crate::dictation_control::Bridge,
     /// False until the ASR model is downloaded + loaded and the engine is live.
     /// Drives the "Setting up…" banner so first-launch isn't a blind wait.
     pub ready: Arc<AtomicBool>,
@@ -774,6 +775,8 @@ enum UserEvent {
     CorrectionReviewClose,
     MeetingPrompt(crate::meeting_prompt::Event),
     MeetingPresenceReady,
+    #[cfg(windows)]
+    DesktopControl(crate::control_bar::Event),
 }
 
 fn request_shutdown(
@@ -1437,6 +1440,10 @@ pub fn run(
     // event loop. A failure here is not fatal — the app still dictates, it just
     // does so without on-screen feedback.
     let mut overlay: Option<crate::overlay::Overlay> = None;
+    #[cfg(windows)]
+    let mut desktop_control: Option<crate::control_bar::ControlBar> = None;
+    #[cfg(windows)]
+    let mut desktop_control_attempted = false;
     let demo_overlay = std::env::var("VOCALCODE_OVERLAY_DEMO").as_deref() == Ok("1");
     let started = Instant::now();
     // Last status handed to the page; see `push_status`.
@@ -1591,6 +1598,19 @@ pub fn run(
                 }
             }
             Event::UserEvent(ue) => match ue {
+                #[cfg(windows)]
+                UserEvent::DesktopControl(event) => {
+                    let enabled = tick_cfg.try_lock().is_ok_and(|c| c.desktop_control && c.onboarded);
+                    if let Some(bar) = &mut desktop_control {
+                        if let Some(panel) = bar.event(event, overlay_state.snapshot(),
+                            status.ready.load(Ordering::Acquire) && !status.shutdown.load(Ordering::Acquire),
+                            status.listening.load(Ordering::Acquire), enabled, &status.dictation_control) {
+                            surface_window(&window, &webview, &mut teach_window_restore, tray.is_some());
+                            let panel = serde_json::to_string(panel).expect("fixed panel name");
+                            let _ = webview.evaluate_script(&format!("window.vocalcodeControlOpen({panel})"));
+                        }
+                    }
+                }
                 UserEvent::Drag => {
                     let _ = window.drag_window();
                 }
@@ -1673,15 +1693,54 @@ pub fn run(
             _ => {}
         }
 
+        #[cfg(not(windows))]
+        let desktop_control_visible = false;
+        #[cfg(windows)]
+        let mut desktop_control_visible = desktop_control.as_ref().is_some_and(|bar| bar.is_shown());
+        #[cfg(windows)]
+        if let Ok(c) = tick_cfg.try_lock() {
+            let enabled = c.desktop_control && c.onboarded && !status.shutdown.load(Ordering::Acquire);
+            if enabled && !desktop_control_attempted {
+                desktop_control_attempted = true;
+                let control_proxy = reminder_proxy.clone();
+                desktop_control = crate::paths::ensure_trusted_data_subdir(&base, Path::new("webview2/desktop-control"))
+                    .map_err(anyhow::Error::from)
+                    .and_then(|directory| crate::control_bar::ControlBar::new(event_target, directory, move |event| {
+                        let _ = control_proxy.send_event(UserEvent::DesktopControl(event));
+                    }))
+                    .map_err(|error| {
+                        log::warn!("desktop controls unavailable: {error}");
+                        *status.runtime_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(
+                            "Desktop controls could not open. Your shortcut and recording indicator are still available. Restart VocalCode to retry.".into());
+                    }).ok();
+            }
+            if let Some(bar) = &mut desktop_control {
+                desktop_control_visible = bar.tick(crate::control_bar::Frame {
+                    enabled, edge: &c.desktop_control_edge, language: &c.ui_lang,
+                    snapshot: overlay_state.snapshot(),
+                    ready: status.ready.load(Ordering::Acquire) && !status.shutdown.load(Ordering::Acquire),
+                    level: audio_level.get(),
+                }, &status.dictation_control);
+                if let (Some(deadline), ControlFlow::WaitUntil(existing)) = (bar.next_wake(Instant::now()), &mut *control_flow) {
+                    *existing = (*existing).min(deadline);
+                }
+            }
+        }
+
         if let Some(o) = overlay.as_mut() {
             // Read back rather than pushed from the save handler: the handler
             // runs on the webview thread and has no way to reach the overlay,
             // which belongs to this loop. One uncontended lock per tick is far
             // cheaper than plumbing a second channel through, and `set_style`
             // does nothing when the value has not changed.
-            if let Ok(c) = tick_cfg.try_lock() {
-                o.set_style(crate::overlay::Style::parse(&c.overlay_style));
+            // Suppression must not depend on obtaining a second config lock:
+            // even a single contended tick must never show both indicators.
+            let configured_style = tick_cfg.try_lock().ok().map(|c| {
                 o.set_lang(&c.ui_lang);
+                crate::overlay::Style::parse(&c.overlay_style)
+            });
+            if let Some(style) = crate::overlay::Style::alongside_capsule(configured_style, desktop_control_visible) {
+                o.set_style(style);
             }
             // In demo mode there is no microphone stream, so synthesise a level
             // — otherwise the bars sit at their floor and the level→height path
@@ -1968,6 +2027,9 @@ fn config_snapshot_for_page(config: &Config) -> Value {
         "live_caption": config.live_caption,
         "noise_filter": config.noise_filter,
         "overlay_style": config.overlay_style,
+        "desktop_control": config.desktop_control,
+        "desktop_control_edge": config.desktop_control_edge,
+        "desktop_control_available": cfg!(windows),
         "talk_mode": config.talk_mode,
         "paste_insert": config.paste_insert,
         "correction_window_ms": config.correction_window_ms,
@@ -3506,6 +3568,15 @@ where
     if let Some(s) = v.get("overlay_style").and_then(|x| x.as_str()) {
         next.overlay_style = s.to_string();
     }
+    if let Some(value) = v.get("desktop_control").and_then(Value::as_bool) {
+        next.desktop_control = value;
+    }
+    if let Some(value) = v.get("desktop_control_edge").and_then(Value::as_str) {
+        if !matches!(value, "bottom" | "left" | "right") {
+            return Err("unknown desktop-control edge".into());
+        }
+        next.desktop_control_edge = value.to_string();
+    }
     if let Some(m) = v.get("talk_mode").and_then(|x| x.as_str()) {
         next.talk_mode = m.to_string();
     }
@@ -3658,7 +3729,7 @@ fn init_config_json(
             })
         })
         .collect::<Vec<_>>();
-    serde_json::json!({
+    let mut initial = serde_json::json!({
         "talk": c.talk.iter().map(trigger_to_code).collect::<Vec<_>>(),
         "send": c.send.iter().map(trigger_to_code).collect::<Vec<_>>(),
         "teach": c.teach.iter().map(trigger_to_code).collect::<Vec<_>>(),
@@ -3720,8 +3791,11 @@ fn init_config_json(
             "ignored_meeting_apps": MAX_IGNORED_MEETING_APPS,
             "meeting_app_key_utf8_bytes": MAX_MEETING_APP_KEY_UTF8_BYTES,
         },
-    })
-    .to_string()
+    });
+    initial["desktop_control"] = serde_json::json!(c.desktop_control);
+    initial["desktop_control_edge"] = serde_json::json!(c.desktop_control_edge);
+    initial["desktop_control_available"] = serde_json::json!(cfg!(windows));
+    initial.to_string()
 }
 
 /// Total size of a directory tree, in whole megabytes. Errors count as zero:
@@ -4695,7 +4769,7 @@ fn hide_windows_console(command: &mut std::process::Command) {
 
 #[cfg(any(windows, target_os = "macos", test))]
 #[derive(Debug)]
-enum BoundedCommandError {
+pub(crate) enum BoundedCommandError {
     Cancelled,
     TimedOut(Duration),
     OutputTooLarge,
@@ -4877,6 +4951,24 @@ impl Drop for CommandProcessTree {
 }
 
 #[cfg(any(windows, target_os = "macos", test))]
+fn wait_for_command_exit(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> std::io::Result<bool> {
+    let started = Instant::now();
+    loop {
+        if child.try_wait()?.is_some() {
+            return Ok(true);
+        }
+        let remaining = timeout.saturating_sub(started.elapsed());
+        if remaining.is_zero() {
+            return Ok(false);
+        }
+        std::thread::sleep(COMMAND_POLL_INTERVAL.min(remaining));
+    }
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
 fn stop_and_reap_command(child: &mut std::process::Child, process_tree: &mut CommandProcessTree) {
     if let Err(error) = process_tree.terminate() {
         log::warn!("could not terminate command process tree: {error}");
@@ -4886,8 +4978,13 @@ fn stop_and_reap_command(child: &mut std::process::Child, process_tree: &mut Com
             log::warn!("could not terminate timed-out command: {error}");
         }
     }
-    if let Err(error) = child.wait() {
-        log::warn!("could not reap terminated command: {error}");
+    // Killing can fail (including a failed job/group cleanup). Do not turn an
+    // explicit request deadline into an unbounded wait for that same process.
+    // The job guard remains a final Windows cleanup attempt when dropped.
+    match wait_for_command_exit(child, COMMAND_DRAIN_GRACE) {
+        Ok(true) => {}
+        Ok(false) => log::warn!("command did not exit within cleanup grace; stopped waiting"),
+        Err(error) => log::warn!("could not reap terminated command: {error}"),
     }
 }
 
@@ -4895,12 +4992,39 @@ fn stop_and_reap_command(child: &mut std::process::Child, process_tree: &mut Com
 /// updater or the settings transaction forever. Output is drained concurrently
 /// (and capped while still being discarded) so a verbose child cannot block on
 /// a full pipe. Cancellation is checked at a short polling cadence; timeout and
-/// cancellation both kill and reap the spawned process tree.
+/// cancellation attempt tree termination and use bounded cleanup waits as well.
 #[cfg(any(windows, target_os = "macos", test))]
-fn bounded_command_output(
+pub(crate) fn bounded_command_output(
     command: &mut std::process::Command,
     timeout: Duration,
     shutdown: Option<&AtomicBool>,
+) -> Result<std::process::Output, BoundedCommandError> {
+    bounded_command_inner(command, timeout, shutdown, None)
+}
+
+/// Source text uses a private pipe, never shell quoting, argv or a prompt file.
+/// The same deadline and process-tree cleanup also bound a blocked stdin write.
+#[cfg(any(windows, target_os = "macos", test))]
+pub(crate) fn bounded_command_input(
+    command: &mut std::process::Command,
+    timeout: Duration,
+    shutdown: Option<&AtomicBool>,
+    input: Vec<u8>,
+) -> Result<std::process::Output, BoundedCommandError> {
+    if input.len() > 16 * 1024 {
+        return Err(BoundedCommandError::Io(std::io::Error::other(
+            "command input exceeds 16 KiB",
+        )));
+    }
+    bounded_command_inner(command, timeout, shutdown, Some(input))
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
+fn bounded_command_inner(
+    command: &mut std::process::Command,
+    timeout: Duration,
+    shutdown: Option<&AtomicBool>,
+    input: Option<Vec<u8>>,
 ) -> Result<std::process::Output, BoundedCommandError> {
     use std::process::Stdio;
     use std::sync::mpsc;
@@ -4921,6 +5045,9 @@ fn bounded_command_output(
         ))
     })?;
     let mut process_tree = CommandProcessTree::prepare(command).map_err(BoundedCommandError::Io)?;
+    if input.is_some() {
+        command.stdin(Stdio::piped());
+    }
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -4964,9 +5091,39 @@ fn bounded_command_output(
         Ok(thread) => thread,
         Err(error) => {
             stop_and_reap_command(&mut child, &mut process_tree);
-            let _ = stdout_thread.join();
+            // Cleanup can fail at the OS boundary. Joining an unfinished pipe
+            // reader here would undo the bounded reap above.
+            if stdout_thread.is_finished() {
+                let _ = stdout_thread.join();
+            }
             return Err(BoundedCommandError::Io(error));
         }
+    };
+
+    let (input_tx, input_rx) = mpsc::channel();
+    let input_thread = if let Some(bytes) = input {
+        let Some(mut stdin) = child.stdin.take() else {
+            stop_and_reap_command(&mut child, &mut process_tree);
+            return Err(BoundedCommandError::Io(std::io::Error::other(
+                "command stdin pipe is unavailable",
+            )));
+        };
+        match std::thread::Builder::new()
+            .name("vocalcode-command-stdin".into())
+            .spawn(move || {
+                use std::io::Write;
+                let result = stdin.write_all(&bytes);
+                drop(stdin);
+                let _ = input_tx.send(result);
+            }) {
+            Ok(thread) => Some(thread),
+            Err(error) => {
+                stop_and_reap_command(&mut child, &mut process_tree);
+                return Err(BoundedCommandError::Io(error));
+            }
+        }
+    } else {
+        None
     };
 
     let status = loop {
@@ -4993,6 +5150,20 @@ fn bounded_command_output(
     // A trusted utility may let its direct process exit while a helper keeps
     // inherited pipe handles alive. End the whole tree before waiting for EOF.
     let tree_cleanup = process_tree.terminate().map_err(BoundedCommandError::Io);
+    let input_result = input_thread.map(|thread| {
+        // If a failed OS tree cleanup leaves an inherited pipe alive, do not
+        // replace our command deadline with an unbounded writer-thread join.
+        match input_rx.recv_timeout(COMMAND_DRAIN_GRACE) {
+            Ok(result) => {
+                let _ = thread.join();
+                result
+            }
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "timed out completing command input",
+            )),
+        }
+    });
 
     let mut stdout = None;
     let mut stderr = None;
@@ -5025,6 +5196,11 @@ fn bounded_command_output(
     let _ = stderr_thread.join();
     let status = status?;
     tree_cleanup?;
+    if status.success() {
+        if let Some(Err(error)) = input_result {
+            return Err(BoundedCommandError::Io(error));
+        }
+    }
     if let Some(error) = drain_error {
         return Err(BoundedCommandError::Io(error));
     }
@@ -8778,7 +8954,9 @@ mod webui_copy_contract_tests {
         assert!(html.contains(
             ".nav-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
         ));
-        assert!(html.contains(".meeting-tools{flex-wrap:nowrap}"));
+        assert!(!html.contains(".meeting-tools{flex-wrap:nowrap}"));
+        assert!(html.contains(".meeting-tools{flex-wrap:wrap}"));
+        assert!(html.contains("grid-template-rows:130px minmax(260px,1fr)"));
         assert!(html.contains(".meeting-export{width:64px;min-width:64px}"));
         assert!(html.contains(".meeting-bookmark{width:32px;min-width:32px"));
         assert!(html.contains(".meeting-delete{width:43px;min-width:43px"));
@@ -9675,6 +9853,70 @@ mod updater_contract_tests {
 #[cfg(test)]
 mod bounded_command_tests {
     use super::*;
+
+    #[test]
+    fn cleanup_wait_is_bounded_even_before_a_child_is_terminated() {
+        let mut command = slow_command();
+        let mut tree = CommandProcessTree::prepare(&mut command).unwrap();
+        let mut child = command.spawn().unwrap();
+        tree.attach(&child).unwrap();
+        let started = Instant::now();
+        let running = wait_for_command_exit(&mut child, Duration::from_millis(60));
+        // Always clean the owned helper before assertions, including on error.
+        stop_and_reap_command(&mut child, &mut tree);
+        assert!(!running.unwrap());
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(wait_for_command_exit(&mut child, Duration::ZERO).unwrap());
+    }
+
+    #[test]
+    #[ignore = "Subprocess helper for UTF-8 stdin; only invoked by bounded input test"]
+    fn stdin_echo_helper() {
+        use std::io::{Read, Write};
+        let mut bytes = Vec::new();
+        std::io::stdin().read_to_end(&mut bytes).unwrap();
+        std::io::stdout().write_all(&bytes).unwrap();
+    }
+
+    #[test]
+    fn source_text_uses_stdin_without_shell_interpolation() {
+        let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+        command.args([
+            "--exact",
+            "webui::bounded_command_tests::stdin_echo_helper",
+            "--ignored",
+            "--nocapture",
+        ]);
+        let source =
+            "中文 日本語 한국어 Hindi नमस्ते $(no_execution) `text` & | \"quoted\"\nnext line";
+        let output = bounded_command_input(
+            &mut command,
+            Duration::from_secs(5),
+            None,
+            source.as_bytes().to_vec(),
+        )
+        .unwrap();
+        assert!(output.status.success());
+        assert!(String::from_utf8(output.stdout).unwrap().contains(source));
+        assert!(!command
+            .get_args()
+            .any(|arg| arg.to_string_lossy().contains("no_execution")));
+    }
+
+    #[test]
+    fn an_unread_stdin_pipe_still_obeys_the_deadline() {
+        let mut command = slow_command();
+        let started = Instant::now();
+        let error = bounded_command_input(
+            &mut command,
+            Duration::from_millis(150),
+            None,
+            vec![b'x'; 16 * 1024],
+        )
+        .unwrap_err();
+        assert!(matches!(error, BoundedCommandError::TimedOut(_)));
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
 
     fn shell_command(_windows_script: &str, _unix_script: &str) -> std::process::Command {
         #[cfg(windows)]

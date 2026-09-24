@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::error::{Result, VocalCodeError};
@@ -15,8 +15,8 @@ use crate::traits::{Asr, AudioCapture, TextCleaner, TextInjector, TriggerEvent, 
 /// reuses it unchanged.
 ///
 /// Two output modes:
-/// - `live = false` (default): decode the whole utterance once on release and
-///   insert it — one clean, atomic insert, no churn.
+/// - `live = false` (default): prepare long paused phrases while recording,
+///   then clean the combined transcript and insert once on release.
 /// - `live = true`: **segmented append** — at each pause, decode only the new
 ///   segment since the last one and *append* it (never backspaces), so text
 ///   lands phrase-by-phrase as you speak.
@@ -30,6 +30,9 @@ pub struct Engine {
     /// not silently apply the wrong threshold.
     min_record_ms: u32,
     live: bool,
+    /// Optional host/QA policy for pause-based chunking. It is never a hard
+    /// audio cut, and changing it is refused during an utterance.
+    segment_minimum_ms: Option<u32>,
     /// Shared insert gate: normally open for permanent Basic dictation and
     /// closed only while the runtime is shutting down or delivery is otherwise
     /// unavailable. It is read again before every insert.
@@ -55,9 +58,16 @@ pub struct Engine {
     pressed: HashSet<TriggerId>,
     recording_since: Option<Instant>,
     max_recording: Duration,
-    /// Sample index (in the 16 kHz stream) where the not-yet-decoded segment
-    /// begins. Only used in live/segmented mode.
+    /// Sample index where the not-yet-decoded segment begins. Successful
+    /// background preparation and progressive delivery share this cursor.
     seg_start: usize,
+    pending_segment: Option<PendingSegment>,
+    prepared_text: String,
+    predecode_disabled: bool,
+    /// Scan only new audio plus one second of endpoint context. Without this,
+    /// uninterrupted speech would be copied and rescanned from zero every tick.
+    scanned_samples: usize,
+    scan_rate: u32,
     /// Text appended so far this utterance (for the return value + spacing).
     utterance: String,
     /// A transcript that ASR completed but the injector could not deliver.
@@ -87,6 +97,13 @@ pub struct Engine {
     completed_trace: Option<DictationTrace>,
 }
 
+struct PendingSegment {
+    result: mpsc::Receiver<Result<String>>,
+    samples: usize,
+    rate: u32,
+    started: Instant,
+}
+
 /// Text-only diagnostic data. Retention and encryption belong to the host;
 /// cancelled/gated utterances never expose a trace. No audio is retained here.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -95,8 +112,15 @@ pub struct DictationTrace {
     pub sample_rate: u32,
     pub sample_count: usize,
     pub audio_ms: u64,
-    /// Includes any wait behind the single native model owner.
+    /// Includes queueing and result-poll delay behind the native model owner.
     pub asr_ms: u64,
+    pub asr_chunks: u32,
+    /// Audio decoded before release, not including the final in-flight chunk.
+    pub predecoded_audio_ms: u64,
+    /// Stop/capture flush through final delivery. Separate from total ASR work.
+    pub finish_ms: u64,
+    /// Includes exact-focus validation and native insertion/clipboard work.
+    pub injection_ms: u64,
     pub cleaner_ms: u64,
     pub raw_text: String,
     pub raw_text_truncated: bool,
@@ -164,6 +188,7 @@ impl Engine {
             injector,
             min_record_ms,
             live,
+            segment_minimum_ms: None,
             inject_gate,
             latch,
             recording: false,
@@ -173,6 +198,11 @@ impl Engine {
             recording_since: None,
             max_recording: Duration::from_millis(DEFAULT_MAX_RECORD_MS),
             seg_start: 0,
+            pending_segment: None,
+            prepared_text: String::new(),
+            predecode_disabled: false,
+            scanned_samples: 0,
+            scan_rate: 0,
             utterance: String::new(),
             recoverable_text: None,
             rules,
@@ -215,6 +245,18 @@ impl Engine {
             return false;
         }
         self.min_record_ms = min_record_ms;
+        true
+    }
+
+    /// Select a more conservative minimum context window for comparative
+    /// replay or a host's explicitly chosen policy. None restores the default
+    /// (300 ms progressive, 8 s on-release predecode). Pauses are still required,
+    /// short final utterances stay intact, and no already-inserted text changes.
+    pub fn set_segment_minimum_ms(&mut self, minimum_ms: Option<u32>) -> bool {
+        if self.recording || minimum_ms.is_some_and(|ms| !(300..=30_000).contains(&ms)) {
+            return false;
+        }
+        self.segment_minimum_ms = minimum_ms;
         true
     }
 
@@ -308,14 +350,33 @@ impl Engine {
     fn decode_dictation(&mut self, samples: &[f32], rate: u32) -> Result<String> {
         let started = Instant::now();
         let result = self.asr.transcribe(samples, rate);
+        self.record_decode(samples.len(), rate, started, &result);
+        result
+    }
+
+    fn inject_dictation(&mut self, text: &str) -> Result<()> {
+        let started = Instant::now();
+        let result = self.injector.inject_text(text);
+        if let Some(trace) = &mut self.trace {
+            trace.injection_ms += started.elapsed().as_millis() as u64;
+        }
+        result
+    }
+
+    fn record_decode(
+        &mut self,
+        count: usize,
+        rate: u32,
+        started: Instant,
+        result: &Result<String>,
+    ) {
         if let Some(trace) = &mut self.trace {
             trace.sample_rate = rate;
-            trace.sample_count += samples.len();
-            trace.audio_ms += (samples.len() as u64 * 1000)
-                .checked_div(rate as u64)
-                .unwrap_or(0);
+            trace.sample_count += count;
+            trace.audio_ms += (count as u64 * 1000).checked_div(rate as u64).unwrap_or(0);
             trace.asr_ms += started.elapsed().as_millis() as u64;
-            if let Ok(text) = &result {
+            trace.asr_chunks += 1;
+            if let Ok(text) = result {
                 trace.raw_text_truncated |= trace
                     .raw_text
                     .len()
@@ -325,7 +386,49 @@ impl Engine {
                 append_trace_text(&mut trace.raw_text, text);
             }
         }
-        result
+    }
+
+    /// Poll without waiting during capture; join the single in-flight request
+    /// only after capture has stopped. Native results never touch the injector.
+    fn complete_segment(&mut self, wait: bool, deliver: bool) -> Result<bool> {
+        let Some(pending) = self.pending_segment.as_ref() else {
+            return Ok(true);
+        };
+        let disconnected = || VocalCodeError::Asr("Background dictation worker stopped".into());
+        let result = if wait {
+            pending
+                .result
+                .recv()
+                .unwrap_or_else(|_| Err(disconnected()))
+        } else {
+            match pending.result.try_recv() {
+                Ok(result) => result,
+                Err(mpsc::TryRecvError::Empty) => return Ok(false),
+                Err(mpsc::TryRecvError::Disconnected) => Err(disconnected()),
+            }
+        };
+        let pending = self.pending_segment.take().expect("pending segment");
+        // A closed gate/cancellation must never leak even a completed result.
+        if !self.inject_allowed() {
+            return Err(VocalCodeError::License(
+                "text delivery is temporarily unavailable".into(),
+            ));
+        }
+        self.record_decode(pending.samples, pending.rate, pending.started, &result);
+        let text = result?;
+        if self.live && deliver {
+            self.append_segment(text.trim())?;
+        } else {
+            push_phrase(&mut self.prepared_text, text.trim());
+        }
+        self.seg_start += pending.samples;
+        self.scanned_samples = self.seg_start;
+        if self.recording {
+            if let Some(trace) = &mut self.trace {
+                trace.predecoded_audio_ms += pending.samples as u64 * 1000 / pending.rate as u64;
+            }
+        }
+        Ok(true)
     }
 
     /// Enable/disable segmented live insertion for future utterances.
@@ -335,6 +438,11 @@ impl Engine {
         }
         self.live = live;
         self.seg_start = 0;
+        self.pending_segment = None;
+        self.prepared_text.clear();
+        self.predecode_disabled = false;
+        self.scanned_samples = 0;
+        self.scan_rate = 0;
         self.utterance.clear();
         true
     }
@@ -452,22 +560,24 @@ impl Engine {
         if !self.inject_allowed() {
             return;
         }
-        let start = if self.live {
-            self.seg_start.min(rec.samples.len())
-        } else {
-            0
-        };
-        let samples = &rec.samples[start..];
-        if samples.is_empty() {
+        // Keep already prepared raw phrases; never insert from this recovery
+        // path, including a live result that finished after the watchdog fired.
+        let _ = self.complete_segment(true, false);
+        if !self.inject_allowed() {
             return;
         }
-        let Ok(raw) = self.decode_dictation(samples, rec.sample_rate) else {
-            return;
-        };
+        let start = self.seg_start.min(rec.samples.len());
+        let samples = &rec.samples[start..];
+        let mut raw = std::mem::take(&mut self.prepared_text);
+        if !samples.is_empty() {
+            if let Ok(tail) = self.decode_dictation(samples, rec.sample_rate) {
+                push_phrase(&mut raw, tail.trim());
+            }
+        }
         let cleaned = self.clean_dictation(raw.trim());
         let text = self.apply_rules(&cleaned).unwrap_or(cleaned);
         let text = text.trim();
-        if !text.is_empty() {
+        if !text.is_empty() && self.inject_allowed() {
             self.recoverable_text = Some(text.to_string());
         }
     }
@@ -621,7 +731,11 @@ impl Engine {
 
     pub fn handle(&mut self, ev: TriggerEvent) -> Result<Outcome> {
         match ev {
-            TriggerEvent::TalkPressed(id) => {
+            TriggerEvent::TalkPressed(id) | TriggerEvent::HandsFreeStart(id) => {
+                let hands_free = matches!(ev, TriggerEvent::HandsFreeStart(_));
+                if hands_free && self.recording {
+                    return Ok(Outcome::Idle);
+                }
                 // Latched: the second press is the stop. Checked before the
                 // "already recording" guard, which in hold mode only exists to
                 // swallow key-repeat.
@@ -645,9 +759,14 @@ impl Engine {
                     return Ok(Outcome::LicenseRequired);
                 }
                 self.seg_start = 0;
+                self.pending_segment = None;
+                self.prepared_text.clear();
+                self.predecode_disabled = false;
+                self.scanned_samples = 0;
+                self.scan_rate = 0;
                 self.utterance.clear();
                 self.recoverable_text = None;
-                let active_latched = self.latched();
+                let active_latched = hands_free || self.latched();
                 self.active_snippets = self
                     .snippets
                     .lock()
@@ -706,6 +825,7 @@ impl Engine {
             // mean the caller forgot to intercept it, so say so rather than
             // swallowing it into Idle.
             TriggerEvent::TeachTapped(_) => Ok(Outcome::Idle),
+            TriggerEvent::Wake => Ok(Outcome::Idle),
             TriggerEvent::DeviceDisconnected(device) => {
                 let before = self.pressed.len();
                 self.pressed.retain(|id| id.device != device);
@@ -757,7 +877,12 @@ impl Engine {
     /// has no readiness gate in front of that branch. Auto-repeat cannot reach
     /// here, since a repeat only arrives while already recording.
     pub fn will_start(&self, ev: TriggerEvent) -> bool {
-        !self.recording && self.inject_allowed() && matches!(ev, TriggerEvent::TalkPressed(_))
+        !self.recording
+            && self.inject_allowed()
+            && matches!(
+                ev,
+                TriggerEvent::TalkPressed(_) | TriggerEvent::HandsFreeStart(_)
+            )
     }
 
     /// Will this event end the recording and start a decode?
@@ -797,6 +922,7 @@ impl Engine {
         // Stop first, then unconditionally leave the recording state. ASR,
         // cleanup and injection all happen afterwards and may fail; none of
         // those failures means the microphone is still running.
+        let finish_started = Instant::now();
         let stopped = self.audio.stop();
         self.recording = false;
         self.recording_since = None;
@@ -807,6 +933,14 @@ impl Engine {
             // lands mid-utterance cannot leave capture running.
             if !self.inject_allowed() {
                 return Ok(Outcome::LicenseRequired);
+            }
+            if let Err(error) = self.complete_segment(true, true) {
+                if self.live || !self.inject_allowed() {
+                    return Err(error);
+                }
+                // Failed speculative work never discards the captured audio:
+                // the cursor only advances on success, so release can retry it.
+                log::warn!("background preparation failed; retrying remaining audio: {error}");
             }
             let min_samples = self.min_samples(rec.sample_rate);
             let out = if self.live {
@@ -823,14 +957,14 @@ impl Engine {
                 }
                 std::mem::take(&mut self.utterance)
             } else {
-                // One-shot: decode the whole utterance, insert once.
-                let raw = if rec.samples.len() >= min_samples {
-                    self.decode_dictation(&rec.samples, rec.sample_rate)?
-                        .trim()
-                        .to_string()
-                } else {
-                    String::new()
-                };
+                // Reuse completed phrases and decode only the unprocessed
+                // tail. Whole-utterance cleanup/dictionary/snippets stay here.
+                let mut raw = self.prepared_text.clone();
+                let tail = &rec.samples[self.seg_start.min(rec.samples.len())..];
+                if !tail.is_empty() && rec.samples.len() >= min_samples {
+                    let text = self.decode_dictation(tail, rec.sample_rate)?;
+                    push_phrase(&mut raw, text.trim());
+                }
                 let cleaned = self.clean_dictation(&raw);
                 let expansion = crate::migration::expand_snippet(&raw, &self.active_snippets)
                     .or_else(|| crate::migration::expand_snippet(&cleaned, &self.active_snippets));
@@ -862,7 +996,7 @@ impl Engine {
                     if !self.inject_allowed() {
                         return Ok(Outcome::LicenseRequired);
                     }
-                    if let Err(error) = self.injector.inject_text(&text) {
+                    if let Err(error) = self.inject_dictation(&text) {
                         self.recoverable_text = Some(text);
                         return Err(error);
                     }
@@ -885,11 +1019,20 @@ impl Engine {
                 }
             }
             Err(_) => {
+                if self.inject_allowed()
+                    && self.recoverable_text.is_none()
+                    && !self.prepared_text.is_empty()
+                {
+                    self.recoverable_text = Some(self.prepared_text.clone());
+                }
                 if let Some(trace) = &mut self.trace {
                     trace.result = "failed".into();
                 }
             }
             _ => {}
+        }
+        if let Some(trace) = &mut self.trace {
+            trace.finish_ms = finish_started.elapsed().as_millis() as u64;
         }
         self.reset_after_recording();
         result
@@ -924,14 +1067,21 @@ impl Engine {
         self.pressed.clear();
         self.recording_since = None;
         self.seg_start = 0;
+        // Dropping the receiver isolates cancelled/failed utterances. A late
+        // native result cannot become the next utterance's text.
+        self.pending_segment = None;
+        self.prepared_text.clear();
+        self.predecode_disabled = false;
+        self.scanned_samples = 0;
+        self.scan_rate = 0;
         self.utterance.clear();
         self.injector.end_utterance();
     }
 
-    /// Live/segmented mode only: at a pause, decode the new segment and append
-    /// it. Never backspaces, so no flicker/churn.
+    /// Poll background phrase recognition in both output modes. Progressive
+    /// mode appends completed phrases; normal mode keeps them until release.
     pub fn tick_partial(&mut self) -> Result<()> {
-        if !self.recording || !self.live {
+        if !self.recording {
             return Ok(());
         }
         let result = self.tick_partial_inner();
@@ -955,26 +1105,95 @@ impl Engine {
                 "text delivery is temporarily unavailable".to_string(),
             ));
         }
-        let rec = self.audio.snapshot_since(self.seg_start)?;
-        let len = rec.samples.len();
-        // Need ≥0.3s of new audio since the last segment, ending in a pause.
-        if len < 4_800 || !is_pause(&rec.samples) {
+        match self.complete_segment(false, true) {
+            Ok(false) => return Ok(()),
+            Err(error) if !self.live => {
+                // No busy-loop retry and no stopped microphone from optional
+                // preparation. The complete captured tail is retried on release.
+                self.predecode_disabled = true;
+                log::warn!("background preparation disabled for this utterance: {error}");
+                return Ok(());
+            }
+            Err(error) => return Err(error),
+            Ok(true) => {}
+        }
+        if self.predecode_disabled {
             return Ok(());
         }
+        let scan_start = self
+            .seg_start
+            .max(self.scanned_samples.saturating_sub(self.scan_rate as usize));
+        let rec = self.audio.snapshot_since(scan_start)?;
+        let len = rec.samples.len();
+        if rec.sample_rate == 0 || (self.scan_rate != 0 && self.scan_rate != rec.sample_rate) {
+            return Err(VocalCodeError::Audio(
+                "capture sample rate changed during dictation".into(),
+            ));
+        }
+        self.scan_rate = rec.sample_rate;
+        self.scanned_samples = scan_start + len;
         // The minimum-recording preference applies to live mode too. Without
         // this guard a 0.3-second quiet tap was injected during the tick, before
         // `finish` had a chance to reject it as shorter than (say) 1 second.
-        if self.seg_start == 0 && len < self.min_samples(rec.sample_rate) {
+        if self.seg_start == 0 && self.scanned_samples < self.min_samples(rec.sample_rate) {
             return Ok(());
         }
-        let text = self.decode_dictation(&rec.samples, rec.sample_rate)?;
-        self.append_segment(text.trim())?;
-        self.seg_start += len;
+        let minimum_ms = self
+            .segment_minimum_ms
+            .unwrap_or(if self.live { 300 } else { 8_000 });
+        let minimum_end = self.seg_start + rec.sample_rate as usize * minimum_ms as usize / 1000;
+        let remaining_ms = minimum_end.saturating_sub(scan_start) * 1000 / rec.sample_rate as usize;
+        let Some(end) =
+            crate::segmentation::pause_boundary(&rec.samples, rec.sample_rate, remaining_ms as u32)
+        else {
+            return Ok(());
+        };
+        let end = scan_start + end - self.seg_start;
+        // Snapshot the full pending phrase only once a boundary exists. Samples
+        // after that boundary remain captured while the native worker runs.
+        let segment = if scan_start == self.seg_start {
+            rec
+        } else {
+            self.audio.snapshot_since(self.seg_start)?
+        };
+        if segment.samples.len() < end || segment.sample_rate != self.scan_rate {
+            return Err(VocalCodeError::Audio(
+                "capture changed while preparing a phrase".into(),
+            ));
+        }
+        let started = Instant::now();
+        match self
+            .asr
+            .transcribe_async(&segment.samples[..end], segment.sample_rate)
+        {
+            Ok(Some(result)) => {
+                self.pending_segment = Some(PendingSegment {
+                    result,
+                    samples: end,
+                    rate: segment.sample_rate,
+                    started,
+                });
+            }
+            Ok(None) if self.live => {
+                // Direct synchronous adapters remain usable in core tests and
+                // embedded hosts. The desktop always supplies an async proxy.
+                let text = self.decode_dictation(&segment.samples[..end], segment.sample_rate)?;
+                self.append_segment(text.trim())?;
+                self.seg_start += end;
+                self.scanned_samples = self.seg_start;
+            }
+            Ok(None) => self.predecode_disabled = true,
+            Err(error) if !self.live => {
+                self.predecode_disabled = true;
+                log::warn!("could not queue background preparation: {error}");
+            }
+            Err(error) => return Err(error),
+        }
         Ok(())
     }
 
-    /// Append one decoded segment to the field, inserting a space only at an
-    /// ASCII word boundary (so English gets spaces, Chinese doesn't).
+    /// Append one decoded segment, preserving word spacing for spaced scripts
+    /// while keeping Chinese/Japanese boundaries adjacent.
     fn append_segment(&mut self, text: &str) -> Result<()> {
         if !self.inject_allowed() {
             return Err(VocalCodeError::License(
@@ -1018,17 +1237,14 @@ impl Engine {
         if text.is_empty() {
             return Ok(());
         }
-        let sep = match (self.utterance.chars().last(), text.chars().next()) {
-            (Some(a), Some(b)) if a.is_ascii_alphanumeric() && b.is_ascii_alphanumeric() => " ",
-            _ => "",
-        };
+        let sep = crate::segmentation::join_separator(&self.utterance, text);
         let chunk = format!("{sep}{text}");
         if !self.inject_allowed() {
             return Err(VocalCodeError::License(
                 "text delivery is temporarily unavailable".to_string(),
             ));
         }
-        if let Err(error) = self.injector.inject_text(&chunk) {
+        if let Err(error) = self.inject_dictation(&chunk) {
             self.recoverable_text = Some(format!("{}{chunk}", self.utterance));
             return Err(error);
         }
@@ -1265,17 +1481,10 @@ fn ci_replace(hay: &str, from: &str, to: &str, maximum: usize) -> Result<String>
     Ok(out)
 }
 
-/// True when the last ~0.4s of audio is quiet — a natural pause between
-/// phrases. RMS over the tail window (samples are 16 kHz mono f32).
-fn is_pause(samples: &[f32]) -> bool {
-    const WIN: usize = 6_400; // ~0.4s @ 16 kHz
-    let win = WIN.min(samples.len());
-    if win == 0 {
-        return true;
-    }
-    let tail = &samples[samples.len() - win..];
-    let rms = (tail.iter().map(|s| s * s).sum::<f32>() / win as f32).sqrt();
-    rms < 0.015
+/// Join stable raw phrases without changing their contents.
+fn push_phrase(target: &mut String, text: &str) {
+    target.push_str(crate::segmentation::join_separator(target, text));
+    target.push_str(text);
 }
 
 #[cfg(test)]
@@ -2103,6 +2312,13 @@ mod state_machine_tests {
                 samples: vec![0.0; samples],
             }
         }
+        fn paused() -> Self {
+            let mut audio = Self::silent(8_000);
+            for (i, sample) in audio.samples[..3_200].iter_mut().enumerate() {
+                *sample = if i % 2 == 0 { 0.1 } else { -0.1 };
+            }
+            audio
+        }
     }
     impl AudioCapture for SnapshotAudio {
         fn start(&mut self) -> Result<()> {
@@ -2304,7 +2520,7 @@ mod state_machine_tests {
         let injector = RecordingInjector::default();
         let calls = injector.calls.clone();
         let mut e = Engine::new(
-            Box::new(SnapshotAudio::silent(8_000)),
+            Box::new(SnapshotAudio::paused()),
             Box::new(FakeAsr),
             Box::new(injector),
             100,
@@ -2337,7 +2553,7 @@ mod state_machine_tests {
         };
         let calls = injector.calls.clone();
         let mut e = Engine::new(
-            Box::new(SnapshotAudio::silent(8_000)),
+            Box::new(SnapshotAudio::paused()),
             Box::new(FakeAsr),
             Box::new(injector),
             100,
@@ -2363,7 +2579,7 @@ mod state_machine_tests {
     #[test]
     fn live_decode_error_stops_capture_and_resets_recording() {
         let mut e = Engine::new(
-            Box::new(SnapshotAudio::silent(8_000)),
+            Box::new(SnapshotAudio::paused()),
             Box::new(DecodeFails),
             Box::new(FakeInjector::default()),
             100,
@@ -2476,6 +2692,65 @@ mod state_machine_tests {
         e.handle(up()).unwrap();
         assert!(!e.is_recording());
         assert!(e.will_start(down()));
+    }
+
+    #[test]
+    fn hands_free_start_ignores_saved_mode_and_duplicate_starts() {
+        for latched in [false, true] {
+            let (mut e, _) = engine(latched);
+            let start = TriggerEvent::HandsFreeStart(OTHER_TALK);
+            assert!(e.will_start(start));
+            assert_eq!(e.handle(start).unwrap(), Outcome::Listening);
+            assert!(!e.will_start(start));
+            assert!(!e.will_finish(start));
+            assert_eq!(e.handle(start).unwrap(), Outcome::Idle);
+            assert!(e.is_recording());
+            e.handle(TriggerEvent::TalkReleased(OTHER_TALK)).unwrap();
+            assert!(
+                e.is_recording(),
+                "a mouse/UI release must not stop hands-free"
+            );
+            assert!(e.will_finish(TriggerEvent::ForceStop));
+            e.handle(TriggerEvent::ForceStop).unwrap();
+            assert!(!e.is_recording());
+            assert!(e.will_start(down()));
+        }
+    }
+
+    #[test]
+    fn hands_free_does_not_change_next_hold_session_or_restart_an_existing_one() {
+        let (mut e, _) = engine(false);
+        e.handle(down()).unwrap();
+        e.handle(TriggerEvent::HandsFreeStart(OTHER_TALK)).unwrap();
+        assert!(
+            e.will_finish(up()),
+            "existing physical hold retains its semantics"
+        );
+        e.handle(up()).unwrap();
+        e.handle(TriggerEvent::HandsFreeStart(OTHER_TALK)).unwrap();
+        assert!(
+            e.will_finish(down()),
+            "a physical shortcut can finish hands-free"
+        );
+        e.handle(down()).unwrap();
+        e.handle(up()).unwrap();
+        e.handle(down()).unwrap();
+        assert!(e.will_finish(up()), "saved hold preference is unchanged");
+        e.handle(up()).unwrap();
+        assert!(!e.is_recording());
+    }
+
+    #[test]
+    fn hands_free_respects_delivery_gate_and_wake_has_no_authority() {
+        let (mut e, _) = engine(false);
+        assert!(!e.will_start(TriggerEvent::Wake));
+        e.handle(TriggerEvent::Wake).unwrap();
+        assert!(!e.is_recording());
+        e.inject_gate.store(false, Ordering::Relaxed);
+        let start = TriggerEvent::HandsFreeStart(OTHER_TALK);
+        assert!(!e.will_start(start));
+        assert_eq!(e.handle(start).unwrap(), Outcome::LicenseRequired);
+        assert!(!e.is_recording());
     }
 
     #[test]

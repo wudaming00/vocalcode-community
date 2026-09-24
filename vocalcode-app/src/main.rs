@@ -8,7 +8,10 @@
 mod activation;
 mod calendar;
 mod community;
+#[cfg(windows)]
+mod control_bar;
 mod diagnostics;
+mod dictation_control;
 mod inference;
 mod learning;
 mod meeting;
@@ -20,6 +23,7 @@ mod noise_filter;
 mod overlay;
 mod paths;
 mod rewrite;
+mod rewrite_cli;
 mod storage;
 mod webui;
 mod workflows;
@@ -2338,6 +2342,9 @@ fn publish_recoverable_text(status: &Arc<RuntimeStatus>, engine: &mut Engine) {
     }
     push_history(status, &text);
     *status.last_text.lock().unwrap() = text;
+    status
+        .dictation_control
+        .notify_recovery(std::time::Instant::now());
 }
 
 /// Audio errors invalidate the concrete CPAL device object.  Returning an
@@ -2537,6 +2544,9 @@ fn reject_config(
 }
 
 const RUNTIME_MAINTENANCE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(450);
+// Cheap nonblocking result polls should not inherit the slower UI/maintenance
+// cadence. This also catches phrase boundaries after speech has resumed.
+const DICTATION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(80);
 
 struct MaintenanceClock {
     next: std::time::Instant,
@@ -2582,6 +2592,8 @@ fn drain_busy_events(
     while let Ok(event) = receiver.try_recv() {
         match event {
             TriggerEvent::TalkPressed(_)
+            | TriggerEvent::HandsFreeStart(_)
+            | TriggerEvent::Wake
             | TriggerEvent::SendTapped(_)
             | TriggerEvent::TeachTapped(_) => {
                 log::debug!("discarding action queued while runtime was busy: {event:?}");
@@ -3504,6 +3516,7 @@ fn start_background(
 
     let config = shared_config.lock().unwrap().clone();
     let (tx, rx) = trigger_event_channel();
+    status.dictation_control.connect(tx.clone());
     let input_ready = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let input_shutdown = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
@@ -3740,7 +3753,7 @@ fn start_background(
         if model_ready {
             *status.model_label.lock().unwrap() = label.clone();
         }
-        let mut live = active_config.live_caption;
+        let live = active_config.live_caption;
         status.noise_filter.set_enabled(active_config.noise_filter);
         status.noise_filter.set_progressive(live);
         let (mut inference, asr, cleaners) = match inference::Worker::start(
@@ -3810,6 +3823,7 @@ fn start_background(
         // recv with a deadline so maintenance still runs under a continuous
         // stream of input events rather than only after a quiet timeout.
         let mut maintenance = MaintenanceClock::new(std::time::Instant::now());
+        let mut last_dictation_poll = std::time::Instant::now();
         let mut pending_input = None;
         let mut pending_meeting = None;
         let mut meeting_in_flight: Option<inference::PendingMeeting> = None;
@@ -4020,30 +4034,28 @@ fn start_background(
                     }
                 }
 
-                if live && engine.is_recording() {
-                    if let Err(error) = engine.tick_partial() {
-                        invalidate_audio_on_error(&error, &mut audio_ready);
-                        publish_recoverable_text(&status, &mut engine);
-                        status
-                            .listening
-                            .store(engine.is_recording(), Ordering::Release);
-                        overlay.set(if engine.is_recording() {
-                            overlay::Phase::Recording
-                        } else {
-                            overlay::Phase::Idle
-                        });
-                        report_runtime_error(
-                            &status,
-                            format!("Live transcription stopped: {error}"),
-                        );
-                        log::error!("partial: {error}");
-                    }
-                }
-
                 status.ready.store(
                     engine_ready(audio_ready, model_ready, &input_ready, &status),
                     Ordering::Release,
                 );
+            }
+
+            if engine.is_recording() && last_dictation_poll.elapsed() >= DICTATION_POLL_INTERVAL {
+                last_dictation_poll = std::time::Instant::now();
+                if let Err(error) = engine.tick_partial() {
+                    invalidate_audio_on_error(&error, &mut audio_ready);
+                    publish_recoverable_text(&status, &mut engine);
+                    status
+                        .listening
+                        .store(engine.is_recording(), Ordering::Release);
+                    overlay.set(if engine.is_recording() {
+                        overlay::Phase::Recording
+                    } else {
+                        overlay::Phase::Idle
+                    });
+                    report_runtime_error(&status, format!("Background dictation stopped: {error}"));
+                    log::error!("partial: {error}");
+                }
             }
 
             if model_retry_at.is_some_and(|at| std::time::Instant::now() >= at) {
@@ -4357,7 +4369,6 @@ fn start_background(
                         corrections.cancel();
                         overlay.set(overlay::Phase::Idle);
                     }
-                    live = want.live_caption;
                     *triggers.lock().unwrap() =
                         (want.talk.clone(), want.send.clone(), want.teach.clone());
                     status
@@ -4540,6 +4551,10 @@ fn start_background(
                 }
             }
             let mut input_wait = maintenance.wait(std::time::Instant::now());
+            if engine.is_recording() {
+                input_wait = input_wait
+                    .min(DICTATION_POLL_INTERVAL.saturating_sub(last_dictation_poll.elapsed()));
+            }
             if !engine.is_recording() && meeting_in_flight.is_none() {
                 if let Some((queued_at, _)) = pending_meeting.as_ref() {
                     input_wait =
@@ -4550,6 +4565,28 @@ fn start_background(
                 .take()
                 .map(Ok)
                 .unwrap_or_else(|| rx.recv_timeout(input_wait));
+            // Never poll the UI mailbox ahead of the global input queue:
+            // Cancel/ForceStop/Quit discard ordinary queued starts there. Its
+            // Wake must first pass the same ordered/emergency-aware receiver.
+            let control_dispatch = if matches!(input, Ok(TriggerEvent::Wake)) {
+                status.dictation_control.take(
+                    overlay.snapshot(),
+                    status.ready.load(Ordering::Acquire)
+                        && !status.shutdown.load(Ordering::Acquire),
+                    engine.is_recording(),
+                    active_config.desktop_control,
+                    Instant::now(),
+                )
+            } else {
+                if let Ok(event) = input {
+                    status.dictation_control.observe_control(event);
+                }
+                None
+            };
+            let input = control_dispatch
+                .as_ref()
+                .map(|dispatch| Ok(dispatch.event))
+                .unwrap_or(input);
             match input {
                 Ok(ev) => {
                     // Show "transcribing" the moment the recording actually
@@ -4643,7 +4680,6 @@ fn start_background(
                         engine.set_cleanup_enabled(cleanup == workflows::Cleanup::Light);
                         engine.set_live_caption(progressive);
                         status.noise_filter.set_progressive(progressive);
-                        live = progressive;
                         if paste != effective_paste
                             && engine
                                 .replace_injector(Box::new(EnigoInjector::new(paste)))
@@ -4723,6 +4759,7 @@ fn start_background(
                         // was already active when readiness closed. Feed those
                         // cleanup edges through the now-idle engine, but never
                         // replay a newly queued action after the decode.
+                        status.dictation_control.discard_pending();
                         should_quit |= drain_busy_events(&rx, |cleanup| {
                             if let Err(error) = engine.handle(cleanup) {
                                 invalidate_audio_on_error(&error, &mut audio_ready);

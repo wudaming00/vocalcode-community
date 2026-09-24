@@ -382,6 +382,15 @@
   .hist-row .cp:hover{color:var(--ink)}
   .hist-row .fx{color:var(--amber-2)}
   .hist-row .cp:hover{color:var(--amber-2)}
+  .hist-row .review-draft{display:block;margin-top:6px;font-family:var(--sans);font-size:11px;text-align:left}
+  .hist-row .x .cp{max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left}
+  @media(max-width:620px){
+    .hist-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:7px 10px}
+    .hist-row .t{grid-row:1;grid-column:1}
+    .hist-row>.fx{grid-row:1;grid-column:2}
+    .hist-row>.cp:not(.fx){grid-row:1;grid-column:3}
+    .hist-row .x{grid-row:2;grid-column:1/-1}
+  }
   .seg-sm{display:inline-flex;gap:2px;padding:3px;border-radius:9px;background:#0f1216;border:1px solid var(--hair-2)}
   .seg-sm button{font-family:var(--sans);font-size:11.5px;color:var(--sub);background:transparent;border:0;
     border-radius:6px;padding:5px 9px;cursor:pointer;white-space:nowrap}
@@ -424,6 +433,7 @@
   #purgeData{color:#FFB4AE;background:rgba(255,69,58,.08);border-color:rgba(255,69,58,.3)}
   #purgeData:hover{color:#FFD2CF;border-color:rgba(255,69,58,.48);background:rgba(255,69,58,.14)}
   .indicator-row{align-items:center}
+  #desktopControlRow[hidden],#desktopControlEdgeRow[hidden],#rewriteCloudConsentRow[hidden],#rewriteCliModel[hidden]{display:none!important}
   .indicator-row .ovpick{display:flex;gap:4px;padding:0;flex:0 0 auto}
   .indicator-row .ovpick button{min-width:74px;height:32px;padding:0 9px;border-radius:8px;flex-direction:row;gap:6px;justify-content:center;background:transparent}
   .indicator-row .ovpick b{font-size:11.5px;margin:0}
@@ -456,6 +466,13 @@
   .panel[data-panel="dictionary"],.panel[data-panel="history"]{flex-direction:column}
   .panel[data-panel="dictionary"].on,.panel[data-panel="history"].on{display:flex}
   .panel[data-panel="dictionary"] .card,.panel[data-panel="history"] .card{min-height:0;display:flex;flex-direction:column}
+  /* Expanded review/diagnostic forms must grow into the page scroller. Flex
+     shrinking plus .card overflow:hidden otherwise hides their action buttons. */
+  .panel[data-panel="history"]{height:auto;min-height:100%}
+  .panel[data-panel="history"]>.card{flex-shrink:0}
+  .panel[data-panel="history"]>details.card{display:block;padding:14px 16px}
+  details.card>summary{cursor:pointer;font-size:13px;font-weight:600}
+  details.card>summary:focus-visible{outline:2px solid var(--amber);outline-offset:4px}
   #dictRows,#histRows{overflow:auto;min-height:0;overscroll-behavior:contain}
   #dictRows{max-height:calc(100vh - 210px)}
   #histRows{max-height:calc(100vh - 190px)}
@@ -463,8 +480,10 @@
   /* Local meetings: compact master/detail workspace that still fits the
      default 900×600 desktop window. Unbounded transcript text scrolls only in
      its own pane, leaving the recording stop control permanently reachable. */
-  .panel[data-panel="meetings"]{flex-direction:column;min-height:0}
+  .panel[data-panel="meetings"]{flex-direction:column;height:auto;min-height:100%}
   .panel[data-panel="meetings"].on{display:flex}
+  .panel[data-panel="meetings"]>.page-head,.meeting-start,.meeting-live,.meeting-message,.panel[data-panel="meetings"]>details.card{flex-shrink:0}
+  .panel[data-panel="meetings"]>details.card{padding:14px 16px}
   .meeting-head-actions{display:flex;align-items:center;gap:7px;flex:0 0 auto}
   .meeting-btn{min-height:33px;padding:6px 11px;border:1px solid var(--hair-2);border-radius:9px;background:var(--control);color:var(--ink);font:600 12px var(--sans);cursor:pointer;white-space:nowrap}
   .meeting-btn:hover{background:var(--control-hover)}
@@ -487,11 +506,11 @@
   .meeting-auto-end select{min-width:0;max-width:100%}
   .meeting-retention.meeting-auto-end>span{flex:1 1 100%}
   #meetingAutoEndNotice[hidden]{display:none}
-  .meeting-live{display:none;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;padding:9px 11px;border:1px solid rgba(238,138,62,.32);border-radius:12px;background:rgba(238,138,62,.07)}
+  .meeting-live{display:none;position:sticky;top:0;z-index:2;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;padding:9px 11px;border:1px solid rgba(238,138,62,.32);border-radius:12px;background:#27221f}
   .meeting-live.on{display:flex}.meeting-live b{font-size:12px}.meeting-live small{display:block;margin-top:2px;color:var(--mut);font:10.5px var(--mono)}
   .meeting-live .record-dot{display:inline-block;width:8px;height:8px;margin-right:7px;border-radius:50%;background:#ff5f57;box-shadow:0 0 0 4px rgba(255,95,87,.12)}
-  .meeting-workspace{display:grid;grid-template-columns:210px minmax(0,1fr);gap:10px;min-height:0;flex:1}
-  .meeting-sidebar,.meeting-detail{min-height:0;border:1px solid var(--hair);border-radius:12px;background:#151517;overflow:hidden}
+  .meeting-workspace{display:grid;grid-template-columns:210px minmax(0,1fr);gap:10px;min-height:220px;flex:1 0 220px}
+  .meeting-sidebar,.meeting-detail{min-width:0;min-height:0;border:1px solid var(--hair);border-radius:12px;background:#151517;overflow:hidden}
   .meeting-sidebar{display:flex;flex-direction:column}
   .meeting-search{margin:8px;width:calc(100% - 16px);flex:0 0 auto}
   .meeting-list{overflow:auto;min-height:0;padding:0 6px 7px}
@@ -500,7 +519,8 @@
   .meeting-item b{display:block;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .meeting-item small{display:block;margin-top:4px;color:var(--mut);font:9.5px var(--mono)}
   .meeting-empty{padding:18px 10px;color:var(--mut);font-size:11px;line-height:1.5;text-align:center}
-  .meeting-detail{overflow:auto;padding:12px;overscroll-behavior:contain}
+  .meeting-detail{overflow:auto;padding:12px;overscroll-behavior:contain;overflow-wrap:anywhere}
+  .meeting-detail .fine{color:var(--sub);font-size:11.5px;line-height:1.5}
   .meeting-detail-empty{height:100%;display:grid;place-items:center;color:var(--mut);font-size:12px;text-align:center;padding:30px}
   .meeting-detail-head{display:flex;align-items:flex-start;gap:8px}.meeting-title-edit{font-size:15px;font-weight:650;height:36px}
   .meeting-meta{margin:6px 2px 10px;color:var(--mut);font:9.5px var(--mono)}
@@ -510,7 +530,7 @@
   .meeting-note-section{margin-top:10px}.meeting-note-section h3{margin:0 0 5px;color:var(--sub);font-size:10px;text-transform:uppercase;letter-spacing:.09em}.meeting-note-section ul{margin:0;padding-left:18px;color:var(--ink);font-size:11.5px;line-height:1.45}.meeting-note-section li+li{margin-top:3px}
   .meeting-transcript{margin-top:12px;border-top:1px solid var(--hair);padding-top:8px}
   .meeting-segment{display:grid;grid-template-columns:58px 76px minmax(0,1fr) 42px;gap:7px;align-items:start;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.045);font-size:11.5px;line-height:1.42}
-  .meeting-segment time{color:var(--mut);font:9.5px var(--mono);padding-top:2px}.meeting-segment b{color:var(--amber-2);font-size:10.5px;cursor:pointer}.meeting-segment b:hover{text-decoration:underline}.meeting-segment .copy-segment{border:0;background:transparent;color:var(--mut);font:10px var(--sans);cursor:pointer}
+  .meeting-segment time{color:var(--mut);font:9.5px var(--mono);padding-top:2px}.meeting-speaker{min-width:0;padding:0;border:0;background:transparent;color:var(--amber-2);font:600 10.5px var(--sans);text-align:left;overflow-wrap:anywhere;cursor:pointer}.meeting-speaker:hover{text-decoration:underline}.meeting-segment .copy-segment{border:0;background:transparent;color:var(--mut);font:10px var(--sans);cursor:pointer}
   .meeting-message{min-height:18px;margin:6px 2px 0;color:var(--mut);font-size:10.5px}.meeting-message.error{color:#ff9f99}
 
   /* Manual Teach is a tiny capsule. Learned corrections instead overlay a
@@ -588,7 +608,7 @@
     .meeting-tools{margin-bottom:7px}
     .meeting-segment{grid-template-columns:52px minmax(0,1fr) 34px;gap:5px}
     .meeting-segment time{grid-column:1;grid-row:1}
-    .meeting-segment b{grid-column:1;grid-row:2}
+    .meeting-speaker{grid-column:1;grid-row:2}
     .meeting-segment>span{grid-column:2;grid-row:1/3;min-width:0;overflow-wrap:anywhere}
     .meeting-segment .copy-segment{grid-column:3;grid-row:1/3}
   }
@@ -612,12 +632,22 @@
     .meeting-retention>span{flex-basis:auto}
     .meeting-keep-long{display:none}
     .meeting-keep-short{display:inline}
-    .meeting-tools{flex-wrap:nowrap}
+    .meeting-tools{flex-wrap:wrap}
     .meeting-tools .meeting-btn{padding-left:6px;padding-right:6px;font-size:10px}
     .meeting-export{width:64px;min-width:64px}
     .meeting-bookmark{width:32px;min-width:32px;padding-left:0!important;padding-right:0!important;font-size:0!important}
     .meeting-bookmark::before{content:"☆";font-size:15px}
     .meeting-delete{width:43px;min-width:43px;padding-left:4px!important;padding-right:4px!important;font-size:9.5px!important}
+  }
+
+  @media(max-width:640px){
+    /* Keep real transcripts usable, not just the empty meeting placeholder. */
+    .meeting-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:130px minmax(260px,1fr);min-height:400px;flex-basis:400px}
+    .meeting-segment{grid-template-columns:52px minmax(0,1fr) 34px}
+    .meeting-segment time{grid-column:1;grid-row:1}
+    .meeting-speaker{grid-column:2;grid-row:1}
+    .meeting-segment>span{grid-column:1/-1;grid-row:2}
+    .meeting-segment .copy-segment{grid-column:3;grid-row:1}
   }
 
   @media(max-height:540px){
@@ -647,6 +677,9 @@
   .meeting-reminder{display:none;position:fixed;right:18px;bottom:18px;z-index:170;width:min(390px,calc(100vw - 36px));padding:15px;border:1px solid rgba(238,138,62,.45);border-radius:14px;background:linear-gradient(155deg,#292522,#17191d 64%);box-shadow:0 26px 70px rgba(0,0,0,.68),inset 0 1px 0 rgba(255,255,255,.06)}
   .meeting-reminder.show{display:block}.meeting-reminder h2{margin:0;color:var(--ink);font-size:15px}.meeting-reminder p{margin:6px 0 0;color:var(--sub);font-size:11.5px;line-height:1.45}.meeting-reminder .privacy{color:var(--mut);font-size:10.5px}.meeting-reminder-actions{display:flex;align-items:center;gap:6px;margin-top:12px}.meeting-reminder-actions button{min-height:31px;padding:5px 9px;border:1px solid var(--hair-2);border-radius:8px;background:var(--raised);color:var(--ink);font:11px var(--sans);cursor:pointer}.meeting-reminder-actions .primary{border-color:transparent;background:linear-gradient(180deg,var(--amber-2),var(--amber));color:#1c1206;font-weight:650}.meeting-reminder-actions .never{margin-left:auto;border-color:transparent;background:transparent;color:var(--mut);padding-left:5px;padding-right:5px}.meeting-reminder-actions .never:hover{color:var(--ink)}
   .migration-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+  .migration-tools>select{min-width:0;max-width:100%}
+  #rewriteProviderNotes{white-space:pre-line;overflow-wrap:anywhere}
+  #rewriteMessage,#calendarMessage,#calendarAssociation{overflow-wrap:anywhere}
   .migration-input{display:block;width:100%;min-height:108px;resize:vertical;box-sizing:border-box;background:var(--stage);color:inherit;border:1px solid var(--hair);border-radius:10px;padding:12px;font:inherit}
   .migration-row{padding:10px 0;border-bottom:1px solid var(--hair);overflow-wrap:anywhere}
   .migration-row pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:inherit;font-size:13px;margin:6px 0}
@@ -868,6 +901,8 @@
               </div>
             </div>
             <div class="row"><div class="k">Recording sounds<small>a short cue when recording starts and stops</small></div><button type="button" class="tg" id="cue" aria-label="Recording sounds" aria-pressed="false"></button></div>
+            <div class="row" id="desktopControlRow" hidden><div class="k">Desktop control bar <span class="state-badge">Beta</span><small>A tiny 48 × 18 capsule. Hover for dictation, meetings, rewrite, history and settings. Hidden while idle in fullscreen apps; it never starts recording on hover.</small></div><button type="button" class="tg" id="desktopControl" aria-label="Desktop control bar" aria-pressed="false"></button></div>
+            <div class="row" id="desktopControlEdgeRow" hidden><div class="k">Control bar position<small>Follows the foreground screen while idle; stays put while recording.</small></div><select id="desktopControlEdge" aria-label="Control bar position"><option value="bottom">Bottom</option><option value="left">Left</option><option value="right">Right</option></select></div>
           </div>
           <div class="lbl">Application</div>
           <div class="card">
@@ -1009,21 +1044,21 @@
           <div class="meeting-retention"><span>Nothing is uploaded. Record only with everyone’s permission.</span><label><input type="checkbox" id="meetingKeepAudio" /><span class="meeting-keep-long">Keep audio after transcription</span><span class="meeting-keep-short">Keep audio</span></label></div>
           <div class="meeting-retention meeting-auto-end"><label for="meetingAutoEnd">Auto-end after no speech</label><select class="meeting-btn" id="meetingAutoEnd"><option value="5">5 minutes + 30s warning</option><option value="10">10 minutes + 30s warning</option><option value="15">15 minutes + 30s warning</option><option value="0">Off</option></select><span>Speaking again cancels auto-end. Audio interruptions never count as silence.</span></div>
         </div>
-        <details class="card" style="margin:12px 0"><summary>Upcoming calendar meetings · optional Beta</summary>
-          <p class="fine">Google Calendar metadata goes directly between this device and Google. Recording audio and notes are not sent. Read-only, one account/calendar at a time, upcoming 7 days; all-day and declined events are omitted. A calendar event does not mean you have joined or consented to record.</p>
-          <div class="migration-tools"><button class="setbtn" id="calendarConfigure">Choose desktop OAuth JSON…</button><button class="setbtn" id="calendarConnect">Sign in with Google</button><button class="setbtn" id="calendarCancel">Cancel request</button><button class="setbtn" id="calendarDisconnect">Disconnect locally</button></div>
-          <div class="migration-tools"><label>Calendar ID <input id="calendarId" class="field" value="primary" maxlength="256"/></label><button class="setbtn" id="calendarSync">Refresh upcoming events</button><button class="setbtn" id="calendarLoad">Load saved snapshot</button></div>
-          <p id="calendarMessage" role="status" class="fine"></p><div id="calendarRows"></div>
-          <div class="migration-tools"><button class="setbtn" id="calendarPrev">Previous</button><span id="calendarPage"></span><button class="setbtn" id="calendarNext">Next</button></div>
-          <p class="fine">Select an event to suggest a title; then review sources and press Start meeting yourself. After recording, select a saved meeting below and load its association before linking it. Snapshots keep their original title/time when Google events change.</p>
-          <div class="migration-tools"><select id="calendarEvent" aria-label="Event to associate"></select><button class="setbtn" id="calendarLinked">Load selected meeting association</button><button class="setbtn" id="calendarLink">Link selected event</button><button class="setbtn" id="calendarUnlink">Remove association</button></div><p id="calendarAssociation" role="status"></p>
-          <p class="fine">Disconnect removes local authorization and upcoming-event cache; saved meeting associations remain. To revoke Google's grant too, remove VocalCode in your Google account permissions.</p>
-        </details>
         <div class="meeting-live" id="meetingLive" role="status" aria-live="polite">
           <span><b><span class="record-dot"></span><span id="meetingLiveTitle">Meeting in progress</span></b><small id="meetingLiveMeta">00:00 · recording locally</small></span>
           <button type="button" class="meeting-btn stop" id="meetingStop">Stop and create notes</button>
         </div>
         <div id="meetingAutoEndNotice" class="meeting-retention" hidden role="status"><span id="meetingAutoEndText"></span><button type="button" class="meeting-btn" id="meetingContinue">Keep recording</button></div>
+        <details class="card" style="margin:12px 0"><summary>Upcoming calendar meetings · optional Beta</summary>
+          <p class="fine">Google Calendar metadata goes directly between this device and Google. Recording audio and notes are not sent. Read-only, one account/calendar at a time, upcoming 7 days; all-day and declined events are omitted. A calendar event does not mean you have joined or consented to record.</p>
+          <div class="migration-tools"><button class="setbtn" id="calendarConfigure">Choose desktop OAuth JSON…</button><button class="setbtn" id="calendarConnect">Sign in with Google</button><button class="setbtn" id="calendarCancel">Cancel request</button><button class="setbtn" id="calendarDisconnect">Disconnect locally</button></div>
+          <div class="migration-tools"><label>Calendar ID <input id="calendarId" class="field" value="primary" maxlength="256"/></label><button class="setbtn" id="calendarSync">Refresh upcoming events</button><button class="setbtn" id="calendarLoad">Load saved snapshot</button></div>
+          <p id="calendarMessage" role="status" class="fine"></p><div id="calendarRows"></div>
+          <div class="migration-tools"><button class="setbtn" id="calendarPrev">Previous page</button><span id="calendarPage"></span><button class="setbtn" id="calendarNext">Next page</button></div>
+          <p class="fine">Select an event to suggest a title; then review sources and press Start meeting yourself. After recording, select a saved meeting below and load its association before linking it. Snapshots keep their original title/time when Google events change.</p>
+          <div class="migration-tools"><select id="calendarEvent" aria-label="Event to associate"></select><button class="setbtn" id="calendarLinked">Load selected meeting association</button><button class="setbtn" id="calendarLink">Link selected event</button><button class="setbtn" id="calendarUnlink">Remove association</button></div><p id="calendarAssociation" role="status"></p>
+          <p class="fine">Disconnect removes local authorization and upcoming-event cache; saved meeting associations remain. To revoke Google's grant too, remove VocalCode in your Google account permissions.</p>
+        </details>
         <div class="meeting-workspace">
           <div class="meeting-sidebar">
             <input type="search" class="meeting-search" id="meetingSearch" maxlength="256" placeholder="Search meetings" aria-label="Search local meetings" />
@@ -1037,13 +1072,16 @@
       <!-- HISTORY -->
       <div class="panel" data-panel="history">
         <div class="c-head"><h2 tabindex="-1">History</h2><span class="statuschip"><span class="d"></span> <span id="histCount">0</span></span></div>
-        <details class="card" style="margin-bottom:14px"><summary>Local rewrite scratchpad · optional Beta</summary>
-          <p class="fine">Paste selected text here. Uses your existing local Ollama service at 127.0.0.1:11434; no automatic installation, model download or cloud fallback. Only verified local GGUF completion models up to 8B / 8 GiB are accepted. CPU-only, 4 threads, 60-second generation timeout. Ollama is a separate trusted processor and may keep its own logs.</p>
-          <div class="migration-tools"><button class="setbtn" id="rewriteModels">Find installed local models</button><select id="rewriteModel" aria-label="Local rewrite model"></select><select id="rewriteAction" aria-label="Rewrite action"><option value="polish">Light polish</option><option value="bullets">Bullet list</option><option value="summary">Summary</option></select></div>
-          <label class="migration-label" for="rewriteSource">Source text (up to 3000 UTF-8 bytes)</label><textarea class="migration-input" id="rewriteSource" maxlength="3000" spellcheck="false"></textarea>
+        <details class="card" id="rewriteDetails" style="margin-bottom:14px"><summary>Rewrite scratchpad · optional Beta</summary>
+          <p class="fine">Paste only the text you want to review. Local Ollama is the default: 127.0.0.1:11434, verified local GGUF models up to 8B / 8 GiB, CPU-only. Optional CLI providers may send text to the cloud and use your subscription or API quota. Detection sends no source text. Nothing is installed, downloaded or connected automatically; no fallback.</p>
+          <div class="migration-tools"><button class="setbtn" id="rewriteModels">Detect installed providers</button><select id="rewriteProvider" aria-label="Rewrite provider"><option value="ollama">Ollama · local CPU</option></select><select id="rewriteModel" aria-label="Local rewrite model"></select><select id="rewriteAction" aria-label="Rewrite action"><option value="polish">Light polish</option><option value="bullets">Bullet list</option><option value="summary">Summary</option></select></div>
+          <p class="fine" id="rewriteProviderNotes" role="status">No CLI or cloud request is made until you choose it. Generation has a 60-second timeout; checking a CLI can take a few more seconds.</p>
+          <select id="rewriteCliModel" aria-label="Claude Code model" hidden><option value="configured">CLI configured model</option><option value="haiku">Haiku · lightweight</option><option value="sonnet">Sonnet</option></select>
+          <label class="migration-label" id="rewriteCloudConsentRow" hidden><input type="checkbox" id="rewriteCloudConsent"> Send this candidate's source text to Claude Code's configured service. This is not local inference and may use paid quota. The CLI is a separate trusted program; its provider and managed policies apply.</label>
+          <label class="migration-label" for="rewriteSource">Source text (up to 3000 UTF-8 bytes)</label><textarea class="migration-input" id="rewriteSource" maxlength="3000" spellcheck="false" aria-describedby="rewriteSize"></textarea><p class="fine" id="rewriteSize">0 / 3000 UTF-8 bytes</p>
           <div class="migration-tools"><button class="setbtn" id="rewritePreview">Generate a candidate</button><button class="setbtn" id="rewriteDiscard">Discard candidate</button></div>
           <label class="migration-label" for="rewriteCandidate">Review and edit the candidate</label><textarea class="migration-input" id="rewriteCandidate" spellcheck="false"></textarea>
-          <p class="fine">Check numbers, names, code and negation carefully. A local model can still change meaning. Nothing is inserted into another application. Accept changes only this scratchpad; copy when ready. Source and candidate stay in this window's memory.</p>
+          <p class="fine">Check numbers, names, code and negation carefully. Any model can change meaning. Nothing is inserted into another application. Accept changes only this scratchpad; copy when ready. VocalCode does not save scratchpad text. The selected processor may have its own logging or retention policy.</p>
           <div class="migration-tools"><button class="setbtn" id="rewriteAccept">Accept into scratchpad</button><button class="setbtn" id="rewriteUndo">Undo acceptance</button><button class="setbtn" id="rewriteCopy">Copy scratchpad</button></div><p id="rewriteMessage" class="note" role="status"></p>
         </details>
         <div class="lbl">Recent dictations, newest first</div>
@@ -1264,6 +1302,67 @@
       "Downloaded data":"已下载数据",
       "Models and settings":"模型和设置",
       "Recording indicator":"录音指示器",
+      "Desktop control bar":"桌面控制条",
+      "A tiny 48 × 18 capsule. Hover for dictation, meetings, rewrite, history and settings. Hidden while idle in fullscreen apps; it never starts recording on hover.":"空闲时仅 48 × 18 的小胶囊；悬停可打开听写、会议、改写、历史和设置。全屏应用中空闲时自动隐藏，悬停不会开始录音。",
+      "Control bar position":"控制条位置",
+      "Follows the foreground screen while idle; stays put while recording.":"空闲时跟随前台窗口所在屏幕；录音中位置保持不变。",
+      "Bottom":"底部","Left":"左侧","Right":"右侧",
+      "Upcoming calendar meetings · optional Beta":"即将开始的日历会议 · 可选测试版",
+      "Google Calendar metadata goes directly between this device and Google. Recording audio and notes are not sent. Read-only, one account/calendar at a time, upcoming 7 days; all-day and declined events are omitted. A calendar event does not mean you have joined or consented to record.":"日历元数据直接在此设备与 Google 之间传输，不发送录音或笔记。只读访问，每次一个账户／日历，查看未来 7 天；不显示全天及已拒绝的活动。日历中有会议，不代表你已经加入或同意录音。",
+      "Choose desktop OAuth JSON…":"选择桌面 OAuth 配置 JSON…",
+      "Sign in with Google":"登录 Google","Cancel request":"取消请求","Disconnect locally":"断开本地连接",
+      "Calendar ID":"日历 ID","Refresh upcoming events":"刷新近期活动","Load saved snapshot":"载入已保存快照",
+      "Select an event to suggest a title; then review sources and press Start meeting yourself. After recording, select a saved meeting below and load its association before linking it. Snapshots keep their original title/time when Google events change.":"选择活动可填入建议标题；请检查音频来源，再自行点击开始会议。录音后，在下方选择已保存的会议并载入关联，再进行绑定。即使 Google 活动改变，已有快照也保留原来的标题和时间。",
+      "Event to associate":"要关联的活动","Load selected meeting association":"载入所选会议的关联","Link selected event":"关联所选活动","Remove association":"移除关联",
+      "Disconnect removes local authorization and upcoming-event cache; saved meeting associations remain. To revoke Google's grant too, remove VocalCode in your Google account permissions.":"断开连接会删除本地授权和近期活动缓存，但保留已保存的会议关联。如需同时撤销 Google 授权，请在 Google 账户权限中移除 VocalCode。",
+      "Previous page":"上一页","Next page":"下一页",
+      "Complete Google sign-in in your browser. You can cancel here.":"请在浏览器中完成 Google 登录，也可以在此取消。",
+      "Loading calendar…":"正在载入日历…","Use title & review sources":"使用标题并检查音频来源","Open meeting":"打开会议",
+      " Manual recording remains available.":" 你仍可手动开始录音。","Calendar request cancelled.":"日历请求已取消。",
+      "Linked snapshot: ":"已关联的快照：","No event linked to this meeting.":"此会议尚未关联日历活动。","Association loaded/saved locally.":"关联已在本地载入／保存。",
+      "Authorized; ":"已授权；","Configured, not signed in; ":"已配置，尚未登录；","Not configured; ":"尚未配置；",
+      "saved snapshot from ":"已保存快照的时间：",". Refresh to check changes.":"。刷新以检查变化。","no event snapshot yet.":"还没有活动快照。",
+      "Remove local calendar authorization and cached upcoming events? Saved meeting associations remain.":"移除本地日历授权和近期活动缓存吗？已保存的会议关联会保留。",
+      "Select a saved local meeting first.":"请先选择一份已保存的本地会议。","Load the selected meeting's association first.":"请先载入所选会议的关联。",
+      "Rewrite scratchpad · optional Beta":"智能改写草稿 · 可选测试版",
+      "Detect installed providers":"检测已安装的服务",
+      "Rewrite provider":"改写服务","Local rewrite model":"本地改写模型","Rewrite action":"改写方式",
+      "Ollama · local CPU":"Ollama · 本机 CPU","Claude Code · cloud / configured provider":"Claude Code · 云端 / 已配置服务",
+      "Codex CLI · detected only":"Codex CLI · 仅检测"," · unavailable":" · 不可用",
+      "Choose a local model. Nothing downloaded.":"请选择已有的本地模型，没有下载任何模型。",
+      "No eligible installed local models found.":"没有找到符合限制的已安装本地模型。",
+      "Source changed or candidate was discarded. Generate again; your edits were preserved.":"原文已改变或候选稿已丢弃。请重新生成；你的编辑已保留。",
+      "Claude Code candidate":"Claude Code 候选稿","Local candidate":"本地候选稿",
+      " ready in ":"已生成，用时 "," s. Review meaning before accepting. ":" 秒。接受前请核对原意。",
+      "Candidate discarded. This does not recall an already-sent request; processing may continue until its timeout.":"已丢弃候选稿。这不会撤回已发送的请求；处理仍可能继续到超时。",
+      "Check changed number/unit/code: ":"请检查变化的数字、单位或代码：",
+      "Check changed negation: ":"请检查变化的否定词：",
+      "Review in scratchpad":"放入改写草稿",
+      "Open this text in the local scratchpad; no model request is sent":"放入本地草稿；不会调用模型或发送原文",
+      "Replace the current scratchpad? Its unsaved edits will be discarded.":"替换当前草稿吗？其中尚未保存的修改将被丢弃。",
+      "This entry is too long or invalid for rewriting. Copy a shorter excerpt of up to 3000 UTF-8 bytes.":"这条记录过长或含无效字符。请手动选择不超过 3000 个 UTF-8 字节的片段，不会自动截断。",
+      "Loaded into the local scratchpad only. Choose a provider and generate explicitly; nothing was sent.":"只放入了本地草稿，尚未发送。请检查原文，再主动选择服务并生成。",
+      "UTF-8 bytes":"UTF-8 字节",
+      "Source changed. Generate again to preserve your edits.":"原文已改变，请重新生成；已保留你的修改。",
+      "Accepted into scratchpad only. Undo is available until you edit it again.":"已接受到当前草稿，没有输入到其他应用。再次编辑前可以撤销。",
+      "Scratchpad changed after acceptance. Undo refused to preserve your edits.":"接受之后你又编辑了草稿，为保留新内容，这次不自动撤销。",
+      "Restored the previous scratchpad. Nothing was inserted into another app.":"已恢复之前的草稿，没有向其他应用输入内容。",
+      "Paste only the text you want to review. Local Ollama is the default: 127.0.0.1:11434, verified local GGUF models up to 8B / 8 GiB, CPU-only. Optional CLI providers may send text to the cloud and use your subscription or API quota. Detection sends no source text. Nothing is installed, downloaded or connected automatically; no fallback.":"仅粘贴你想检查的文字。默认使用本机 Ollama（127.0.0.1:11434）：经检查的本地 GGUF 模型，最多 8B 参数 / 8 GiB，仅用 CPU。可选 CLI 可能把文字发送到云端，并使用你的订阅或 API 额度。检测不会发送原文；不会自动安装、下载、连接账号或切换服务。",
+      "No CLI or cloud request is made until you choose it. Generation has a 60-second timeout; checking a CLI can take a few more seconds.":"只有主动检测或生成时才会调用所选服务。生成最多等待 60 秒，CLI 检查可能另外需要几秒。",
+      "Send this candidate's source text to Claude Code's configured service. This is not local inference and may use paid quota. The CLI is a separate trusted program; its provider and managed policies apply.":"同意本次把原文交给 Claude Code 配置的服务处理。这不是本地推理，可能使用付费额度。CLI 是另一个需要信任的程序，其服务和管理策略同样适用。",
+      "Source text (up to 3000 UTF-8 bytes)":"原文（最多 3000 个 UTF-8 字节，中文通常每字 3 字节）",
+      "Check numbers, names, code and negation carefully. Any model can change meaning. Nothing is inserted into another application. Accept changes only this scratchpad; copy when ready. VocalCode does not save scratchpad text. The selected processor may have its own logging or retention policy.":"请仔细检查数字、名字、代码和否定词，任何模型都有可能改变原意。不会向其他应用输入内容；接受只修改当前草稿，确认后可手动复制。VocalCode 不保存这份草稿，但所选服务可能有独立的日志或保留策略。",
+      "Generate a candidate":"生成候选稿","Discard candidate":"丢弃候选稿","Review and edit the candidate":"检查并编辑候选稿",
+      "Accept into scratchpad":"接受到草稿","Undo acceptance":"撤销接受","Copy scratchpad":"复制草稿",
+      "Light polish":"轻量润色","Bullet list":"整理为列表","Summary":"摘要",
+      "CLI configured model":"CLI 当前配置的模型","Haiku · lightweight":"Haiku · 轻量",
+      "Confirm cloud processing for this candidate first. A local CLI is not local inference.":"请先确认同意本次云端处理。CLI 安装在本机，不代表本地推理。",
+      "Checking installed providers… No source text is sent.":"正在检查已安装的服务，不发送原文…",
+      "Generating with Claude Code… Source remains unchanged.":"正在使用 Claude Code 生成，原文保持不变…",
+      "Generating on CPU… Source remains unchanged.":"正在本机 CPU 上生成，原文保持不变…",
+      "Paste 1–3000 UTF-8 bytes of text, without null characters.":"请粘贴 1–3000 个 UTF-8 字节的文字，不能包含空字符。",
+      "Could not send the request. Nothing was retried automatically.":"无法发送请求，没有自动重试。",
+      "No confirmation received. Reload to verify the current state. Nothing was retried automatically.":"没有收到完成确认。请重新载入检查实际状态，没有自动重试。",
       "Classic":"经典",
       "Mini":"极简",
       "what appears above your work while listening":"监听时显示在工作界面上方的内容",
@@ -1323,6 +1422,10 @@
       "Chinese pause words":"中文停顿词",
       "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.":"可选，需将口语语言选为中文：去除逗号隔开的“呃”和部分句中“嗯”。保留句首或独立的“嗯”、重复回应“嗯嗯”、“啊”及确认回复。仅用于松开后整句输入，历史记录可查看清理前文本。请在下方保存工作流设置。",
       "Reading view only: English or Chinese pause words may be removed. Saved transcripts and exports remain original.":"仅改变阅读显示：可能去除英文或中文停顿词。已保存的转写稿与导出文件仍保留原文。",
+      "Reading view hides punctuation-only fragments and may remove English or Chinese pause words. Saved transcripts and exports remain original.":"阅读版会隐藏仅含标点的片段，并可能去除中英文停顿词。已保存的转写稿与导出文件仍保留原文。",
+      "punctuation-only fragments hidden":"个纯标点片段已隐藏",
+      "non-speech or punctuation-only fragments filtered":"个非语音或纯标点片段已过滤",
+      "Review: little text in a long audio segment; not a confidence score.":"请复核：较长音频只识别出少量文字；这不是置信度评分。",
       "Remove English pause words":"去除英文停顿词",
       "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.":"可选：去除 um、uh、erm、uhm。需将口语语言选为英语；仅用于松开后整句输入，不改变流式输入及会议原稿。可在历史记录查看、复制清理前的识别文本。请在下方保存工作流设置。",
       "English pause words":"英文停顿词",
@@ -3647,6 +3750,13 @@
     if(moveFocus) focusActivePanelHeading();
   }
   document.querySelectorAll(".nav").forEach(n=>n.onclick=()=>showPanel(n.dataset.panel));
+  window.vocalcodeControlOpen=function(panel){
+    if(panel==="rewrite"){
+      showPanel("history",false);
+      document.getElementById("rewriteDetails").open=true;
+      document.getElementById("rewriteSource").focus();
+    }else if(panel==="history"||panel==="behaviour"||panel==="meetings")showPanel(panel,true);
+  };
 
   // controls
   document.getElementById("minrec").onchange=e=>{ cfg.min_record_ms=parseInt(e.target.value||"250",10); save(); };
@@ -3661,6 +3771,8 @@
   });
   bindToggle("cue","cue_sounds"); bindToggle("autostart","autostart");
   bindToggle("noiseFilter","noise_filter");
+  bindToggle("desktopControl","desktop_control",function(){renderConfigState();});
+  document.getElementById("desktopControlEdge").onchange=function(event){cfg.desktop_control_edge=event.target.value;save();};
   bindToggle("meetingReminders","smart_meeting_reminders",function(on){
     if(!on) document.getElementById("meetingReminder").classList.remove("show");
   });
@@ -3999,9 +4111,12 @@
     var min=document.getElementById("minrec"); if(min) min.value=cfg.min_record_ms;
     var correctionWindow=document.getElementById("correctionWindow");
     if(correctionWindow) correctionWindow.value=String(cfg.correction_window_ms||0);
-    [["liveCaption","live_caption"],["noiseFilter","noise_filter"],["paste","paste_insert"],["cue","cue_sounds"],["autostart","autostart"],["meetingReminders","smart_meeting_reminders"]]
+    [["liveCaption","live_caption"],["noiseFilter","noise_filter"],["desktopControl","desktop_control"],["paste","paste_insert"],["cue","cue_sounds"],["autostart","autostart"],["meetingReminders","smart_meeting_reminders"]]
       .forEach(function(pair){var el=document.getElementById(pair[0]);if(el){var on=!!cfg[pair[1]];el.classList.toggle("on",on);el.setAttribute("aria-pressed",String(on));}});
     var ignored=Array.isArray(cfg.ignored_meeting_apps)?cfg.ignored_meeting_apps:[];
+    document.getElementById("desktopControlRow").hidden=!cfg.desktop_control_available;
+    document.getElementById("desktopControlEdgeRow").hidden=!cfg.desktop_control_available||!cfg.desktop_control;
+    document.getElementById("desktopControlEdge").value=cfg.desktop_control_edge||"bottom";
     var ignoredRow=document.getElementById("ignoredMeetingAppsRow"),ignoredCount=document.getElementById("ignoredMeetingAppsCount");
     if(ignoredRow) ignoredRow.style.display=ignored.length?"":"none";
     if(ignoredCount) ignoredCount.textContent=ignored.length+" "+t("ignored");
@@ -4763,7 +4878,7 @@
     visibleSegments.slice().sort(function(a,b){return Number(a.start_ms)-Number(b.start_ms)||Number(a.id)-Number(b.id);}).forEach(function(segment){
       var row=document.createElement("div");row.className="meeting-segment";
       var time=document.createElement("time");time.textContent=meetingTime(segment.start_ms);
-      var speaker=document.createElement("b");speaker.textContent=speakers[String(segment.speaker_id)]||String(segment.speaker_id||t("Speaker"));speaker.title=t("Click to rename this speaker");speaker.onclick=function(){var label=prompt(t("Speaker name"),speaker.textContent);if(label&&label.trim())send({type:"meeting_rename_speaker",id:String(meeting.id),speaker_id:String(segment.speaker_id),label:label.trim()});};
+      var speaker=document.createElement("button");speaker.type="button";speaker.className="meeting-speaker";speaker.textContent=speakers[String(segment.speaker_id)]||String(segment.speaker_id||t("Speaker"));speaker.title=t("Click to rename this speaker");speaker.setAttribute("aria-label",t("Click to rename this speaker")+": "+speaker.textContent);speaker.onclick=function(){var label=prompt(t("Speaker name"),speaker.textContent);if(label&&label.trim())send({type:"meeting_rename_speaker",id:String(meeting.id),speaker_id:String(segment.speaker_id),label:label.trim()});};
       var shown=meetingReading&&typeof segment.reading_text==="string"?segment.reading_text:String(segment.text||"");
       var text=document.createElement("span");text.textContent=shown||(meetingReading&&segment.filler_removed?t("Only pause words removed"):"");
       if(segment.review_recommended){var review=document.createElement("small");review.className="fine";review.textContent=" · "+t("Review: little text in a long audio segment; not a confidence score.");text.appendChild(review);}
@@ -4959,6 +5074,9 @@
         restore.onclick=function(){var id="original-copy-"+Date.now()+"-"+Math.random().toString(36).slice(2);restore.dataset.copyRequest=id;send({type:"copy",id:id,text:h.recognition});};
         review.appendChild(label);review.appendChild(original);review.appendChild(restore);x.appendChild(review);
       }
+      var draft=document.createElement("button");draft.type="button";draft.className="cp review-draft";
+      draft.textContent=t("Review in scratchpad");draft.title=t("Open this text in the local scratchpad; no model request is sent");draft.disabled=!transcript;
+      draft.onclick=function(){if(transcript)reviewInScratchpad(transcript);};x.appendChild(draft);
       var c=document.createElement("button"); c.type="button"; c.className="cp"; c.textContent=t("Copy");
       c.setAttribute("aria-label",t("Copy"));c.disabled=!transcript;
       c.onclick=function(){
@@ -5003,43 +5121,78 @@
   // launch URLs found in it, or execute vendor macros.
   let calendarBusy=false,calendarRequestId=0,calendarEvents=[],calendarPage=0,calendarLinkState=null;
   const calendarEl=id=>document.getElementById(id);
-  function calendarRequest(op,extra){if(calendarBusy)return;calendarBusy=true;calendarEl("calendarMessage").textContent=op==="connect"?"Complete Google sign-in in your browser. You can cancel here.":"Loading calendar…";if(!send(Object.assign({type:"calendar",op:op,id:++calendarRequestId},extra||{})))calendarBusy=false;}
+  function calendarRequest(op,extra){if(calendarBusy)return;calendarBusy=true;calendarEl("calendarMessage").textContent=t(op==="connect"?"Complete Google sign-in in your browser. You can cancel here.":"Loading calendar…");if(!send(Object.assign({type:"calendar",op:op,id:++calendarRequestId},extra||{})))calendarBusy=false;}
   function renderCalendar(){
     const host=calendarEl("calendarRows");host.replaceChildren();
     calendarEvents.slice(calendarPage*10,calendarPage*10+10).forEach(e=>{const row=document.createElement("div");row.className="migration-row";
       const label=document.createElement("p");label.textContent=e.title+" · "+new Date(e.start_ms).toLocaleString()+" – "+new Date(e.end_ms).toLocaleTimeString();row.append(label);
-      const title=document.createElement("button");title.className="setbtn";title.textContent="Use title & review sources";title.onclick=()=>{if(meetingState.active)return;calendarEl("meetingTitle").value=e.title;calendarEl("calendarEvent").value=e.key;calendarEl("meetingTitle").focus();};row.append(title);
-      if(e.join_url){const open=document.createElement("button");open.className="setbtn";open.textContent="Open meeting";open.onclick=()=>calendarRequest("open",{key:e.key});row.append(open);}
+      const title=document.createElement("button");title.className="setbtn";title.textContent=t("Use title & review sources");title.onclick=()=>{if(meetingState.active)return;calendarEl("meetingTitle").value=e.title;calendarEl("calendarEvent").value=e.key;calendarEl("meetingTitle").focus();};row.append(title);
+      if(e.join_url){const open=document.createElement("button");open.className="setbtn";open.textContent=t("Open meeting");open.onclick=()=>calendarRequest("open",{key:e.key});row.append(open);}
       host.append(row);
     });
     calendarEl("calendarPage").textContent=calendarPage+1+" / "+Math.max(1,Math.ceil(calendarEvents.length/10));calendarEl("calendarPrev").disabled=calendarPage===0;calendarEl("calendarNext").disabled=(calendarPage+1)*10>=calendarEvents.length;
   }
   window.vocalcodeCalendarResult=function(result){
     if(result.id!==calendarRequestId)return;calendarBusy=false;
-    if(!result.ok){calendarEl("calendarMessage").textContent=result.message+" Manual recording remains available.";return;}
-    if(result.cancelled){calendarEl("calendarMessage").textContent="Cancelled.";return;}
+    if(!result.ok){calendarEl("calendarMessage").textContent=result.message+t(" Manual recording remains available.");return;}
+    if(result.cancelled){calendarEl("calendarMessage").textContent=t("Calendar request cancelled.");return;}
     const d=result.data||{};
-    if("meeting_id"in d){calendarLinkState=d;calendarEl("calendarAssociation").textContent=d.linked_event?"Linked snapshot: "+d.linked_event.title+" · "+new Date(d.linked_event.start_ms).toLocaleString():"No event linked to this meeting.";calendarEl("calendarMessage").textContent="Association loaded/saved locally.";return;}
+    if("meeting_id"in d){calendarLinkState=d;calendarEl("calendarAssociation").textContent=d.linked_event?t("Linked snapshot: ")+d.linked_event.title+" · "+new Date(d.linked_event.start_ms).toLocaleString():t("No event linked to this meeting.");calendarEl("calendarMessage").textContent=t("Association loaded/saved locally.");return;}
     calendarEvents=d.events||[];calendarPage=0;calendarEl("calendarId").value=d.calendar_id||"primary";
-    calendarEl("calendarMessage").textContent=(d.connected?"Authorized; ":d.configured?"Configured, not signed in; ":"Not configured; ")+(d.updated_ms?"saved snapshot from "+new Date(d.updated_ms).toLocaleString()+". Refresh to check changes.":"no event snapshot yet.");
+    calendarEl("calendarMessage").textContent=t(d.connected?"Authorized; ":d.configured?"Configured, not signed in; ":"Not configured; ")+(d.updated_ms?t("saved snapshot from ")+new Date(d.updated_ms).toLocaleString()+t(". Refresh to check changes."):t("no event snapshot yet."));
     const select=calendarEl("calendarEvent");select.replaceChildren();calendarEvents.forEach(e=>{const o=document.createElement("option");o.value=e.key;o.textContent=e.title+" · "+new Date(e.start_ms).toLocaleString();select.append(o);});renderCalendar();
   };
   calendarEl("calendarConfigure").onclick=()=>calendarRequest("configure");calendarEl("calendarConnect").onclick=()=>calendarRequest("connect");
   calendarEl("calendarCancel").onclick=()=>send({type:"calendar_cancel"});
-  calendarEl("calendarDisconnect").onclick=()=>{if(confirm("Remove local calendar authorization and cached upcoming events? Saved meeting associations remain."))calendarRequest("disconnect");};
+  calendarEl("calendarDisconnect").onclick=()=>{if(confirm(t("Remove local calendar authorization and cached upcoming events? Saved meeting associations remain.")))calendarRequest("disconnect");};
   calendarEl("calendarSync").onclick=()=>calendarRequest("sync",{calendar_id:calendarEl("calendarId").value.trim()});calendarEl("calendarLoad").onclick=()=>calendarRequest("load");
   calendarEl("calendarPrev").onclick=()=>{calendarPage--;renderCalendar();};calendarEl("calendarNext").onclick=()=>{calendarPage++;renderCalendar();};
   function selectedCalendarMeeting(){return meetingState.detail&&String(meetingState.detail.id);}
-  calendarEl("calendarLinked").onclick=()=>{const id=selectedCalendarMeeting();if(id)calendarRequest("linked",{meeting_id:id});else calendarEl("calendarAssociation").textContent="Select a saved local meeting first.";};
-  function changeCalendarLink(op){const id=selectedCalendarMeeting();if(!calendarLinkState||calendarLinkState.meeting_id!==id){calendarEl("calendarAssociation").textContent="Load the selected meeting's association first.";return;}calendarRequest(op,{meeting_id:id,revision:calendarLinkState.revision,key:calendarEl("calendarEvent").value});}
+  calendarEl("calendarLinked").onclick=()=>{const id=selectedCalendarMeeting();if(id)calendarRequest("linked",{meeting_id:id});else calendarEl("calendarAssociation").textContent=t("Select a saved local meeting first.");};
+  function changeCalendarLink(op){const id=selectedCalendarMeeting();if(!calendarLinkState||calendarLinkState.meeting_id!==id){calendarEl("calendarAssociation").textContent=t("Load the selected meeting's association first.");return;}calendarRequest(op,{meeting_id:id,revision:calendarLinkState.revision,key:calendarEl("calendarEvent").value});}
   calendarEl("calendarLink").onclick=()=>changeCalendarLink("link");calendarEl("calendarUnlink").onclick=()=>changeCalendarLink("unlink");
 
-  let workflowBusy=false,workflowId=0,workflowRevision="",workflowPrefs=null,diagnosticOffset=0,diagnosticTotal=0;
+  let workflowBusy=false,workflowId=0,workflowRevision="",workflowPrefs=null,diagnosticOffset=0,diagnosticTotal=0,workflowWatchdog=null;
   const workflowEl=id=>document.getElementById(id);
-  let rewriteBefore=null,rewriteAccepted=null,rewritePendingSource=null;
+  let rewriteBefore=null,rewriteAccepted=null,rewritePendingSource=null,rewriteCandidateSource=null;
+  function rewriteSize(){const source=workflowEl("rewriteSource").value;workflowEl("rewriteSize").textContent=utf8Bytes(source)+" / 3000 "+t("UTF-8 bytes");return source.trim().length>0&&utf8Bytes(source)<=3000&&!source.includes("\0");}
+  function rewriteContextChanged(){rewritePendingSource=null;rewriteCandidateSource=null;workflowEl("rewriteCandidate").value="";workflowEl("rewriteCloudConsent").checked=false;}
+  function reviewInScratchpad(text){
+    if(typeof text!=="string"||!text.trim()||utf8Bytes(text)>3000||text.includes("\0")){
+      workflowEl("rewriteDetails").open=true;showPanel("history",false);
+      workflowEl("rewriteMessage").textContent=t("This entry is too long or invalid for rewriting. Copy a shorter excerpt of up to 3000 UTF-8 bytes.");return false;
+    }
+    const source=workflowEl("rewriteSource");
+    if(source.value.trim()&&source.value!==text&&!confirm(t("Replace the current scratchpad? Its unsaved edits will be discarded.")))return false;
+    rewriteContextChanged();rewriteBefore=null;rewriteAccepted=null;
+    source.value=text;rewriteSize();workflowEl("rewriteDetails").open=true;showPanel("history",false);
+    workflowEl("rewriteMessage").textContent=t("Loaded into the local scratchpad only. Choose a provider and generate explicitly; nothing was sent.");
+    source.focus();source.scrollIntoView({block:"nearest"});return true;
+  }
+  function rewriteProviderChanged(){
+    const cloud=workflowEl("rewriteProvider").value==="claude";
+    workflowEl("rewriteCloudConsentRow").hidden=!cloud;
+    workflowEl("rewriteCloudConsent").checked=false;
+    workflowEl("rewriteModel").disabled=cloud;
+    workflowEl("rewriteCliModel").hidden=!cloud;
+    rewriteContextChanged();
+  }
+  function rewriteWarningText(warning){
+    const value=String(warning);
+    for(const prefix of ["Check changed number/unit/code: ","Check changed negation: "]){
+      if(value.startsWith(prefix))return t(prefix)+value.slice(prefix.length);
+    }
+    return t(value);
+  }
+  function workflowCommunicationFailed(id,message){if(id!==workflowId)return;workflowBusy=false;workflowId++;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;rewritePendingSource=null;for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(message);}
   function workflowRequest(op,extra){
     if(workflowBusy)return; workflowBusy=true;
-    if(!send(Object.assign({type:"workflow",op:op,id:++workflowId},extra||{})))workflowBusy=false;
+    const id=++workflowId;
+    // No automatic retry of writes or provider requests. A lost acknowledgement
+    // must not lock the page forever; a late result cannot acknowledge a new request.
+    if(op!=="export_history")workflowWatchdog=setTimeout(()=>workflowCommunicationFailed(id,"No confirmation received. Reload to verify the current state. Nothing was retried automatically."),120000);
+    try{if(send(Object.assign({type:"workflow",op:op,id},extra||{})))return;}catch(_){}
+    workflowCommunicationFailed(id,"Could not send the request. Nothing was retried automatically.");
   }
   function renderWorkflowProfiles(){
     const host=workflowEl("workflowProfiles");host.replaceChildren();
@@ -5050,12 +5203,20 @@
     });
   }
   window.vocalcodeWorkflowResult=function(result){
-    if(result.id!==workflowId)return;workflowBusy=false;
+    if(result.id!==workflowId)return;workflowBusy=false;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;
     if(!result.ok){workflowEl("workflowMessage").textContent=result.message;workflowEl("diagnosticMessage").textContent=result.message;workflowEl("rewriteMessage").textContent=result.message;return;}
     if(result.cancelled)return;
     const d=result.data||{};
-    if(Array.isArray(d.models)){const host=workflowEl("rewriteModel");host.replaceChildren();d.models.forEach(m=>{const option=document.createElement("option");option.value=m.name;option.textContent=m.name+" · "+(m.size/1073741824).toFixed(1)+" GiB";host.append(option);});workflowEl("rewriteMessage").textContent=d.models.length?"Choose a local model. Nothing downloaded.":"No eligible installed models found.";}
-    if("candidate"in d){if(rewritePendingSource===null||d.source!==rewritePendingSource||workflowEl("rewriteSource").value!==d.source){workflowEl("rewriteMessage").textContent="Source changed or candidate was discarded. Generate again; your edits were preserved.";}else{workflowEl("rewriteCandidate").value=d.candidate;workflowEl("rewriteMessage").textContent="Candidate ready in "+(d.elapsed_ms/1000).toFixed(1)+" s. Review meaning before accepting. "+(d.warnings||[]).join(" · ");}rewritePendingSource=null;}
+    if(Array.isArray(d.models)){const host=workflowEl("rewriteModel");host.replaceChildren();d.models.forEach(m=>{const option=document.createElement("option");option.value=m.name;option.textContent=m.name+" · "+(m.size/1073741824).toFixed(1)+" GiB";host.append(option);});workflowEl("rewriteMessage").textContent=t(d.models.length?"Choose a local model. Nothing downloaded.":"No eligible installed local models found.");}
+    if(Array.isArray(d.providers)){
+      const host=workflowEl("rewriteProvider"),previous=host.value||"ollama";host.replaceChildren();
+      const labels={ollama:t("Ollama · local CPU"),claude:t("Claude Code · cloud / configured provider"),codex:t("Codex CLI · detected only")};
+      d.providers.forEach(p=>{const option=document.createElement("option");option.value=p.id;option.textContent=(labels[p.id]||p.id)+(p.available?"":t(" · unavailable"));option.disabled=p.id!=="ollama"&&!p.available;host.append(option);});
+      host.value=d.providers.some(p=>p.id===previous&&(p.available||p.id==="ollama"))?previous:"ollama";
+      workflowEl("rewriteProviderNotes").textContent=d.providers.map(p=>(labels[p.id]||p.id)+(p.version?" · "+p.version:"")+": "+p.message).join("\n");
+      rewriteProviderChanged();
+    }
+    if("candidate"in d){if(rewritePendingSource===null||d.source!==rewritePendingSource||workflowEl("rewriteSource").value!==d.source){workflowEl("rewriteMessage").textContent=t("Source changed or candidate was discarded. Generate again; your edits were preserved.");}else{workflowEl("rewriteCandidate").value=d.candidate;rewriteCandidateSource=d.source;workflowEl("rewriteMessage").textContent=t(d.provider==="claude"?"Claude Code candidate":"Local candidate")+t(" ready in ")+(d.elapsed_ms/1000).toFixed(1)+t(" s. Review meaning before accepting. ")+(d.warnings||[]).map(rewriteWarningText).join(" · ");}rewritePendingSource=null;}
     if(d.preferences){
       workflowPrefs=d.preferences;workflowRevision=d.revision;
       workflowEl("workflowCleanup").value=workflowPrefs.cleanup;
@@ -5094,11 +5255,22 @@
   workflowEl("diagnosticPrev").onclick=()=>workflowRequest("history",{offset:Math.max(0,diagnosticOffset-20)});
   workflowEl("diagnosticNext").onclick=()=>{if(diagnosticOffset+20<diagnosticTotal)workflowRequest("history",{offset:diagnosticOffset+20});};
   workflowEl("diagnosticExport").onclick=()=>workflowRequest("export_history");
-  workflowEl("rewriteModels").onclick=()=>workflowRequest("rewrite_models");
-  workflowEl("rewritePreview").onclick=()=>{if(workflowBusy)return;rewritePendingSource=workflowEl("rewriteSource").value;workflowEl("rewriteMessage").textContent="Generating on CPU… Source remains unchanged.";workflowRequest("rewrite_preview",{action:workflowEl("rewriteAction").value,model:workflowEl("rewriteModel").value,text:rewritePendingSource});};
-  workflowEl("rewriteDiscard").onclick=()=>{rewritePendingSource=null;workflowEl("rewriteCandidate").value="";workflowEl("rewriteMessage").textContent="Candidate discarded. An in-flight CPU request can take up to 60 seconds to finish.";};
-  workflowEl("rewriteAccept").onclick=()=>{if(workflowBusy||!workflowEl("rewriteCandidate").value)return;rewriteBefore=workflowEl("rewriteSource").value;rewriteAccepted=workflowEl("rewriteCandidate").value;workflowEl("rewriteSource").value=rewriteAccepted;workflowEl("rewriteMessage").textContent="Accepted into scratchpad only. Undo is available until you edit it again.";};
-  workflowEl("rewriteUndo").onclick=()=>{if(rewriteBefore===null)return;if(workflowEl("rewriteSource").value!==rewriteAccepted){workflowEl("rewriteMessage").textContent="Scratchpad changed after acceptance. Undo refused to preserve your edits.";return;}workflowEl("rewriteSource").value=rewriteBefore;rewriteBefore=null;rewriteAccepted=null;};
+  workflowEl("rewriteProvider").onchange=rewriteProviderChanged;
+  for(const id of ["rewriteAction","rewriteModel","rewriteCliModel"])workflowEl(id).onchange=rewriteContextChanged;
+  workflowEl("rewriteModels").onclick=()=>{if(workflowBusy)return;workflowEl("rewriteMessage").textContent=t("Checking installed providers… No source text is sent.");workflowRequest("rewrite_providers");};
+  workflowEl("rewritePreview").onclick=()=>{
+    if(workflowBusy)return;const provider=workflowEl("rewriteProvider").value||"ollama",consent=workflowEl("rewriteCloudConsent").checked===true;
+    if(!rewriteSize()){workflowEl("rewriteMessage").textContent=t("Paste 1–3000 UTF-8 bytes of text, without null characters.");return;}
+    if(provider==="claude"&&!consent){workflowEl("rewriteMessage").textContent=t("Confirm cloud processing for this candidate first. A local CLI is not local inference.");return;}
+    rewritePendingSource=workflowEl("rewriteSource").value;rewriteCandidateSource=null;workflowEl("rewriteCandidate").value="";
+    workflowEl("rewriteMessage").textContent=t(provider==="claude"?"Generating with Claude Code… Source remains unchanged.":"Generating on CPU… Source remains unchanged.");
+    workflowRequest("rewrite_preview",{provider,cli_model:workflowEl("rewriteCliModel").value||"configured",cloud_consent:provider==="claude"&&consent,action:workflowEl("rewriteAction").value,model:workflowEl("rewriteModel").value,text:rewritePendingSource});
+    workflowEl("rewriteCloudConsent").checked=false;
+  };
+  workflowEl("rewriteDiscard").onclick=()=>{rewritePendingSource=null;rewriteCandidateSource=null;workflowEl("rewriteCandidate").value="";workflowEl("rewriteMessage").textContent=t("Candidate discarded. This does not recall an already-sent request; processing may continue until its timeout.");};
+  workflowEl("rewriteSource").oninput=()=>{rewriteContextChanged();rewriteSize();};
+  workflowEl("rewriteAccept").onclick=()=>{if(workflowBusy||!workflowEl("rewriteCandidate").value)return;if(rewriteCandidateSource===null||workflowEl("rewriteSource").value!==rewriteCandidateSource){workflowEl("rewriteMessage").textContent=t("Source changed. Generate again to preserve your edits.");return;}rewriteBefore=workflowEl("rewriteSource").value;rewriteAccepted=workflowEl("rewriteCandidate").value;workflowEl("rewriteSource").value=rewriteAccepted;rewriteContextChanged();rewriteSize();workflowEl("rewriteMessage").textContent=t("Accepted into scratchpad only. Undo is available until you edit it again.");};
+  workflowEl("rewriteUndo").onclick=()=>{if(rewriteBefore===null)return;if(workflowEl("rewriteSource").value!==rewriteAccepted){workflowEl("rewriteMessage").textContent=t("Scratchpad changed after acceptance. Undo refused to preserve your edits.");return;}workflowEl("rewriteSource").value=rewriteBefore;rewriteBefore=null;rewriteAccepted=null;rewriteContextChanged();rewriteSize();workflowEl("rewriteMessage").textContent=t("Restored the previous scratchpad. Nothing was inserted into another app.");};
   workflowEl("rewriteCopy").onclick=()=>send({type:"copy",id:"rewrite-"+Date.now(),text:workflowEl("rewriteSource").value});
 
   let migrationBusy=false, migrationId=0, migrationToken=null, migrationUndoToken=null;

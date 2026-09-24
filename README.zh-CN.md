@@ -35,6 +35,11 @@
 
 社区构建开放全部本地功能，无需账户、付费或激活码。录音仍须你确认并取得参与者许可。
 
+当前**开发工作区**还加入了默认关闭的 Windows 桌面控制条，以及手动智能改写草稿。
+控制条复用现有听写引擎；改写默认使用已安装的本地 Ollama，Claude CLI 为逐次同意的可选项。
+这些改动本轮尚未发布，也没有覆盖现有安装。参阅 [开发验证记录](docs/product-polish-2026-09-23/RESULTS.zh-CN.md)
+和 [智能改写边界](docs/SMART-REWRITE.md)。
+
 ## 安装或自行构建
 
 打开 [Releases](https://github.com/wudaming00/vocalcode-community/releases)，选择稳定的 `v*` 版本。
@@ -60,6 +65,11 @@ cargo build -p vocalcode-app --release --locked --features community
 模型下载需要网络；用户明确配置的外部日历等集成也可能访问网络。社区版不请求激活、试用验证
 或付款，只检查 GitHub Releases 的社区版更新；安装前校验大小、SHA-256、签名发布者及版本身份，
 不会更新回付费版。旧付费版也不会自动切换到社区版。
+
+开发中的[智能改写草稿](docs/SMART-REWRITE.md)默认使用本地 Ollama；可选 Claude Code CLI
+必须逐次确认，才会把你明确放入草稿的原文交给该 CLI，可能联网并消耗额度。
+该 CLI 自身的服务、账户策略和日志行为仍是独立的信任边界。
+“CLI 安装在本机”不等于“模型在本机推理”。Codex 暂时只检测安装情况，不执行改写。
 
 多人同时说话和扬声器回声仍可能影响会议准确率。渐进输入是实验功能，语言模型支持列表也不等于
 每一种语言都经过完整的母语者测试。GitHub Actions 的 Windows/macOS 构建不能替代干净环境、
