@@ -327,9 +327,21 @@ impl SherpaQwen3Asr {
     }
 }
 
+/// Qwen3-ASR answers "language English<asr_text>…". sherpa-onnx removes that
+/// header only when it opens the output; when the model first emits a stray
+/// token, the header reached the user ("提纲\nlanguage English<asr_text>Is the
+/// cache warm?", voice corpus 2026-09-24). Keep what follows the last marker.
+fn strip_qwen3_header(text: String) -> String {
+    const MARKER: &str = "<asr_text>";
+    match text.rfind(MARKER) {
+        Some(at) => text[at + MARKER.len()..].trim_start().to_string(),
+        None => text,
+    }
+}
+
 impl Asr for SherpaQwen3Asr {
     fn transcribe(&mut self, samples: &[f32], sample_rate: u32) -> Result<String> {
-        decode(&self.recognizer, samples, sample_rate)
+        decode(&self.recognizer, samples, sample_rate).map(strip_qwen3_header)
     }
 
     fn model_label(&self) -> &str {
@@ -340,6 +352,17 @@ impl Asr for SherpaQwen3Asr {
 #[cfg(test)]
 mod short_input_tests {
     use super::*;
+
+    #[test]
+    fn qwen3_header_after_a_stray_token_is_removed() {
+        assert_eq!(
+            strip_qwen3_header(
+                "提纲\nlanguage English<asr_text>Is the cache warm? Question mark".into()
+            ),
+            "Is the cache warm? Question mark"
+        );
+        assert_eq!(strip_qwen3_header("Plain text".into()), "Plain text");
+    }
 
     #[test]
     fn no_signal_guard_rejects_silence_dc_and_invalid_samples() {

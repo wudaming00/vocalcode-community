@@ -39,7 +39,40 @@
 use crate::utils::to_c_ptr;
 use serde::Deserialize;
 use sherpa_onnx_sys as sys;
+use std::borrow::Cow;
 use std::ffi::{CStr, CString};
+
+/// VocalCode patch: the native JSON writer quotes strings with `std::quoted`,
+/// which escapes `"` and `\` but copies control characters verbatim. A model
+/// that emits a line break (Qwen3-ASR does, voice corpus 2026-09-24) made the
+/// JSON invalid and `get_result` returned `None`, losing the whole dictation.
+/// Escape raw control characters inside string literals before parsing.
+fn escape_controls_in_strings(json: &str) -> Cow<'_, str> {
+    if !json.contains(|c: char| c.is_ascii_control()) {
+        return Cow::Borrowed(json);
+    }
+    let mut out = String::with_capacity(json.len() + 16);
+    let (mut in_string, mut escaped) = (false, false);
+    for c in json.chars() {
+        if in_string && !escaped && c.is_ascii_control() {
+            out.push_str(&format!("\\u{:04x}", c as u32));
+            continue;
+        }
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+        }
+        out.push(c);
+    }
+    Cow::Owned(out)
+}
 
 #[derive(Clone, Debug, Default)]
 /// Offline transducer model configuration.
@@ -694,7 +727,7 @@ impl OfflineStream {
             }
             let s = CStr::from_ptr(cstr).to_string_lossy().into_owned();
             sys::SherpaOnnxDestroyOfflineStreamResultJson(cstr);
-            serde_json::from_str(&s).ok()
+            serde_json::from_str(&escape_controls_in_strings(&s)).ok()
         }
     }
 
