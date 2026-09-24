@@ -40,7 +40,9 @@ TRIGGERS = {
     "code": [["camel case", "camelcase", "caml case"], ["snake case", "snakecase"], ["open paren", "openparen"],
              ["close paren", "closeparen"], ["question mark"]],
     "lists": [["first", "number one"], ["second", "number two"], ["third", "number three"], ["第一"], ["第二"], ["第三"]],
-    "snippet": [["snippet"], ["插入词块"]],
+    # The snippet's name is part of the command: "Snippet Sign." is a miss by
+    # the recogniser, not by the expansion.
+    "snippet": [["snippet"], ["插入词块"], ["signature"], ["签名"]],
     "fillers": [["um", "uh"], ["呃"]],
 }
 

@@ -320,13 +320,22 @@ const ZH_BACKTRACK: &[&str] = &["删掉上一句", "删除上一句", "上一句
 
 /// SenseVoice routinely renders a spoken "scratch" as a vowel-less stub —
 /// "Sctch", "Scch", "Sct", "Sc" (voice-corpus replay, 2026-09-24). No English
-/// word is "sc" plus consonants only, so the stub is safe to accept.
+/// word is "sc" plus consonants only, so the stub is safe to accept. So is
+/// "scratch" missing one letter ("Scrach"), which is not a word either.
 fn is_garbled_scratch(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
-    lower.len() <= 6
+    let stub = lower.len() <= 6
         && lower.starts_with("sc")
         && lower.chars().all(|c| c.is_ascii_alphabetic())
-        && !lower[2..].contains(['a', 'e', 'i', 'o', 'u', 'y'])
+        && !lower[2..].contains(['a', 'e', 'i', 'o', 'u', 'y']);
+    let dropped_letter = lower.len() == 6
+        && lower.starts_with('s')
+        && (0.."scratch".len()).any(|i| {
+            let mut full = String::from("scratch");
+            full.remove(i);
+            full == lower
+        });
+    stub || dropped_letter
 }
 
 /// Find the first retraction command that stands as its own clause.
@@ -2173,6 +2182,10 @@ mod tests {
         );
         assert_eq!(
             en("The budget is $500 Scch thought the budget is $800.", all),
+            "The budget is $800."
+        );
+        assert_eq!(
+            en("The budget is $500 Scrach that the budget is $800.", all),
             "The budget is $800."
         );
         assert_eq!(
