@@ -261,6 +261,9 @@ pub(crate) fn hook_diagnostic(event: HookDiagnostic) {
 #[derive(Default)]
 pub struct CaptureShared {
     inner: Mutex<Inner>,
+    /// The running hook's state, for talk edges only the page can see. See
+    /// [`CaptureShared::talk_from_page`].
+    page_input: Mutex<Option<PageInput>>,
 }
 
 struct Inner {
@@ -733,6 +736,119 @@ struct HookState {
     /// a release may only answer the prompt that saw the press, never a
     /// newer one armed while the modifier was still held.
     pending_modifier: Option<(TriggerId, String, u64)>,
+    /// Talk holds that the settings page delivered because the hook never saw
+    /// the press. Each is also in `active`, so whichever path sees the release
+    /// ends it exactly once.
+    page_down: HashSet<TriggerId>,
+}
+
+/// What the page needs to hand a talk edge to the same engine queue, through
+/// the same bookkeeping, as the hook. Only the Windows backend attaches one.
+#[cfg_attr(not(windows), allow(dead_code))]
+struct PageInput {
+    hook: Arc<Mutex<HookState>>,
+    triggers: SharedTriggers,
+    ready: Arc<AtomicBool>,
+    tx: TriggerEventSender,
+}
+
+impl CaptureShared {
+    fn lock_page_input(&self) -> std::sync::MutexGuard<'_, Option<PageInput>> {
+        self.page_input
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn attach_page_input(&self, input: PageInput) {
+        *self.lock_page_input() = Some(input);
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    fn detach_page_input(&self) {
+        *self.lock_page_input() = None;
+    }
+
+    /// Deliver a talk-key edge that the settings page read from its own
+    /// `keydown`/`keyup`, when the hook did not see it.
+    ///
+    /// The hole is the one [`CaptureShared::answer_from_page`] closes for
+    /// binding: while a Chromium-backed window of ours is in the foreground,
+    /// Windows does not call `WH_KEYBOARD_LL` at all, so holding a keyboard
+    /// talk key in any field of this window did nothing. First run's "Try it"
+    /// box is such a field.
+    ///
+    /// The hook decides first whenever it is being called — it runs before the
+    /// key reaches the window — so a press it recorded in `physical_down` is its
+    /// own, and the page's copy is dropped here instead of reaching the engine
+    /// twice (a second press is a stop in toggle mode). A release is delivered
+    /// only for a hold this path started; the hook's release path ends such a
+    /// hold too when focus has moved on, and whichever comes first wins.
+    ///
+    /// Returns whether an event was sent to the engine.
+    pub fn talk_from_page(&self, web_code: &str, pressed: bool) -> bool {
+        let Some(&(key, _)) = BINDABLE_KEYS.iter().find(|(_, name)| *name == web_code) else {
+            return false;
+        };
+        // The hook's own mapping, so the identity matches whatever the hook
+        // would have recorded for this key.
+        let input = input_from_key(key);
+        let id = input_id(input);
+        if pressed && self.is_capturing() {
+            return false;
+        }
+        let page = self.lock_page_input();
+        let Some(page) = page.as_ref() else {
+            return false;
+        };
+        let Ok(mut hook) = page.hook.lock() else {
+            return false;
+        };
+        if !pressed {
+            if !hook.page_down.remove(&id) {
+                return false;
+            }
+            // The key is up. A repeat the hook caught while focus was briefly
+            // elsewhere must not leave it looking held, or every later page
+            // press would be mistaken for one the hook already delivered.
+            hook.physical_down.remove(&id);
+            if hook.active.remove(&id).is_none() {
+                return false;
+            }
+            if page.tx.try_send(TriggerEvent::TalkReleased(id)).is_err() {
+                page.ready.store(false, Ordering::Release);
+                return false;
+            }
+            return true;
+        }
+        if hook.physical_down.contains(&id)
+            || hook.active.contains_key(&id)
+            || !page.ready.load(Ordering::Acquire)
+        {
+            return false;
+        }
+        let talk = {
+            let Ok(g) = page.triggers.lock() else {
+                return false;
+            };
+            matching_action(input, &g.0, &g.1, &g.2) == Some(Action::Talk)
+        };
+        if !talk {
+            return false;
+        }
+        match page.tx.try_send(TriggerEvent::TalkPressed(id)) {
+            Ok(()) => {
+                hook.active.insert(id, (Action::Talk, false));
+                hook.page_down.insert(id);
+                true
+            }
+            Err(TrySendError::Full(_)) => false,
+            Err(TrySendError::Disconnected(_)) => {
+                page.ready.store(false, Ordering::Release);
+                false
+            }
+        }
+    }
 }
 
 impl NativeDispatcher {
@@ -928,8 +1044,18 @@ fn run_backend(
         tx.clone(),
         native_stop.clone(),
     );
-    let hook_state = Mutex::new(HookState::default());
+    let hook_state = Arc::new(Mutex::new(HookState::default()));
     let hook_ready = ready.clone();
+    // Windows only: this is where a foreground window of ours is measured to
+    // silence WH_KEYBOARD_LL. The page's copy of a talk edge shares this
+    // attempt's bookkeeping and is dropped with it.
+    let page_capture = capture.clone();
+    page_capture.attach_page_input(PageInput {
+        hook: hook_state.clone(),
+        triggers: triggers.clone(),
+        ready: ready.clone(),
+        tx: tx.clone(),
+    });
     let hook_result = crate::hook_windows::run(
         move |event_type, injected| {
             dispatch_grabbed(
@@ -946,6 +1072,7 @@ fn run_backend(
         ready,
         shutdown,
     );
+    page_capture.detach_page_input();
     native_stop.store(true, Ordering::Release);
     for worker in native_workers {
         if worker.join().is_err() {
@@ -1278,6 +1405,9 @@ fn dispatch_grabbed(
                     return false;
                 }
                 hook.active.remove(&id);
+                // A hold the page started ends here when focus has left this
+                // window; its later keyup must then find nothing to release.
+                hook.page_down.remove(&id);
                 if action != Action::Talk || tx.try_send(TriggerEvent::TalkReleased(id)).is_ok() {
                     // Send/teach have no release event, but both halves are
                     // swallowed because their press was swallowed.
@@ -2824,6 +2954,223 @@ mod tests {
             capture.take_result(),
             Some(("talk".into(), "key:F12".into()))
         );
+    }
+
+    /// A hook harness whose state is shared with the page's talk path, the
+    /// way the Windows backend wires it.
+    fn page_harness(
+        talk: Vec<Trigger>,
+    ) -> (
+        Arc<Mutex<HookState>>,
+        CaptureShared,
+        SharedTriggers,
+        Arc<AtomicBool>,
+        TriggerEventSender,
+        TriggerEventReceiver,
+    ) {
+        let (tx, rx) = trigger_event_channel();
+        let hook = Arc::new(Mutex::new(HookState::default()));
+        let triggers: SharedTriggers = Arc::new(Mutex::new((talk, Vec::new(), Vec::new())));
+        let ready = Arc::new(AtomicBool::new(true));
+        let capture = CaptureShared::default();
+        capture.attach_page_input(PageInput {
+            hook: hook.clone(),
+            triggers: triggers.clone(),
+            ready: ready.clone(),
+            tx: tx.clone(),
+        });
+        (hook, capture, triggers, ready, tx, rx)
+    }
+
+    /// With our window in front, Windows never calls the keyboard hook. The
+    /// page's edge must reach the engine with the identity the hook would have
+    /// used, exactly once per press and once per release.
+    #[test]
+    fn a_talk_key_the_hook_never_saw_is_delivered_from_the_page() {
+        let (_hook, capture, _triggers, _ready, _tx, rx) =
+            page_harness(vec![Trigger::Key("ControlRight".into())]);
+        let id = input_id(RdevInput::Key(RdevKey::ControlRight));
+
+        assert!(capture.talk_from_page("ControlRight", true));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(p)) if p == id));
+        // A second keydown for a held key (a lost keyup, a duplicate) is not a
+        // second press — in toggle mode that would stop the recording.
+        assert!(!capture.talk_from_page("ControlRight", true));
+        assert!(rx.try_recv().is_err());
+
+        assert!(capture.talk_from_page("ControlRight", false));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(r)) if r == id));
+        assert!(!capture.talk_from_page("ControlRight", false));
+        assert!(rx.try_recv().is_err());
+
+        // And the next hold works again.
+        assert!(capture.talk_from_page("ControlRight", true));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+    }
+
+    /// A hold started on one path may be ended on the other, so both must
+    /// name the key identically — for every key that can be bound, not just
+    /// the default.
+    #[test]
+    fn the_page_and_the_hook_name_every_bindable_key_alike() {
+        for &(key, name) in BINDABLE_KEYS {
+            let (hook, capture, triggers, ready, tx, rx) =
+                page_harness(vec![Trigger::Key(name.into())]);
+            for event in [EventType::KeyPress(key), EventType::KeyRelease(key)] {
+                assert!(
+                    dispatch_grabbed(&event, &hook, &capture, &triggers, &ready, &tx, false),
+                    "{name}"
+                );
+            }
+            let Ok(TriggerEvent::TalkPressed(from_hook)) = rx.try_recv() else {
+                panic!("{name}: the hook did not talk");
+            };
+            assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(_))));
+            assert!(capture.talk_from_page(name, true), "{name}");
+            let Ok(TriggerEvent::TalkPressed(from_page)) = rx.try_recv() else {
+                panic!("{name}: the page did not talk");
+            };
+            assert_eq!(from_page, from_hook, "{name}");
+        }
+    }
+
+    /// When the hook is being called it sees the key before the window does.
+    /// The page's copy of that edge must never reach the engine a second time.
+    #[test]
+    fn the_page_never_repeats_an_edge_the_hook_already_saw() {
+        let (hook, capture, triggers, ready, tx, rx) =
+            page_harness(vec![Trigger::Key("ControlRight".into())]);
+
+        assert!(dispatch_grabbed(
+            &EventType::KeyPress(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+        assert!(!capture.talk_from_page("ControlRight", true));
+        assert!(rx.try_recv().is_err(), "the page doubled the hook's press");
+
+        assert!(dispatch_grabbed(
+            &EventType::KeyRelease(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(_))));
+        assert!(!capture.talk_from_page("ControlRight", false));
+        assert!(
+            rx.try_recv().is_err(),
+            "the page doubled the hook's release"
+        );
+
+        // While the model loads, the hook lets the key through untouched; the
+        // page sees it too and must stay quiet about it.
+        ready.store(false, Ordering::Release);
+        assert!(!dispatch_grabbed(
+            &EventType::KeyPress(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        ready.store(true, Ordering::Release);
+        assert!(!capture.talk_from_page("ControlRight", true));
+        assert!(rx.try_recv().is_err());
+    }
+
+    /// Focus can leave the window mid-hold, and then only the hook sees the
+    /// release. The hold ends once, and the page's late keyup finds nothing.
+    #[test]
+    fn a_page_hold_ends_once_when_the_hook_sees_the_release() {
+        let (hook, capture, triggers, ready, tx, rx) =
+            page_harness(vec![Trigger::Key("ControlRight".into())]);
+
+        assert!(capture.talk_from_page("ControlRight", true));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+        // Auto-repeat reaching the hook once another window is in front is
+        // swallowed like any repeat of an active control.
+        assert!(dispatch_grabbed(
+            &EventType::KeyPress(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        assert!(rx.try_recv().is_err());
+        assert!(dispatch_grabbed(
+            &EventType::KeyRelease(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(_))));
+        assert!(!capture.talk_from_page("ControlRight", false));
+        assert!(rx.try_recv().is_err());
+    }
+
+    /// Focus came back before the release: the hook caught a repeat but not the
+    /// keyup. The page's keyup still ends the hold and leaves nothing stale.
+    #[test]
+    fn a_page_release_clears_a_repeat_the_hook_caught_meanwhile() {
+        let (hook, capture, triggers, ready, tx, rx) =
+            page_harness(vec![Trigger::Key("ControlRight".into())]);
+
+        assert!(capture.talk_from_page("ControlRight", true));
+        assert!(dispatch_grabbed(
+            &EventType::KeyPress(RdevKey::ControlRight),
+            &hook,
+            &capture,
+            &triggers,
+            &ready,
+            &tx,
+            false
+        ));
+        assert!(capture.talk_from_page("ControlRight", false));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(_))));
+        assert!(
+            capture.talk_from_page("ControlRight", true),
+            "a stale hold made every later page press look like the hook's"
+        );
+    }
+
+    #[test]
+    fn the_page_cannot_talk_with_unbound_keys_during_capture_or_before_ready() {
+        let (_hook, capture, _triggers, ready, _tx, rx) =
+            page_harness(vec![Trigger::Key("ControlRight".into())]);
+
+        for code in ["ControlLeft", "F8", "KeyA", "Enter", "", "Escape"] {
+            assert!(!capture.talk_from_page(code, true), "{code}");
+        }
+        ready.store(false, Ordering::Release);
+        assert!(!capture.talk_from_page("ControlRight", true));
+        ready.store(true, Ordering::Release);
+        // The binding prompt owns every key while it is open.
+        capture.start("talk");
+        assert!(!capture.talk_from_page("ControlRight", true));
+        assert!(capture.cancel());
+        // A release with no page-started hold does nothing either.
+        assert!(!capture.talk_from_page("ControlRight", false));
+        assert!(rx.try_recv().is_err());
+
+        // Without a running hook there is no bookkeeping to share.
+        capture.detach_page_input();
+        assert!(!capture.talk_from_page("ControlRight", true));
+        assert!(rx.try_recv().is_err());
     }
 
     /// The app's own paste chord releases Ctrl while the person is physically

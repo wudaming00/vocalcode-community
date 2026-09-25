@@ -11,6 +11,7 @@
 
 <p align="center">
   <a href="#what-you-can-do">Features</a> ·
+  <a href="#getting-started">Getting started</a> ·
   <a href="BUILDING.md">Build from source</a> ·
   <a href="#privacy-and-network-access">Privacy</a> ·
   <a href="MAINTAINERS.md">Maintainer & contact</a> ·
@@ -88,6 +89,28 @@ The community edition has its own installation, data directory, instance identit
 autostart entry, and update channel. It does not migrate or remove legacy data.
 Close the other edition before use to avoid competing global input hooks.
 Dictionary/snippet import is explicit; back up data before any manual migration.
+
+## Getting started
+
+First run takes three short steps:
+
+1. **Pick the language you speak most.** Only that language's on-device model
+   is downloaded, and the download starts right away.
+2. **Check your talk key.** VocalCode records only while a talk key is held.
+   These are bound out of the box:
+
+   | Platform | Default talk keys |
+   | --- | --- |
+   | Windows | Mouse forward button (X2), Right Ctrl |
+   | macOS | Mouse forward button (X2), F13, Right Option |
+
+   Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key
+   in this step or later under **Shortcuts**.
+3. **Try it.** Once the model is ready, hold the key, say a sentence, and let
+   go: the text appears in the box. Skip the step if the download is still
+   running.
+
+After that, the text goes into whichever text field has focus.
 
 ## Privacy and network access
 

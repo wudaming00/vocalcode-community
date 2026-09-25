@@ -728,9 +728,10 @@ where
 #[cfg(not(target_os = "macos"))]
 fn default_talk() -> Vec<Trigger> {
     // Right Alt is AltGr on European layouts and cannot be consumed globally.
-    // Right Ctrl keeps every laptop usable while leaving the left Ctrl for
-    // ordinary shortcuts; first-run onboarding asks the user to confirm or
-    // replace it before normal use.
+    // Right Ctrl leaves the left Ctrl for ordinary shortcuts, but plenty of
+    // laptops have no Right Ctrl at all: first run's key step shows these,
+    // warns while Right Ctrl is the only keyboard key, and lets the user add
+    // another through the same capture as Shortcuts before trying it.
     vec![
         Trigger::MouseButton(MouseExtra::X2),
         Trigger::Key("ControlRight".to_string()),
