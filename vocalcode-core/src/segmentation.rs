@@ -644,4 +644,18 @@ mod tests {
         assert_eq!(join_separator("不要。", "继续"), "");
         assert_eq!(join_separator("待って。", "次です"), "");
     }
+
+    /// The phrase-relative cap is what stops a floor learned from speech (no
+    /// pause since the key went down) from turning speech within 22 dB of its
+    /// peak into a pause. Dropping it for the plain
+    /// `floor.max(min(peak * 0.08, 0.003))` passes every other test here.
+    #[test]
+    fn a_floor_learned_from_speech_never_turns_quieter_speech_into_a_pause() {
+        let mut floor = NoiseFloor::default();
+        floor.observe(&[0.02; 100]);
+        let mut scan = vowel(16_000, 600, 0.3);
+        scan.extend(vowel(16_000, 300, 0.035));
+        scan.extend(vowel(16_000, 600, 0.3));
+        assert_eq!(pause_boundary(&scan, 16_000, 300, &mut floor), None);
+    }
 }

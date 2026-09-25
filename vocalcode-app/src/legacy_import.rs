@@ -627,9 +627,9 @@ fn import(
                     .as_ref()
                     .is_some_and(|summary| summary["copied"].as_u64().unwrap_or(0) > 0)
                 {
-                    let _ = status
-                        .meetings
-                        .refresh("Meetings from the previous VocalCode were added.".into());
+                    // No notice of its own: the Settings summary reports the
+                    // meetings in the reader's language.
+                    let _ = status.meetings.refresh(String::new());
                 }
                 result["meetings"] = json!(summary);
             }
