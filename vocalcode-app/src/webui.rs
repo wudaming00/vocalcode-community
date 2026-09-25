@@ -295,6 +295,55 @@ impl HistoryEntry {
     }
 }
 
+/// A failed model preparation, as the page shows it.
+///
+/// Before this existed the page had only the spinner: every status tick
+/// removed the banner's error style, so a download that had failed for good
+/// still read "Preparing…" with no retry time and no way to act on it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ModelFailure {
+    pub message: String,
+    /// Unix milliseconds of the next automatic attempt. The page counts down
+    /// on its own clock; a relative delay would go stale between ticks.
+    pub retry_at_ms: Option<u64>,
+    /// (bytes on disk, total bytes) for the route when it failed, so the
+    /// banner can say how much a retry will not fetch again.
+    pub downloaded: Option<(u64, u64)>,
+    /// A smaller selectable model for the same language: (id, bytes).
+    pub smaller_model: Option<(&'static str, u64)>,
+}
+
+/// The status payload's model-failure keys. Always present, null when the
+/// model is fine, so the page can tell "recovered" from "field missing".
+fn model_failure_fields(failure: Option<&ModelFailure>) -> serde_json::Map<String, Value> {
+    let mb = |bytes: u64| bytes as f64 / 1_000_000.0;
+    let downloaded = failure.and_then(|failure| failure.downloaded);
+    let mut fields = serde_json::Map::new();
+    fields.insert(
+        "model_error".into(),
+        serde_json::json!(failure.map(|failure| failure.message.clone())),
+    );
+    fields.insert(
+        "retry_at_ms".into(),
+        serde_json::json!(failure.and_then(|failure| failure.retry_at_ms)),
+    );
+    fields.insert(
+        "model_downloaded_mb".into(),
+        serde_json::json!(downloaded.map(|(done, _)| mb(done))),
+    );
+    fields.insert(
+        "model_total_mb".into(),
+        serde_json::json!(downloaded.map(|(_, total)| mb(total))),
+    );
+    fields.insert(
+        "smaller_model".into(),
+        serde_json::json!(failure
+            .and_then(|failure| failure.smaller_model)
+            .map(|(id, bytes)| serde_json::json!({ "id": id, "mb": mb(bytes) }))),
+    );
+    fields
+}
+
 #[derive(Default)]
 pub struct RuntimeStatus {
     pub(crate) noise_filter: Arc<crate::noise_filter::Control>,
@@ -461,6 +510,10 @@ pub struct RuntimeStatus {
     /// None when nothing is downloading, which is also how the UI knows to hide
     /// the bar rather than leaving it stuck at 100%.
     pub model_download: Mutex<Option<(String, f64, f64, f64)>>,
+    /// Why the speech model is not ready and when it is retried, for the red
+    /// setup banner. Cleared as each new attempt starts, so the banner shows
+    /// that attempt's progress instead of the previous failure.
+    pub model_failure: Mutex<Option<ModelFailure>>,
     /// Updater progress is independent from model setup. The status payload
     /// gives this precedence while an explicit update is running, but clearing
     /// it can never erase a concurrent model download.
@@ -2185,8 +2238,13 @@ fn push_status(
         });
     let update_check = status.update_check.lock().ok().and_then(|mut c| c.take());
     let download = visible_download(status);
+    let model_failure = status
+        .model_failure
+        .lock()
+        .ok()
+        .and_then(|failure| failure.clone());
     // Note: recognized text is deliberately NOT sent to the window — no echo.
-    let payload = serde_json::json!({
+    let mut payload = serde_json::json!({
         "listening": listening, "model": model, "license": license, "update": update,
         "license_kind": lic_kind, "license_days": lic_days,
         "pro": status.pro_gate.load(Ordering::Relaxed),
@@ -2206,6 +2264,9 @@ fn push_status(
             .map(|(label, pct, done, total)| serde_json::json!({
                 "label": label, "pct": pct, "done": done, "total": total })),
     });
+    if let Some(payload) = payload.as_object_mut() {
+        payload.extend(model_failure_fields(model_failure.as_ref()));
+    }
     let payload = payload.to_string();
     if payload != *last {
         let _ = webview.evaluate_script(&format!("window.vocalcodeStatus({payload})"));
@@ -3428,6 +3489,12 @@ fn handle_ipc(
             }
             None => log::warn!("ipc: rejected missing or unknown info target"),
         },
+        // "Retry now" on the red setup banner. This only wakes the engine's
+        // own recovery of the accepted active model, which ignores it once
+        // that model is ready; it cannot start a download of anything else.
+        Some("retry_model") => {
+            status.reload_model.store(true, Ordering::Release);
+        }
         Some("reveal_data") => reveal_in_file_manager(&crate::app_dir()),
         Some("purge_data") => {
             // Deletion is deliberately deferred to main. The engine owns ONNX
@@ -8412,6 +8479,49 @@ mod config_apply_contract_tests {
     }
 
     #[test]
+    fn model_failure_status_fields_are_explicit_nulls_or_complete() {
+        let healthy = model_failure_fields(None);
+        for key in [
+            "model_error",
+            "retry_at_ms",
+            "model_downloaded_mb",
+            "model_total_mb",
+            "smaller_model",
+        ] {
+            assert_eq!(healthy.get(key), Some(&Value::Null), "{key}");
+        }
+
+        let failed = model_failure_fields(Some(&ModelFailure {
+            message: "download encoder.onnx: no data received for 90s".to_string(),
+            retry_at_ms: Some(1_790_000_000_000),
+            downloaded: Some((312_000_000, 671_000_000)),
+            smaller_model: Some(("sensevoice", 239_549_735)),
+        }));
+        assert_eq!(
+            failed["model_error"],
+            "download encoder.onnx: no data received for 90s"
+        );
+        assert_eq!(failed["retry_at_ms"], 1_790_000_000_000u64);
+        assert_eq!(failed["model_downloaded_mb"], 312.0);
+        assert_eq!(failed["model_total_mb"], 671.0);
+        assert_eq!(failed["smaller_model"]["id"], "sensevoice");
+        assert_eq!(failed["smaller_model"]["mb"], 239.549735);
+    }
+
+    #[test]
+    fn the_retry_button_only_wakes_recovery_of_the_active_model() {
+        let html = include_str!("webui.html");
+        assert!(html.contains(r#"send({type:"retry_model"})"#));
+        let source = include_str!("webui.rs");
+        let handler = source
+            .find(concat!(r#"Some("retry_model")"#, " => {"))
+            .expect("retry_model handler");
+        let body = &source[handler..handler + source[handler..].find('}').unwrap()];
+        assert!(body.contains("status.reload_model.store(true, Ordering::Release)"));
+        assert!(!body.contains("config"), "a retry must not change settings");
+    }
+
+    #[test]
     fn updater_progress_has_priority_without_erasing_model_progress() {
         let status = RuntimeStatus::default();
         let model = ("model".to_string(), 25.0, 10.0, 40.0);
@@ -9376,7 +9486,11 @@ mod webui_copy_contract_tests {
         let rust = include_str!("webui.rs");
         assert!(rust.contains("\"trial_setup_error\":"));
         assert!(!html.contains("s.trial_setup_error===true"));
-        assert!(html.contains("setup.classList.remove(\"error\")"));
+        // Only a speech-model failure turns the setup banner red.
+        assert!(
+            html.contains("var failed=typeof s.model_error===\"string\" && s.model_error!==\"\";")
+        );
+        assert!(html.contains("setup.classList.toggle(\"error\", failed)"));
         assert!(html.contains("if(s.ready!==false) announceSetup(\"\")"));
         assert!(!html.contains("setup.classList.add(\"on\")"));
         assert!(!html.contains("pill.classList.toggle(\"error\", trialSetupFailed)"));

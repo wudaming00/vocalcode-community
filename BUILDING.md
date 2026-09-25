@@ -58,7 +58,7 @@ node --test packaging/community/test-community-ui.mjs
 node --test packaging/community/test-licensing.mjs
 node --test packaging/release/test_replay_metrics.mjs
 python -m unittest discover -s packaging/community -p 'test_*.py' -v
-node --test packaging/release/test_calendar_ui.mjs packaging/release/test_control_bar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
+node --test packaging/release/test_calendar_ui.mjs packaging/release/test_control_bar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_model_setup_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
 ```
 
 Ignored tests are opt-in: some load large ASR models, capture devices, install

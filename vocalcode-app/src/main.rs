@@ -1781,11 +1781,49 @@ fn begin_model_prepare(
     if status.shutdown.load(Ordering::Acquire) {
         return None;
     }
-    status
+    let cancellation = status
         .config_apply
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .begin_prepare(generation, config)
+        .begin_prepare(generation, config)?;
+    // The new attempt owns the setup banner now: its progress replaces the
+    // previous failure until it succeeds or records a failure of its own.
+    *status
+        .model_failure
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    Some(cancellation)
+}
+
+/// Schedule the automatic retry of a failed model preparation, publish the
+/// failure for the red setup banner, and return when the retry is due.
+/// Downloads resume from what is on disk, so a failed attempt that still
+/// moved the download forward restarts the delays instead of lengthening them.
+fn schedule_model_retry(
+    status: &RuntimeStatus,
+    backoff: &mut ModelRetryBackoff,
+    config: &Config,
+    base: &Path,
+    message: &str,
+) -> Instant {
+    let downloaded = models::downloaded_bytes(&config.model, &config.language, base);
+    let now = Instant::now();
+    let retry_at = backoff.next_deadline_after(now, downloaded.map(|(done, _)| done));
+    // The page counts down on its own clock, so it gets wall-clock time.
+    let retry_at_ms = (SystemTime::now() + retry_at.saturating_duration_since(now))
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|since| since.as_millis() as u64);
+    *status
+        .model_failure
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(webui::ModelFailure {
+        message: message.to_string(),
+        retry_at_ms,
+        downloaded,
+        smaller_model: models::smaller_alternative(&config.model, &config.language),
+    });
+    retry_at
 }
 
 fn finish_model_prepare(status: &RuntimeStatus, generation: u64) {
@@ -2018,6 +2056,8 @@ const MODEL_RETRY_DELAYS: [std::time::Duration; 5] = [
 #[derive(Default)]
 struct ModelRetryBackoff {
     failures: usize,
+    /// Bytes on disk when the previous failure was scheduled.
+    downloaded: Option<u64>,
 }
 
 impl ModelRetryBackoff {
@@ -2027,8 +2067,27 @@ impl ModelRetryBackoff {
         now + delay
     }
 
+    /// `next_deadline`, except that a failure after more bytes reached the
+    /// disk than at the previous one starts the delays over. A connection
+    /// that keeps dropping but keeps delivering is making progress, and
+    /// stretching its retries to ten minutes would only waste that.
+    fn next_deadline_after(
+        &mut self,
+        now: std::time::Instant,
+        downloaded: Option<u64>,
+    ) -> std::time::Instant {
+        if let (Some(before), Some(after)) = (self.downloaded, downloaded) {
+            if after > before {
+                self.failures = 0;
+            }
+        }
+        self.downloaded = downloaded;
+        self.next_deadline(now)
+    }
+
     fn reset(&mut self) {
         self.failures = 0;
+        self.downloaded = None;
     }
 }
 
@@ -3639,7 +3698,7 @@ fn start_background(
         // Detect once for this engine generation. The selected route turns the
         // profile into a measured model-specific cap on every load/hot switch.
         let hardware = HardwareProfile::detect();
-        let (asr, cleaners, label, mut model_ready, mut active_config) = loop {
+        let (asr, cleaners, label, mut model_ready, mut active_config, startup_model_error) = loop {
             if status.shutdown.load(Ordering::Acquire) {
                 return;
             }
@@ -3681,7 +3740,7 @@ fn start_background(
             match prepared {
                 Ok((asr, cleaners, label)) => {
                     *status.model_label.lock().unwrap() = label.clone();
-                    break (asr, cleaners, label, true, want);
+                    break (asr, cleaners, label, true, want, None);
                 }
                 Err(models::ModelPrepareError::Cancelled) => {
                     // Cancellation is control flow, never evidence that a
@@ -3703,6 +3762,7 @@ fn start_background(
                         label,
                         false,
                         want,
+                        Some(error.to_string()),
                     );
                 }
             }
@@ -3821,8 +3881,17 @@ fn start_background(
         status.reload_model.store(false, Ordering::Release);
         let mut last_audio_retry = std::time::Instant::now() - std::time::Duration::from_secs(5);
         let mut model_retry_backoff = ModelRetryBackoff::default();
-        let mut model_retry_at =
-            (!model_ready).then(|| model_retry_backoff.next_deadline(std::time::Instant::now()));
+        let mut model_retry_at = (!model_ready).then(|| {
+            schedule_model_retry(
+                &status,
+                &mut model_retry_backoff,
+                &active_config,
+                &app_dir(),
+                startup_model_error
+                    .as_deref()
+                    .unwrap_or("The speech model is not ready yet."),
+            )
+        });
         // recv with a deadline so maintenance still runs under a continuous
         // stream of input events rather than only after a quiet timeout.
         let mut maintenance = MaintenanceClock::new(std::time::Instant::now());
@@ -4390,9 +4459,14 @@ fn start_background(
                         model_ready = false;
                         status.model_available.store(false, Ordering::Release);
                         model_retry_backoff.reset();
-                        model_retry_at =
-                            Some(model_retry_backoff.next_deadline(std::time::Instant::now()));
                         *status.model_download.lock().unwrap() = None;
+                        model_retry_at = Some(schedule_model_retry(
+                            &status,
+                            &mut model_retry_backoff,
+                            &active_config,
+                            &app_dir(),
+                            &error,
+                        ));
                         *status.model_label.lock().unwrap() = format!("Model error: {error}");
                         report_runtime_error(
                             &status,
@@ -4503,12 +4577,15 @@ fn start_background(
                             ) {
                                 Ok(worker) => worker,
                                 Err(error) => {
-                                    model_retry_at =
-                                        Some(model_retry_backoff.next_deadline(Instant::now()));
-                                    report_runtime_error(
+                                    let message = format!("Could not recover inference: {error}");
+                                    model_retry_at = Some(schedule_model_retry(
                                         &status,
-                                        format!("Could not recover inference: {error}"),
-                                    );
+                                        &mut model_retry_backoff,
+                                        &active_config,
+                                        &app_dir(),
+                                        &message,
+                                    ));
+                                    report_runtime_error(&status, message);
                                     continue;
                                 }
                             };
@@ -4536,8 +4613,13 @@ fn start_background(
                             log::error!("model reload failed: {message}");
                             *status.model_download.lock().unwrap() = None;
                             *status.model_label.lock().unwrap() = format!("Model error: {message}");
-                            model_retry_at =
-                                Some(model_retry_backoff.next_deadline(std::time::Instant::now()));
+                            model_retry_at = Some(schedule_model_retry(
+                                &status,
+                                &mut model_retry_backoff,
+                                &active_config,
+                                &app_dir(),
+                                &message,
+                            ));
                             report_runtime_error(
                                 &status,
                                 format!("Could not load the speech model: {message}"),
@@ -8401,6 +8483,85 @@ mod tests {
             first_retry_again.duration_since(capped),
             MODEL_RETRY_DELAYS[0]
         );
+    }
+
+    #[test]
+    fn a_failed_model_attempt_that_moved_the_download_forward_retries_soon() {
+        let mut now = std::time::Instant::now();
+        let mut backoff = ModelRetryBackoff::default();
+        let mut delay_after = |downloaded: u64, now: &mut std::time::Instant| {
+            let next = backoff.next_deadline_after(*now, Some(downloaded));
+            let delay = next.duration_since(*now);
+            *now = next;
+            delay
+        };
+        assert_eq!(delay_after(100, &mut now), MODEL_RETRY_DELAYS[0]);
+        assert_eq!(
+            delay_after(100, &mut now),
+            MODEL_RETRY_DELAYS[1],
+            "no new bytes on disk: back off further"
+        );
+        assert_eq!(delay_after(100, &mut now), MODEL_RETRY_DELAYS[2]);
+        assert_eq!(
+            delay_after(250, &mut now),
+            MODEL_RETRY_DELAYS[0],
+            "a resumed attempt that fetched more is not an outage"
+        );
+        assert_eq!(delay_after(250, &mut now), MODEL_RETRY_DELAYS[1]);
+    }
+
+    #[test]
+    fn a_new_model_attempt_takes_the_failure_banner_down() {
+        let status = RuntimeStatus::default();
+        let config = Config {
+            language: "en".to_string(),
+            onboarded: true,
+            ..Config::default()
+        };
+        let base = ScratchDirectory::new("model-failure");
+        let encoder = base
+            .path()
+            .join("models/parakeet-tdt-v3/encoder.onnx.partial");
+        std::fs::create_dir_all(encoder.parent().unwrap()).unwrap();
+        std::fs::write(&encoder, vec![0u8; 2_000_000]).unwrap();
+        let mut backoff = ModelRetryBackoff::default();
+        let before = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        schedule_model_retry(
+            &status,
+            &mut backoff,
+            &config,
+            base.path(),
+            "download encoder.onnx: offline",
+        );
+        let failure = status.model_failure.lock().unwrap().clone().unwrap();
+        assert_eq!(failure.message, "download encoder.onnx: offline");
+        assert_eq!(
+            failure.downloaded.map(|(done, _)| done),
+            Some(2_000_000),
+            "the kept partial counts toward what is already downloaded"
+        );
+        let retry_in = failure.retry_at_ms.unwrap() - before;
+        assert!(
+            retry_in >= MODEL_RETRY_DELAYS[0].as_millis() as u64 - 1_000
+                && retry_in <= MODEL_RETRY_DELAYS[0].as_millis() as u64 + 1_000,
+            "{retry_in} ms"
+        );
+        assert_eq!(
+            failure.smaller_model.map(|(id, _)| id),
+            Some("sensevoice"),
+            "English on Parakeet can switch to the smaller SenseVoice"
+        );
+        assert!(failure
+            .downloaded
+            .is_some_and(|(_, total)| total > 600_000_000));
+
+        let generation = status.config_apply.lock().unwrap().generation();
+        assert!(begin_model_prepare(&status, generation, &config).is_some());
+        assert_eq!(*status.model_failure.lock().unwrap(), None);
+        finish_model_prepare(&status, generation);
     }
 
     #[test]
