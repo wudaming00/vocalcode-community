@@ -101,11 +101,9 @@ pub(crate) fn queue_event(
     if pending.len() < 64 {
         pending.push_back(Record::correction(kind, pairs));
     } else {
-        *status
-            .runtime_error
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()) =
-            Some("Diagnostic event queue full; this event was not saved.".into());
+        status
+            .runtime_errors
+            .push("Diagnostic event queue full; this event was not saved.".to_string());
     }
 }
 
@@ -353,7 +351,7 @@ impl Writer {
                     crate::storage::atomic_write_new(&path,&encrypted).map_err(|_|"Could not save diagnostics; check disk space and permissions.")?;
                     inventory=Some((count+1,bytes+encrypted.len() as u64)); Ok(())
                 })();
-                if let Err(error)=result { *status.runtime_error.lock().unwrap_or_else(|p|p.into_inner())=Some(error); }
+                if let Err(error)=result { status.runtime_errors.push(error); }
             }
         }).map_err(|e|e.to_string())?;
         Ok(Self {
@@ -413,7 +411,11 @@ mod tests {
             queue_event(&status, "correction_proposed", &[]);
         }
         assert_eq!(status.diagnostic_events.lock().unwrap().len(), 64);
-        assert!(status.runtime_error.lock().unwrap().is_some());
+        assert_eq!(
+            status.runtime_errors.drain(),
+            ["Diagnostic event queue full; this event was not saved."],
+            "one failure repeated is reported once"
+        );
     }
     // Do not create Keychain entries from macOS unit tests.
     #[cfg(windows)]
@@ -456,10 +458,9 @@ mod tests {
         assert_eq!(recent(&base).unwrap()[0].filler_removed, 1);
         assert_eq!(page(&base, 0).unwrap()["total"], 1);
         assert!(status
-            .runtime_error
-            .lock()
-            .unwrap()
-            .as_ref()
+            .runtime_errors
+            .drain()
+            .last()
             .unwrap()
             .contains("limit reached"));
         let encrypted = std::fs::read(&files(&base).unwrap()[0].1).unwrap();

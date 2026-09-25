@@ -21,6 +21,7 @@ mod meeting_reminder;
 mod migration;
 mod models;
 mod noise_filter;
+mod notice;
 mod overlay;
 mod paths;
 mod rewrite;
@@ -2254,6 +2255,11 @@ fn start_license_maintenance(status: Arc<RuntimeStatus>) -> thread::JoinHandle<(
     })
 }
 
+/// Prefix of the model label while the speech model has failed to prepare and
+/// a retry is pending. Any later label (preparing, loaded) replaces it, which
+/// is what lets the tray tell "failed" apart from "still loading".
+pub(crate) const MODEL_ERROR_LABEL: &str = "Model error: ";
+
 /// Keeps the engine/control loop alive when a device or model cannot be opened.
 /// Settings can then replace the failed component without requiring a process
 /// restart; the hotkey readiness gate remains false until that succeeds.
@@ -2271,7 +2277,23 @@ impl AudioCapture for UnavailableAudio {
     }
 }
 
-struct UnavailableAsr(String);
+/// Stands in for a speech model that failed to prepare, until a retry works.
+struct UnavailableAsr {
+    error: String,
+    /// The error under [`MODEL_ERROR_LABEL`]. Several paths put the engine's
+    /// label back after a microphone recovery or a cancelled switch; with the
+    /// bare error there, the tray took a failed model for one still loading.
+    label: String,
+}
+
+impl UnavailableAsr {
+    fn new(error: String) -> Self {
+        Self {
+            label: format!("{MODEL_ERROR_LABEL}{error}"),
+            error,
+        }
+    }
+}
 
 impl Asr for UnavailableAsr {
     fn transcribe(
@@ -2279,10 +2301,10 @@ impl Asr for UnavailableAsr {
         _samples: &[f32],
         _sample_rate: u32,
     ) -> vocalcode_core::error::Result<String> {
-        Err(VocalCodeError::Asr(self.0.clone()))
+        Err(VocalCodeError::Asr(self.error.clone()))
     }
     fn model_label(&self) -> &str {
-        &self.0
+        &self.label
     }
 }
 
@@ -2676,7 +2698,17 @@ fn drain_busy_events(
 }
 
 fn report_runtime_error(status: &RuntimeStatus, message: impl Into<String>) {
-    *status.runtime_error.lock().unwrap() = Some(message.into());
+    status.runtime_errors.push(message.into());
+}
+
+/// Tell someone dictating, where they are looking, about the two engine errors
+/// that are theirs to act on: words diverted to the clipboard, and a failed
+/// microphone. Call only after the indicator phase has left recording; a
+/// notice that arrives mid-recording is dropped as stale.
+fn post_engine_error_notice(status: &RuntimeStatus, error: &VocalCodeError) {
+    if let Some(notice) = notice::for_engine_error(error) {
+        status.notices.post(notice);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -3665,6 +3697,8 @@ fn start_background(
                     "Input controls stopped working; VocalCode will retry automatically: {failure}"
                 ),
             );
+            // For the tray; cleared by the engine once the listener is back.
+            hotkey_status.input_failed.store(true, Ordering::Release);
             // Release any recording whose physical key-up can no longer reach
             // us. The engine owns the audio backend, so signal it rather than
             // trying to stop capture from the listener thread.
@@ -3719,6 +3753,9 @@ fn start_background(
                     (Box::new(UnavailableAudio(e.to_string())), false)
                 }
             };
+        status
+            .microphone_failed
+            .store(!audio_ready, Ordering::Release);
         // Always release the UI startup wait. A shared silent meter is useful
         // even when the selected device failed; a later hot-swap writes into
         // the same object and the overlay begins moving without reconstruction.
@@ -3799,14 +3836,15 @@ fn start_background(
                 }
                 Err(error) => {
                     log::error!("model prepare failed: {error}");
-                    let label = format!("Model error: {error}");
+                    let unavailable = UnavailableAsr::new(error.to_string());
+                    let label = unavailable.model_label().to_string();
                     *status.model_label.lock().unwrap() = label.clone();
                     report_runtime_error(
                         &status,
                         format!("The speech model is not ready yet: {error}"),
                     );
                     break (
-                        Box::new(UnavailableAsr(error.to_string())),
+                        Box::new(unavailable),
                         Vec::new(),
                         label,
                         false,
@@ -3841,6 +3879,9 @@ fn start_background(
                     );
                 }
             }
+            status
+                .microphone_failed
+                .store(!audio_ready, Ordering::Release);
         }
 
         let injector = Box::new(EnigoInjector::new(active_config.paste_insert));
@@ -3919,6 +3960,9 @@ fn start_background(
         let mut utterance_app = String::new();
         let mut effective_paste = active_config.paste_insert;
         status.model_available.store(model_ready, Ordering::Release);
+        status
+            .microphone_failed
+            .store(!audio_ready, Ordering::Release);
         status.ready.store(
             engine_ready(audio_ready, model_ready, &input_ready, &status),
             Ordering::Release,
@@ -4052,6 +4096,9 @@ fn start_background(
                     publish_recoverable_text(&status, &mut engine);
                     status.ready.store(false, Ordering::Release);
                     status
+                        .microphone_failed
+                        .store(!audio_ready, Ordering::Release);
+                    status
                         .listening
                         .store(engine.is_recording(), Ordering::Release);
                     overlay.set(if engine.is_recording() {
@@ -4059,6 +4106,7 @@ fn start_background(
                     } else {
                         overlay::Phase::Idle
                     });
+                    post_engine_error_notice(&status, &error);
                     report_runtime_error(
                         &status,
                         format!("Microphone stopped responding: {error}"),
@@ -4155,6 +4203,14 @@ fn start_background(
                     }
                 }
 
+                status
+                    .microphone_failed
+                    .store(!audio_ready, Ordering::Release);
+                // A failure landing between this load and the store is only
+                // missed until the listener's next failed retry (at most 30 s).
+                if input_ready.load(Ordering::Acquire) {
+                    status.input_failed.store(false, Ordering::Release);
+                }
                 status.ready.store(
                     engine_ready(audio_ready, model_ready, &input_ready, &status),
                     Ordering::Release,
@@ -4174,6 +4230,7 @@ fn start_background(
                     } else {
                         overlay::Phase::Idle
                     });
+                    post_engine_error_notice(&status, &error);
                     report_runtime_error(&status, format!("Background dictation stopped: {error}"));
                     log::error!("partial: {error}");
                 }
@@ -4516,7 +4573,7 @@ fn start_background(
                             &app_dir(),
                             &error,
                         ));
-                        *status.model_label.lock().unwrap() = format!("Model error: {error}");
+                        *status.model_label.lock().unwrap() = format!("{MODEL_ERROR_LABEL}{error}");
                         report_runtime_error(
                             &status,
                             format!("The setting was saved, but the speech model is not ready yet: {error}"),
@@ -4661,7 +4718,8 @@ fn start_background(
                         | Err(models::ModelPrepareError::Failed(message)) => {
                             log::error!("model reload failed: {message}");
                             *status.model_download.lock().unwrap() = None;
-                            *status.model_label.lock().unwrap() = format!("Model error: {message}");
+                            *status.model_label.lock().unwrap() =
+                                format!("{MODEL_ERROR_LABEL}{message}");
                             model_retry_at = Some(schedule_model_retry(
                                 &status,
                                 &mut model_retry_backoff,
@@ -4852,10 +4910,16 @@ fn start_background(
                     match engine.handle(ev) {
                         Ok(outcome) => {
                             let recording = engine.is_recording();
+                            let mut heard_nothing = false;
                             if let Outcome::Transcribed(text) = &outcome {
                                 if !text.is_empty() {
                                     status.activity.record(text, engine.last_audio_ms());
                                 }
+                                heard_nothing = notice::heard_nothing(
+                                    text,
+                                    engine.last_hearing(),
+                                    active_config.min_record_ms,
+                                );
                             }
                             if publish_engine_outcome(
                                 &status,
@@ -4867,10 +4931,17 @@ fn start_background(
                             ) {
                                 should_quit = true;
                             }
+                            // Posted after the phase went idle, so the
+                            // indicator shows it instead of dropping it as
+                            // news from a recording still in progress.
+                            if heard_nothing {
+                                status.notices.post(notice::Notice::HeardNothing);
+                            }
                         }
                         Err(e) => {
                             if invalidate_audio_on_error(&e, &mut audio_ready) {
                                 status.ready.store(false, Ordering::Release);
+                                status.microphone_failed.store(true, Ordering::Release);
                             }
                             publish_recoverable_text(&status, &mut engine);
                             // The start cue has already been played, so say the
@@ -4886,6 +4957,7 @@ fn start_background(
                             } else {
                                 overlay::Phase::Idle
                             });
+                            post_engine_error_notice(&status, &e);
                             // A diverted transcript is not a failed action:
                             // it already carries the whole sentence the user
                             // needs, including where to find their words.
@@ -5882,22 +5954,35 @@ fn main() -> anyhow::Result<()> {
     let overlay_state = overlay::OverlayState::default();
     // VOCALCODE_OVERLAY_DEMO=1 cycles the indicator through its phases so it can
     // be looked at without holding the talk key — the only way to check the
-    // visual without a person and a microphone.
+    // visual without a person and a microphone. Each idle gap shows the next
+    // notice, so every one of them can be looked at too.
     let overlay_demo = if std::env::var("VOCALCODE_OVERLAY_DEMO").as_deref() == Ok("1") {
         let demo = overlay_state.clone();
         let demo_status = status.clone();
-        Some(thread::spawn(move || loop {
-            demo.set(overlay::Phase::Recording);
-            if !shutdown_aware_pause(&demo_status, Duration::from_secs(4)) {
-                return;
-            }
-            demo.set(overlay::Phase::Transcribing);
-            if !shutdown_aware_pause(&demo_status, Duration::from_millis(1500)) {
-                return;
-            }
-            demo.set(overlay::Phase::Idle);
-            if !shutdown_aware_pause(&demo_status, Duration::from_millis(800)) {
-                return;
+        let notices = [
+            notice::Notice::CopiedToClipboard,
+            notice::Notice::NotReady(notice::NotReady::Downloading(45)),
+            notice::Notice::NotReady(notice::NotReady::ChooseLanguage),
+            notice::Notice::NotReady(notice::NotReady::Model),
+            notice::Notice::NotReady(notice::NotReady::Microphone),
+            notice::Notice::NotReady(notice::NotReady::Busy),
+            notice::Notice::HeardNothing,
+        ];
+        Some(thread::spawn(move || {
+            for next in notices.iter().cycle() {
+                demo.set(overlay::Phase::Recording);
+                if !shutdown_aware_pause(&demo_status, Duration::from_secs(4)) {
+                    return;
+                }
+                demo.set(overlay::Phase::Transcribing);
+                if !shutdown_aware_pause(&demo_status, Duration::from_millis(1500)) {
+                    return;
+                }
+                demo.set(overlay::Phase::Idle);
+                demo_status.notices.post(*next);
+                if !shutdown_aware_pause(&demo_status, Duration::from_millis(3800)) {
+                    return;
+                }
             }
         }))
     } else {
@@ -7994,6 +8079,22 @@ mod tests {
             &mut ready,
         ));
         assert!(ready);
+    }
+
+    /// A microphone recovery or a cancelled model switch puts the engine's
+    /// model label back. For a failed model that must still read as failed,
+    /// or the tray reports an error the user can act on as "preparing".
+    #[test]
+    fn a_failed_model_keeps_its_error_label_when_the_engine_label_is_restored() {
+        let mut unavailable = UnavailableAsr::new("model file is damaged".to_string());
+        assert_eq!(
+            unavailable.model_label(),
+            format!("{MODEL_ERROR_LABEL}model file is damaged")
+        );
+        assert!(matches!(
+            unavailable.transcribe(&[0.0; 160], 16_000),
+            Err(VocalCodeError::Asr(message)) if message == "model file is damaged"
+        ));
     }
 
     #[test]

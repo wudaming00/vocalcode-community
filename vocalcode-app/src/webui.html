@@ -3864,7 +3864,7 @@
   // Toasts carry updater/config errors that can contain remote or OS-provided
   // text.  Treat every message as text; innerHTML here turned an error string
   // into a script-capable surface inside the privileged local WebView.
-  function toast(msg){ const el=document.getElementById("toast"); el.textContent=msg; el.classList.add("show"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove("show"),2800); }
+  function toast(msg,ms){ const el=document.getElementById("toast"); el.textContent=msg; el.classList.add("show"); clearTimeout(el._t); el._t=setTimeout(()=>el.classList.remove("show"),ms||2800); }
   let closedHint=false;
   document.getElementById("close").onclick=()=>{
     // The English form bolds the product name; the translations are whole
@@ -5216,8 +5216,26 @@
       toast(t(msg));
     }
   };
+  // Runtime errors arrive as a queue now: several can land in one status tick
+  // (a microphone vanishing, then the recording it cut short). Each gets its
+  // own turn, for long enough to read a sentence, instead of the newest one
+  // replacing the rest within 2.8 seconds.
+  var runtimeErrorQueue=[], runtimeErrorTimer=0;
+  function runtimeErrorMs(text){ return Math.min(10000, Math.max(4000, 1500+text.length*45)); }
+  function showNextRuntimeError(){
+    var text=runtimeErrorQueue.shift();
+    if(text===undefined){ runtimeErrorTimer=0; return; }
+    var ms=runtimeErrorMs(text);
+    toast(text, ms);
+    runtimeErrorTimer=setTimeout(showNextRuntimeError, ms+250);
+  }
   window.vocalcodeRuntimeError = function(msg){
-    toast(String(msg || t('VocalCode could not complete that action.')));
+    var text=String(msg || t('VocalCode could not complete that action.'));
+    // Bounded like the host's queue: a flood must not pin toasts for minutes.
+    if(runtimeErrorQueue.indexOf(text)>=0) return;
+    if(runtimeErrorQueue.length>=8) runtimeErrorQueue.shift();
+    runtimeErrorQueue.push(text);
+    if(!runtimeErrorTimer) showNextRuntimeError();
   };
   window.vocalcodeCopyResult = function(id, ok, msg){
     var hit=null;

@@ -105,9 +105,25 @@ pub struct Engine {
     trace_enabled: bool,
     trace: Option<DictationTrace>,
     completed_trace: Option<DictationTrace>,
-    /// Captured audio length of the most recent finished dictation, for the
-    /// local words-per-minute figure. A number only — never audio or text.
-    last_audio_ms: u64,
+    /// Whether any decode of the current utterance returned non-blank text.
+    recognized: bool,
+    /// Summary of the most recent finished dictation. See [`Hearing`].
+    last_hearing: Hearing,
+}
+
+/// What the most recent finished dictation contained, for the host's local
+/// words-per-minute figure and its "didn't hear anything" hint. Two numbers
+/// and a flag — never audio or text.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Hearing {
+    /// Captured audio length.
+    pub audio_ms: u64,
+    /// Largest absolute sample in the whole capture, where 1.0 is full scale.
+    /// A muted or wrong microphone delivers a capture with essentially none.
+    pub peak: f32,
+    /// Whether the model returned any non-blank text for any part of it,
+    /// before cleanup, dictionary, snippets or spoken commands.
+    pub recognized: bool,
 }
 
 struct PendingSegment {
@@ -157,6 +173,15 @@ fn append_trace_text(target: &mut String, text: &str) {
         end -= 1;
     }
     target.push_str(&text[..end]);
+}
+
+/// Largest absolute finite sample. A NaN or infinity from a misbehaving driver
+/// is not evidence of sound, so it is skipped rather than reported as loud.
+fn peak_level(samples: &[f32]) -> f32 {
+    samples
+        .iter()
+        .filter(|sample| sample.is_finite())
+        .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
 }
 
 /// A hard safety net for a lost key-up (for example a wireless button being
@@ -238,7 +263,8 @@ impl Engine {
             trace_enabled: false,
             trace: None,
             completed_trace: None,
-            last_audio_ms: 0,
+            recognized: false,
+            last_hearing: Hearing::default(),
         }
     }
 
@@ -303,7 +329,13 @@ impl Engine {
 
     /// Length of the audio captured for the most recent finished dictation.
     pub fn last_audio_ms(&self) -> u64 {
-        self.last_audio_ms
+        self.last_hearing.audio_ms
+    }
+
+    /// What the most recent finished dictation contained. Reset when a finish
+    /// begins, so a failed stop never reports the previous utterance.
+    pub fn last_hearing(&self) -> Hearing {
+        self.last_hearing
     }
 
     pub fn take_trace(&mut self) -> Option<DictationTrace> {
@@ -460,6 +492,9 @@ impl Engine {
         started: Instant,
         result: &Result<String>,
     ) {
+        if result.as_ref().is_ok_and(|text| !text.trim().is_empty()) {
+            self.recognized = true;
+        }
         if let Some(trace) = &mut self.trace {
             trace.sample_rate = rate;
             trace.sample_count += count;
@@ -858,6 +893,7 @@ impl Engine {
                 self.noise_floor = Default::default();
                 self.utterance.clear();
                 self.recoverable_text = None;
+                self.recognized = false;
                 // Consumed by any start, so a stale tap never latches a later,
                 // unrelated press.
                 let double_tap = self
@@ -1046,12 +1082,14 @@ impl Engine {
         let stopped = self.audio.stop();
         self.recording = false;
         self.recording_since = None;
+        self.last_hearing = Hearing::default();
 
         let result = (|| {
             let rec = stopped?;
-            self.last_audio_ms = (rec.samples.len() as u64 * 1000)
+            self.last_hearing.audio_ms = (rec.samples.len() as u64 * 1000)
                 .checked_div(rec.sample_rate as u64)
                 .unwrap_or(0);
+            self.last_hearing.peak = peak_level(&rec.samples);
             // Gate before ASR. Stopping still happens first so an expiry that
             // lands mid-utterance cannot leave capture running.
             if !self.inject_allowed() {
@@ -1154,6 +1192,7 @@ impl Engine {
                 Ok(Outcome::LicenseRequired)
             }
         })();
+        self.last_hearing.recognized = self.recognized;
 
         match &result {
             Ok(Outcome::LicenseRequired) => self.trace = None,
@@ -2673,6 +2712,62 @@ mod state_machine_tests {
             !e.is_recording(),
             "decode error left portable state recording"
         );
+    }
+
+    struct BlankAsr;
+    impl Asr for BlankAsr {
+        fn transcribe(&mut self, _s: &[f32], _r: u32) -> Result<String> {
+            Ok(" \n".to_string())
+        }
+        fn model_label(&self) -> &str {
+            "blank"
+        }
+    }
+
+    /// The host's "didn't hear anything" hint needs the capture's length, its
+    /// loudest sample and whether the model found any words — and nothing else.
+    #[test]
+    fn hearing_reports_length_peak_and_whether_anything_was_recognized() {
+        let mut audio = SnapshotAudio::silent(16_000);
+        audio.samples[10] = -0.25;
+        audio.samples[20] = f32::NAN;
+        audio.samples[30] = f32::INFINITY;
+        let mut e = custom_engine(Box::new(audio), Box::new(BlankAsr));
+        e.handle(down()).unwrap();
+        assert_eq!(e.handle(up()).unwrap(), Outcome::Transcribed(String::new()));
+        assert_eq!(
+            e.last_hearing(),
+            Hearing {
+                audio_ms: 1_000,
+                peak: 0.25,
+                recognized: false,
+            }
+        );
+        assert_eq!(e.last_audio_ms(), 1_000);
+
+        assert!(e.swap_asr(Box::new(FakeAsr), Vec::new()));
+        e.handle(down()).unwrap();
+        e.handle(up()).unwrap();
+        assert!(e.last_hearing().recognized);
+
+        // Recognition belongs to one utterance; a blank one after it is blank.
+        assert!(e.swap_asr(Box::new(BlankAsr), Vec::new()));
+        e.handle(down()).unwrap();
+        e.handle(up()).unwrap();
+        assert!(!e.last_hearing().recognized);
+    }
+
+    #[test]
+    fn a_failed_stop_never_reports_the_previous_utterance() {
+        let mut e = custom_engine(Box::new(FakeAudio::default()), Box::new(FakeAsr));
+        e.handle(down()).unwrap();
+        e.handle(up()).unwrap();
+        assert!(e.last_hearing().audio_ms > 0 && e.last_hearing().recognized);
+
+        assert!(e.replace_audio(Box::new(StopFails)).is_ok());
+        e.handle(down()).unwrap();
+        assert!(e.handle(up()).is_err());
+        assert_eq!(e.last_hearing(), Hearing::default());
     }
 
     /// The focused control must be captured before the microphone opens. Focus

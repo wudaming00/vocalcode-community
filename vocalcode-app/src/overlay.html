@@ -70,6 +70,20 @@
   .label{font:500 12px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
     color:#C9CDD2;letter-spacing:.01em;white-space:nowrap}
 
+  /* ── notice ────────────────────────────────────────────────────────────
+     One short line between utterances: why a press started nothing, where a
+     transcript went. The host sends the sentence already translated and, on
+     Windows, sizes the window to it; ellipsis is only a guard against a font
+     running wider than that estimate. */
+  .noticemark{display:grid;place-items:center;flex:0 0 auto;width:18px;height:18px;
+    box-sizing:border-box;border-radius:9px;background:rgba(246,168,96,.16);
+    color:var(--amber);font:700 11px/1 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif}
+  .notice{font:500 12px/1.4 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    color:#E4E6EA;letter-spacing:.01em;white-space:nowrap;min-width:0;
+    overflow:hidden;text-overflow:ellipsis}
+  body.notice .pill{gap:8px}
+  html:not(.solid) body.notice .pill{max-width:calc(100% - 24px);box-sizing:border-box}
+
   .hide{display:none}
   @media (prefers-reduced-motion:reduce){
     .bars i,.spinner{animation:none}
@@ -119,6 +133,8 @@
     <span class="spinner hide" id="spin"></span>
     <span class="learnmark hide" id="learn" aria-hidden="true">A+</span>
     <span class="label hide" id="label">Transcribing…</span>
+    <span class="noticemark hide" id="noticemark" aria-hidden="true">!</span>
+    <span class="notice hide" id="notice" role="status"></span>
   </div>
 
 <script>
@@ -204,8 +220,20 @@
   };
 
   // Set by the host from the saved setting, and again whenever it changes.
+  // A notice is a sentence, which the mini lozenge has no room for, so it
+  // always uses the full capsule and the chosen style returns afterwards.
+  var styleName = "classic";
   window.vcStyle = function (style) {
-    document.documentElement.classList.toggle("mini", style === "mini");
+    styleName = style;
+    document.documentElement.classList.toggle(
+      "mini", style === "mini" && !document.body.classList.contains("notice"));
+  };
+
+  // A notice's text, already translated by the host: on Windows the native
+  // window is sized to the sentence before it is shown, so the host has to
+  // know the exact words. Shown by `vcPhase("notice")`.
+  window.vcNotice = function (text) {
+    document.getElementById("notice").textContent = String(text || "");
   };
 
   window.vcPhase = function (phase) {
@@ -213,12 +241,17 @@
     var recording = phase === "recording";
     var transcribing = phase === "transcribing";
     var learning = phase === "learning";
-    body.classList.toggle("on", recording || transcribing || learning);
+    var notice = phase === "notice";
+    body.classList.toggle("on", recording || transcribing || learning || notice);
+    body.classList.toggle("notice", notice);
+    document.documentElement.classList.toggle("mini", styleName === "mini" && !notice);
     document.getElementById("bars").classList.toggle("hide", !recording);
     document.getElementById("dot").classList.toggle("hide", !recording);
     document.getElementById("spin").classList.toggle("hide", !transcribing);
     document.getElementById("learn").classList.toggle("hide", !learning);
     document.getElementById("label").classList.toggle("hide", !(transcribing || learning));
+    document.getElementById("noticemark").classList.toggle("hide", !notice);
+    document.getElementById("notice").classList.toggle("hide", !notice);
     document.getElementById("label").textContent = learning
       ? (LEARNING_LABELS[languageCode] || "Learning…")
       : (TRANSCRIBING_LABELS[languageCode] || "Transcribing…");

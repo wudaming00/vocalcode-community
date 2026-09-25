@@ -46,6 +46,22 @@ pub(crate) fn correction_submit_generation() -> u64 {
     CORRECTION_SUBMIT_GENERATION.load(Ordering::Acquire)
 }
 
+/// Monotonic count of talk presses passed through because the engine was not
+/// ready (model downloading, microphone broken, a decode in progress). The key
+/// still reaches the foreground app exactly as before; this only lets the app
+/// say why nothing started, instead of looking dead. Callbacks never wait on
+/// it — the app compares generations on its own UI cadence.
+static TALK_WHILE_NOT_READY: AtomicU64 = AtomicU64::new(0);
+
+/// See [`TALK_WHILE_NOT_READY`].
+pub fn talk_presses_while_not_ready() -> u64 {
+    TALK_WHILE_NOT_READY.load(Ordering::Acquire)
+}
+
+pub(crate) fn note_talk_while_not_ready() {
+    TALK_WHILE_NOT_READY.fetch_add(1, Ordering::AcqRel);
+}
+
 /// Diagnostics emitted by OS input callbacks. Every variant is fixed-size and
 /// allocation-free: callbacks may only `try_send` one into the bounded queue;
 /// formatting and `log` I/O belong to the dedicated consumer thread.
@@ -808,15 +824,18 @@ impl NativeDispatcher {
             }
         }
         if pressed {
-            if !self.ready.load(Ordering::Acquire) {
-                return;
-            }
             let action = {
                 let Ok(g) = self.triggers.lock() else {
                     return;
                 };
                 native_matching_action(device, control, &g.0, &g.1, &g.2)
             };
+            if !self.ready.load(Ordering::Acquire) {
+                if action == Some(Action::Talk) {
+                    note_talk_while_not_ready();
+                }
+                return;
+            }
             let Some(action) = action else {
                 return;
             };
@@ -1206,15 +1225,23 @@ fn dispatch_grabbed(
                 if hook.active.contains_key(&id) {
                     return true;
                 }
-                if !ready.load(Ordering::Acquire) {
-                    return false;
-                }
                 let action = {
                     let Ok(g) = triggers.lock() else {
                         return false;
                     };
                     matching_action(input, &g.0, &g.1, &g.2)
                 };
+                if !ready.load(Ordering::Acquire) {
+                    // Passed through exactly as before. Only the count is new,
+                    // and only a person's press counts: the app's own paste
+                    // chord sends an injected Ctrl while a dictation is being
+                    // delivered (unready), and with talk bound to Ctrl every
+                    // pasted dictation would end in "still working".
+                    if action == Some(Action::Talk) && !injected {
+                        note_talk_while_not_ready();
+                    }
+                    return false;
+                }
                 let Some(action) = action else {
                     return false;
                 };
@@ -3246,8 +3273,123 @@ mod tests {
         assert!(supervisor.contains("worker.join()"));
     }
 
+    /// The not-ready count is process-wide, as it is for the real hook. Tests
+    /// that press a bound talk control while unready hold this, so a count
+    /// asserted by one cannot move under it because of another.
+    static NOT_READY_COUNT_LOCK: Mutex<()> = Mutex::new(());
+
+    fn not_ready_count_guard() -> std::sync::MutexGuard<'static, ()> {
+        NOT_READY_COUNT_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn unready_talk_press_passes_through_and_is_counted_once_per_hold() {
+        let _count = not_ready_count_guard();
+        let (hook, capture, triggers, ready, tx, rx) =
+            grabbed_harness(vec![Trigger::Key("F9".into())]);
+        ready.store(false, Ordering::Release);
+        let press = |key| {
+            dispatch_grabbed(
+                &EventType::KeyPress(key),
+                &hook,
+                &capture,
+                &triggers,
+                &ready,
+                &tx,
+                false,
+            )
+        };
+        let release = |key| {
+            dispatch_grabbed(
+                &EventType::KeyRelease(key),
+                &hook,
+                &capture,
+                &triggers,
+                &ready,
+                &tx,
+                false,
+            )
+        };
+
+        let before = talk_presses_while_not_ready();
+        assert!(!press(RdevKey::F9), "an unready talk key must still pass");
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        assert!(!press(RdevKey::F9), "auto-repeat passes too");
+        assert_eq!(
+            talk_presses_while_not_ready(),
+            before + 1,
+            "auto-repeat is not another press"
+        );
+        assert!(!release(RdevKey::F9));
+        assert!(!press(RdevKey::KeyA), "an unbound key is not a talk press");
+        assert!(!release(RdevKey::KeyA));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        assert!(rx.try_recv().is_err(), "nothing may reach the engine");
+
+        ready.store(true, Ordering::Release);
+        assert!(press(RdevKey::F9), "a ready talk key is consumed as before");
+        assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+    }
+
+    /// Delivering a dictation leaves the engine unready, and the paste chord
+    /// that delivers it sends an injected Ctrl. With talk bound to Ctrl, that
+    /// synthetic press is not the person trying again and must not end every
+    /// pasted dictation with "still working".
+    #[test]
+    fn unready_injected_talk_press_passes_through_uncounted() {
+        let _count = not_ready_count_guard();
+        let (hook, capture, triggers, ready, tx, rx) =
+            grabbed_harness(vec![Trigger::Key("ControlLeft".into())]);
+        ready.store(false, Ordering::Release);
+        let dispatch = |event, injected| {
+            dispatch_grabbed(&event, &hook, &capture, &triggers, &ready, &tx, injected)
+        };
+
+        let before = talk_presses_while_not_ready();
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), true));
+        assert!(!dispatch(EventType::KeyRelease(RdevKey::ControlLeft), true));
+        assert_eq!(
+            talk_presses_while_not_ready(),
+            before,
+            "the app's own paste chord is not a talk press"
+        );
+
+        // The person pressing the same key is still told why nothing started.
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), false));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        // A paste chord while they hold it adds nothing either.
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), true));
+        assert!(!dispatch(EventType::KeyRelease(RdevKey::ControlLeft), true));
+        assert!(!dispatch(
+            EventType::KeyRelease(RdevKey::ControlLeft),
+            false
+        ));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        assert!(rx.try_recv().is_err(), "nothing may reach the engine");
+    }
+
+    #[test]
+    fn native_unready_talk_press_is_counted_but_not_queued() {
+        let _count = not_ready_count_guard();
+        let ready = Arc::new(AtomicBool::new(false));
+        let (mut dispatch, device, rx) = gamepad_dispatcher(ready);
+        let control = NativeControl::Gamepad(GamepadButton::South);
+        let before = talk_presses_while_not_ready();
+        dispatch.edge(&device, control, true);
+        dispatch.edge(&device, control, true);
+        dispatch.edge(&device, control, false);
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        dispatch.edge(&device, NativeControl::Gamepad(GamepadButton::North), true);
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        assert!(rx.try_recv().is_err());
+    }
+
     #[test]
     fn native_dispatch_does_not_queue_input_while_engine_is_unready() {
+        let _count = not_ready_count_guard();
         let ready = Arc::new(AtomicBool::new(false));
         let (mut dispatch, device, rx) = gamepad_dispatcher(ready.clone());
         let control = NativeControl::Gamepad(GamepadButton::South);

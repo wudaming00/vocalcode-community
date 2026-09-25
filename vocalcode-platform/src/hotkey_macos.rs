@@ -98,6 +98,8 @@ const EVENT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 const FIELD_KEYCODE: u32 = 9;
 /// `kCGMouseEventButtonNumber`.
 const FIELD_BUTTON_NUMBER: u32 = 3;
+/// `kCGEventSourceUnixProcessID`: the process that posted the event.
+const FIELD_SOURCE_UNIX_PROCESS_ID: u32 = 41;
 
 /// `kCGHIDEventTap` — the earliest point in the stream, so we see input before
 /// any application does and can consume it.
@@ -690,9 +692,6 @@ fn handle_event(state: &TapState, etype: u32, event: CGEventRef) -> bool {
     }
 
     if pressed {
-        if !state.ready.load(Ordering::Acquire) {
-            return false;
-        }
         let action = {
             let Ok(bindings) = state.triggers.lock() else {
                 return false;
@@ -716,6 +715,17 @@ fn handle_event(state: &TapState, etype: u32, event: CGEventRef) -> bool {
                 None
             }
         };
+        if !state.ready.load(Ordering::Acquire) {
+            // Passed through exactly as before. Only the count is new: it lets
+            // the app say why the press started nothing. Events this process
+            // posted itself (the paste and copy chords, sent while a dictation
+            // is delivered and the engine is unready) are not someone pressing
+            // the talk key, so they are not counted.
+            if action == Some(Action::Talk) && !posted_by_this_process(event) {
+                crate::hotkey::note_talk_while_not_ready();
+            }
+            return false;
+        }
         let Some(action) = action else {
             return false;
         };
@@ -746,6 +756,14 @@ fn handle_event(state: &TapState, etype: u32, event: CGEventRef) -> bool {
             false
         }
     }
+}
+
+/// Whether `event` was posted by this process, the macOS counterpart of the
+/// injected flag on Windows. Hardware events carry 0 or another process's id,
+/// never ours.
+fn posted_by_this_process(event: CGEventRef) -> bool {
+    let source = unsafe { CGEventGetIntegerValueField(event, FIELD_SOURCE_UNIX_PROCESS_ID) };
+    source == i64::from(std::process::id())
 }
 
 fn answer_capture(capture: &CaptureShared, captured: String, supported: bool) -> bool {
