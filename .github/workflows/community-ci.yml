@@ -83,7 +83,7 @@ jobs:
       - name: Synthetic replay metric contracts (no models or audio devices)
         run: node --test packaging/release/test_replay_metrics.mjs
       - name: Meeting, correction, migration, calendar, desktop controls and dictation UI regressions
-        run: node --test packaging/release/test_calendar_ui.mjs packaging/release/test_control_bar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
+        run: node --test packaging/release/test_calendar_ui.mjs packaging/release/test_control_bar_ui.mjs packaging/release/test_correction_review_ui.mjs packaging/release/test_filler_history_ui.mjs packaging/release/test_meeting_prompt_ui.mjs packaging/release/test_meeting_ui.mjs packaging/release/test_migration_ui.mjs packaging/release/test_new_install_defaults_ui.mjs packaging/release/test_noise_filter_ui.mjs packaging/release/test_workflow_ui.mjs
       - name: Source licence and documentation contracts
         run: node --test packaging/community/test-licensing.mjs
       - name: Public source inventory

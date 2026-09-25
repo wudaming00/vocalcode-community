@@ -52,10 +52,22 @@ and [who maintains it / how to get in touch](MAINTAINERS.md).
 | **Dictate into your apps** | Hold a shortcut, speak, and insert text into a supported focused field. Focus checks protect against accidental delivery to the wrong target. |
 | **Take local meeting notes** | Record microphone and system audio, import audio, search transcripts, add bookmarks and speaker labels, and export notes. Recording always needs your confirmation and participants' permission. |
 | **Teach your vocabulary** | Add dictionary entries or review a learned correction, edit it, or undo it. |
-| **Recover your words** | Copy from session history; optionally enable persistent local diagnostics with storage controls. |
-| **Choose your trade-offs** | Select local language/model routes, noise filtering, and experimental pause-delimited progressive typing. No GPU is required. |
+| **Recover your words** | History keeps recent dictations encrypted on this device (Off / 24 hours / 7 days); text that could not be typed stays there until you quit. Optional local diagnostics have their own storage controls. |
+| **Choose your trade-offs** | Select local language/model routes, the non-speech noise filter, and experimental pause-delimited progressive typing. No GPU is required. |
 
 This is a desktop tool, not a meeting bot or a cloud transcription subscription.
+
+### Defaults for a new install
+
+| Setting | New install | Where to change it |
+| --- | --- | --- |
+| Mouse Back button (X1) sends Enter | Off. First run offers it as an unticked box, **Use the mouse Back button as Enter**. | Shortcuts → Tap to send |
+| Filter non-speech noise | On. Without it, fan, keyboard or pink noise can be typed as "I.", "그." or "我。". | Settings → Dictation |
+| Keep history | 7 days: up to 50 recent dictations, encrypted with your Windows account or a Keychain key, then deleted. Off deletes what was kept. | History |
+
+Updating does not change these for an existing install. Settings written by
+1.4.0 or earlier keep the Back button as Enter if they had it, keep the noise
+filter off and keep History to the current session, until you change them.
 
 The current **development tree** also includes an opt-in Windows desktop control
 bar and a manual rewrite scratchpad. The bar is off by default and uses the
@@ -107,8 +119,10 @@ Dictionary/snippet import is explicit; back up data before any manual migration.
   account policies, and logging remain separate trust boundaries.
   Installing a CLI locally does not make its inference local. Codex is
   detected only, not used for generation.
-- Recording, clipboard history, exports, and optional diagnostic persistence
-  can contain sensitive information. Review your OS sync and backup settings.
+- Recording, clipboard history, exports, kept History and optional diagnostic
+  persistence can contain sensitive information. Kept History is encrypted and
+  expires, and **Remove…** under Settings → System deletes it with the rest of
+  the app data. Review your OS sync and backup settings.
 
 ## Languages and performance
 

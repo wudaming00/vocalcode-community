@@ -1,5 +1,10 @@
 //! Opt-in, account-encrypted text diagnostics. No raw audio and no network.
 //! Count/byte limits stop new entries; no age cutoff or silent deletion.
+//!
+//! The same encryption and writer thread also keep recent History across a
+//! restart ("Keep history" on the History page). That store lives in its own
+//! folder with the opposite contract — entries expire by age and count, and
+//! turning it off deletes them — so it can never touch a diagnostic record.
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
@@ -9,7 +14,7 @@ use std::{
         mpsc, Arc,
     },
 };
-use vocalcode_core::engine::DictationTrace;
+use vocalcode_core::{config::HistoryRetention, engine::DictationTrace};
 
 const MAX_RECORD: usize = 512 * 1024;
 static SERIAL: AtomicU64 = AtomicU64::new(0);
@@ -240,8 +245,12 @@ fn dir(base: &Path) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())
 }
 fn files(base: &Path) -> Result<Vec<(u64, PathBuf, u64)>, String> {
+    files_in(&dir(base)?)
+}
+/// Records in `directory`, newest first: (time in ms from the name, path, size).
+fn files_in(directory: &Path) -> Result<Vec<(u64, PathBuf, u64)>, String> {
     let mut files = Vec::new();
-    for entry in std::fs::read_dir(dir(base)?).map_err(|e| e.to_string())? {
+    for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
         let entry = entry.map_err(|e| e.to_string())?;
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("vcd") {
@@ -327,16 +336,183 @@ pub(crate) fn export(base: &Path, destination: &Path) -> Result<usize, String> {
     Ok(files.len())
 }
 
+// ---------------------------------------------------------------------------
+// Kept History
+// ---------------------------------------------------------------------------
+
+/// Where "Keep history" puts recent dictations. Separate from
+/// `diagnostic-history`: these expire, diagnostics never do.
+const KEPT_DIR: &str = "dictation-history";
+const KEPT_SCHEMA: u32 = 1;
+/// Encrypted storage exists only where `protect` has a backend. Elsewhere the
+/// setting behaves as Off rather than failing on every dictation.
+const KEPT_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+
+#[derive(Serialize, Deserialize)]
+struct Kept {
+    schema: u32,
+    entry: crate::webui::HistoryEntry,
+}
+
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn kept_dir(base: &Path) -> Result<PathBuf, String> {
+    crate::paths::ensure_trusted_data_subdir(base, Path::new(KEPT_DIR)).map_err(|e| e.to_string())
+}
+
+/// The kept-history folder only if it is already there. Reading or pruning
+/// with the setting off must never be what creates it.
+fn existing_kept_dir(base: &Path) -> Result<Option<PathBuf>, String> {
+    match std::fs::symlink_metadata(base.join(KEPT_DIR)) {
+        Ok(_) => kept_dir(base).map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+/// Delete what `retention` no longer allows: everything when it is Off,
+/// otherwise entries past their age and all but the newest
+/// [`HistoryRetention::MAX_ENTRIES`]. Returns how many were removed.
+pub(crate) fn prune_kept(
+    base: &Path,
+    retention: HistoryRetention,
+    now_ms: u64,
+) -> Result<usize, String> {
+    let Some(directory) = existing_kept_dir(base)? else {
+        return Ok(0);
+    };
+    let cutoff = retention
+        .max_age_secs()
+        .map(|secs| now_ms.saturating_sub(secs.saturating_mul(1000)));
+    let mut removed = 0;
+    let mut failed = false;
+    for (index, (saved_ms, path, _)) in files_in(&directory)?.into_iter().enumerate() {
+        let allowed = cutoff
+            .is_some_and(|cutoff| saved_ms >= cutoff && index < HistoryRetention::MAX_ENTRIES);
+        if allowed {
+            continue;
+        }
+        match std::fs::remove_file(&path) {
+            Ok(()) => removed += 1,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                log::warn!("could not remove kept history {}: {error}", path.display());
+                failed = true;
+            }
+        }
+    }
+    if cutoff.is_none() {
+        // Only succeeds once nothing is left; anything unexpected stays put.
+        let _ = std::fs::remove_dir(&directory);
+    }
+    if failed {
+        return Err(
+            "Some saved History entries could not be deleted yet; VocalCode will try again.".into(),
+        );
+    }
+    Ok(removed)
+}
+
+fn read_kept(path: &Path) -> Result<crate::webui::HistoryEntry, String> {
+    let bytes =
+        crate::read_bounded_bytes(path, MAX_RECORD).map_err(|_| "Cannot read a History entry")?;
+    let kept: Kept =
+        serde_json::from_slice(&protect(&bytes, false)?).map_err(|_| "Invalid History entry")?;
+    if kept.schema != KEPT_SCHEMA {
+        return Err("Unsupported History entry".into());
+    }
+    Ok(kept.entry)
+}
+
+/// Entries `retention` still allows, newest first, for the list at startup.
+/// An entry that cannot be read is skipped, never shown half-decrypted.
+pub(crate) fn recent_kept(
+    base: &Path,
+    retention: HistoryRetention,
+    now_ms: u64,
+) -> Result<Vec<crate::webui::HistoryEntry>, String> {
+    let Some(max_age) = retention.max_age_secs() else {
+        return Ok(Vec::new());
+    };
+    let Some(directory) = existing_kept_dir(base)? else {
+        return Ok(Vec::new());
+    };
+    let cutoff = now_ms.saturating_sub(max_age.saturating_mul(1000));
+    Ok(files_in(&directory)?
+        .into_iter()
+        .take(HistoryRetention::MAX_ENTRIES)
+        .filter(|(saved_ms, _, _)| *saved_ms >= cutoff)
+        .filter_map(|(_, path, _)| read_kept(&path).ok())
+        .collect())
+}
+
+fn write_kept(base: &Path, entry: crate::webui::HistoryEntry, saved_ms: u64) -> Result<(), String> {
+    let serialized = serde_json::to_vec(&Kept {
+        schema: KEPT_SCHEMA,
+        entry,
+    })
+    .map_err(|e| e.to_string())?;
+    if serialized.len() > MAX_RECORD - 4096 {
+        return Err(
+            "This dictation is too long to keep on disk; it stays in History until VocalCode quits."
+                .into(),
+        );
+    }
+    let encrypted = protect(&serialized, true)?;
+    let path = kept_dir(base)?.join(format!(
+        "{saved_ms}-{}-{:020}.vcd",
+        std::process::id(),
+        SERIAL.fetch_add(1, Ordering::Relaxed)
+    ));
+    crate::storage::atomic_write_new(&path, &encrypted).map_err(|_| {
+        "Could not keep this dictation on disk; check disk space and permissions. It stays in History until VocalCode quits."
+            .to_string()
+    })
+}
+
+enum Job {
+    // Boxed: a diagnostic record dwarfs the other jobs in the queue.
+    Diagnostic(Box<(Record, crate::workflows::Preferences)>),
+    Keep(crate::webui::HistoryEntry, HistoryRetention),
+    Retain(HistoryRetention),
+}
+
+/// One background thread owns every encrypted write, so a slow disk or a
+/// Keychain prompt never holds up dictation.
 pub(crate) struct Writer {
-    sender: Option<mpsc::SyncSender<(Record, crate::workflows::Preferences)>>,
+    sender: Option<mpsc::SyncSender<Job>>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
 impl Writer {
     pub fn start(base: PathBuf, status: Arc<crate::webui::RuntimeStatus>) -> Result<Self, String> {
-        let (sender, receiver) = mpsc::sync_channel::<(Record, crate::workflows::Preferences)>(64);
+        let (sender, receiver) = mpsc::sync_channel::<Job>(64);
         let worker = std::thread::Builder::new().name("vocalcode-diagnostics".into()).spawn(move || {
             let mut inventory: Option<(u64,u64)> = None;
-            while let Ok((record,prefs)) = receiver.recv() {
+            // One report per run of failures, not one per dictation.
+            let mut kept_failing = false;
+            while let Ok(job) = receiver.recv() {
+                let (record,prefs) = match job {
+                    Job::Diagnostic(job) => *job,
+                    Job::Keep(entry, retention) => {
+                        let result = if retention.keeps() && KEPT_SUPPORTED {
+                            write_kept(&base, entry, now_ms()).and_then(|()| prune_kept(&base, retention, now_ms()).map(drop))
+                        } else {
+                            Ok(())
+                        };
+                        report_kept(&status, result, &mut kept_failing);
+                        continue;
+                    }
+                    Job::Retain(retention) => {
+                        let result = prune_kept(&base, retention, now_ms()).map(drop);
+                        report_kept(&status, result, &mut kept_failing);
+                        continue;
+                    }
+                };
                 let result = (|| -> Result<(),String> {
                     let (count,bytes) = match inventory {
                         Some(value) => value,
@@ -361,18 +537,60 @@ impl Writer {
             worker: Some(worker),
         })
     }
+    fn send(&self, job: Job, full: &str) -> Result<(), String> {
+        self.sender
+            .as_ref()
+            .ok_or("Diagnostic writer stopped")?
+            .try_send(job)
+            .map_err(|_| full.to_string())
+    }
     pub fn append(
         &self,
         record: Record,
         prefs: crate::workflows::Preferences,
     ) -> Result<(), String> {
-        self.sender
-            .as_ref()
-            .ok_or("Diagnostic writer stopped")?
-            .try_send((record, prefs))
-            .map_err(|_| {
-                "Diagnostic queue full; this entry was not saved. Dictation continues.".into()
-            })
+        self.send(
+            Job::Diagnostic(Box::new((record, prefs))),
+            "Diagnostic queue full; this entry was not saved. Dictation continues.",
+        )
+    }
+    /// Keep one History entry on disk under `retention`, then drop whatever
+    /// that retention no longer allows.
+    pub fn keep(
+        &self,
+        entry: crate::webui::HistoryEntry,
+        retention: HistoryRetention,
+    ) -> Result<(), String> {
+        self.send(
+            Job::Keep(entry, retention),
+            "History is busy; this dictation stays in the list until VocalCode quits but was not kept on disk.",
+        )
+    }
+    /// Apply `retention` to what is already kept: after the setting changes,
+    /// and periodically so entries expire while the app stays open.
+    pub fn retain(&self, retention: HistoryRetention) -> Result<(), String> {
+        self.send(
+            Job::Retain(retention),
+            "History is busy; saved entries will be tidied up shortly.",
+        )
+    }
+}
+fn report_kept(
+    status: &crate::webui::RuntimeStatus,
+    result: Result<(), String>,
+    failing: &mut bool,
+) {
+    match result {
+        Ok(()) => *failing = false,
+        Err(error) => {
+            log::warn!("kept history: {error}");
+            if !std::mem::replace(failing, true) {
+                *status
+                    .runtime_error
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(error);
+            }
+        }
     }
 }
 impl Drop for Writer {
@@ -468,6 +686,128 @@ mod tests {
         let encrypted = std::fs::read(&files(&base).unwrap()[0].1).unwrap();
         assert!(!String::from_utf8_lossy(&encrypted).contains("words"));
         assert_eq!(export(&base, &base.join("test.jsonl")).unwrap(), 1);
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!(
+            "vocalcode-kept-{name}-{}-{}",
+            std::process::id(),
+            SERIAL.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        base
+    }
+
+    const DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+    /// Stand-ins named exactly like kept records. Pruning decides from the
+    /// name alone and never needs to decrypt, so this runs on every platform.
+    fn fake_kept(base: &Path, saved_ms: &[u64]) {
+        let folder = base.join(KEPT_DIR);
+        std::fs::create_dir_all(&folder).unwrap();
+        for (index, saved) in saved_ms.iter().enumerate() {
+            std::fs::write(folder.join(format!("{saved}-1-{index:020}.vcd")), b"x").unwrap();
+        }
+    }
+
+    #[test]
+    fn off_deletes_kept_history_and_never_creates_the_folder() {
+        let base = scratch("off");
+        let now = 100 * DAY_MS;
+        assert_eq!(prune_kept(&base, HistoryRetention::Off, now).unwrap(), 0);
+        assert!(recent_kept(&base, HistoryRetention::Week, now)
+            .unwrap()
+            .is_empty());
+        assert!(
+            !base.join(KEPT_DIR).exists(),
+            "an install that keeps nothing gets no folder"
+        );
+
+        fake_kept(&base, &[now, now - DAY_MS]);
+        // Diagnostics are a different contract: Off never touches them.
+        let diagnostic = dir(&base).unwrap().join(format!("{now}-1-0.vcd"));
+        std::fs::write(&diagnostic, b"evidence").unwrap();
+        assert_eq!(prune_kept(&base, HistoryRetention::Off, now).unwrap(), 2);
+        assert!(!base.join(KEPT_DIR).exists());
+        assert_eq!(std::fs::read(&diagnostic).unwrap(), b"evidence");
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    #[test]
+    fn kept_history_expires_by_age_and_count_only() {
+        let base = scratch("expiry");
+        let now = 100 * DAY_MS;
+        fake_kept(
+            &base,
+            &[now - 2 * DAY_MS, now - DAY_MS / 2, now - 8 * DAY_MS],
+        );
+        let unrelated = base.join(KEPT_DIR).join("notes.txt");
+        std::fs::write(&unrelated, b"not ours").unwrap();
+
+        assert_eq!(prune_kept(&base, HistoryRetention::Week, now).unwrap(), 1);
+        assert_eq!(files_in(&base.join(KEPT_DIR)).unwrap().len(), 2);
+        assert_eq!(prune_kept(&base, HistoryRetention::Day, now).unwrap(), 1);
+        let left = files_in(&base.join(KEPT_DIR)).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].0, now - DAY_MS / 2);
+        assert!(unrelated.exists(), "only kept records are ever deleted");
+
+        let stamps: Vec<u64> = (0..(HistoryRetention::MAX_ENTRIES as u64 + 7))
+            .map(|index| now - index * 1000)
+            .collect();
+        fake_kept(&base, &stamps);
+        prune_kept(&base, HistoryRetention::Week, now).unwrap();
+        let left = files_in(&base.join(KEPT_DIR)).unwrap();
+        assert_eq!(left.len(), HistoryRetention::MAX_ENTRIES);
+        assert_eq!(left[0].0, now, "the newest are the ones kept");
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    // Do not create Keychain entries from macOS unit tests.
+    #[cfg(windows)]
+    #[test]
+    fn kept_history_is_encrypted_restored_and_removed_by_the_writer() {
+        let base = scratch("writer");
+        let status = Arc::new(crate::webui::RuntimeStatus::default());
+        let writer = Writer::start(base.clone(), status.clone()).unwrap();
+        let mut entry = crate::webui::HistoryEntry::new(1_700_000_000, "私密 words".into());
+        entry.recognition = Some("um 私密 words".into());
+        entry.filler_removed = 1;
+        writer.keep(entry.clone(), HistoryRetention::Off).unwrap();
+        writer.keep(entry.clone(), HistoryRetention::Week).unwrap();
+        writer
+            .keep(
+                crate::webui::HistoryEntry::new(1_700_000_001, "newer".into()),
+                HistoryRetention::Day,
+            )
+            .unwrap();
+        drop(writer);
+        assert!(status.runtime_error.lock().unwrap().is_none());
+
+        let kept = files_in(&base.join(KEPT_DIR)).unwrap();
+        assert_eq!(kept.len(), 2, "Off writes nothing");
+        for (_, path, _) in &kept {
+            let bytes = std::fs::read(path).unwrap();
+            assert!(!String::from_utf8_lossy(&bytes).contains("words"));
+        }
+        let restored = recent_kept(&base, HistoryRetention::Week, now_ms()).unwrap();
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored[0].text, "newer");
+        assert_eq!(restored[1], entry, "the reviewable original survives");
+        assert!(recent_kept(&base, HistoryRetention::Off, now_ms())
+            .unwrap()
+            .is_empty());
+        assert!(
+            recent(&base).unwrap().is_empty(),
+            "kept history is not diagnostics"
+        );
+
+        let writer = Writer::start(base.clone(), status.clone()).unwrap();
+        writer.retain(HistoryRetention::Off).unwrap();
+        drop(writer);
+        assert!(!base.join(KEPT_DIR).exists());
+        assert!(status.runtime_error.lock().unwrap().is_none());
         std::fs::remove_dir_all(base).unwrap();
     }
 }

@@ -331,8 +331,66 @@ impl Default for Trigger {
     }
 }
 
+/// How long recent dictations are kept on this device, so History still has
+/// them after a restart. Kept entries are encrypted with the same account /
+/// Keychain protection as local diagnostics and capped at
+/// [`HistoryRetention::MAX_ENTRIES`].
+///
+/// This governs what is written to disk, never the running session: the
+/// in-memory list works exactly as it always has, and text that could not be
+/// typed stays there until the app quits whatever is chosen here.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum HistoryRetention {
+    /// Nothing is written; History holds this session only.
+    #[serde(rename = "off")]
+    Off,
+    #[serde(rename = "24h")]
+    Day,
+    #[default]
+    #[serde(rename = "7d")]
+    Week,
+}
+
+impl HistoryRetention {
+    /// The same bound as the in-memory session list.
+    pub const MAX_ENTRIES: usize = 50;
+
+    /// Oldest age still kept, or `None` when nothing is kept at all.
+    pub fn max_age_secs(self) -> Option<u64> {
+        match self {
+            Self::Off => None,
+            Self::Day => Some(24 * 60 * 60),
+            Self::Week => Some(7 * 24 * 60 * 60),
+        }
+    }
+
+    pub fn keeps(self) -> bool {
+        self != Self::Off
+    }
+
+    /// The spelling used in `vocalcode.toml` and by the settings page.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Day => "24h",
+            Self::Week => "7d",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        [Self::Off, Self::Day, Self::Week]
+            .into_iter()
+            .find(|retention| retention.as_str() == value)
+    }
+}
+
+// `remote = "Self"` turns the derived code into the inherent functions
+// `Config::serialize` / `Config::deserialize`. The trait impls further down
+// wrap them so that reading a document written by an older release first
+// restores the defaults that release implied by leaving a key out; a plain
+// derived impl would silently hand such a file today's defaults instead.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, remote = "Self")]
 pub struct Config {
     /// Hold-to-talk triggers. Any one of them starts talking.
     ///
@@ -347,7 +405,10 @@ pub struct Config {
     /// the keyboard binding takes over with no detection, no rescan, no state.
     #[serde(deserialize_with = "one_or_many")]
     pub talk: Vec<Trigger>,
-    /// Tap-to-send triggers (types Enter into the target app). Empty = off.
+    /// Tap-to-send triggers (types Enter into the target app). Empty = off,
+    /// which is how a new install starts: first run offers the mouse Back
+    /// button as an explicit, unticked choice. Configs written before v5 that
+    /// leave this out keep the Back button they always had.
     #[serde(deserialize_with = "one_or_many")]
     pub send: Vec<Trigger>,
     /// Keys that grab the current selection into the dictionary. Empty by
@@ -382,9 +443,13 @@ pub struct Config {
     /// Already-inserted phrases are never rewritten. Off = one clean, atomic
     /// insert on release.
     pub live_caption: bool,
-    /// Optional local acoustic gate. Existing installs remain opt-out until
-    /// explicitly enabled. On-release dictation only, independent of language.
-    #[serde(default)]
+    /// Local acoustic gate: a clip with no speech in it is not transcribed.
+    /// On-release dictation only, independent of language.
+    ///
+    /// On for new installs. Without it SenseVoice types junk for fan, keyboard
+    /// or pink noise ("I.", "그.", "我。"); with it, 6 of 7 such clips stayed
+    /// silent. Configs written before v5 that leave it out keep it off, which
+    /// is what they had.
     pub noise_filter: bool,
     /// Legacy opt-in marker, retained across config saves until workflow
     /// preferences can migrate it. A new workflow choice always takes priority.
@@ -463,6 +528,10 @@ pub struct Config {
     /// Mute other system audio while dictating, restored afterwards.
     #[serde(default)]
     pub mute_while_dictating: bool,
+    /// How long History keeps recent dictations on disk. A week for new
+    /// installs; configs written before v5 that leave it out read as `off`,
+    /// the session-only list they always had.
+    pub keep_history: HistoryRetention,
     /// Opt-in spoken formatting, retraction, lists, coding words and style.
     /// Last, so it serialises as the trailing `[writing]` table.
     #[serde(default)]
@@ -473,8 +542,76 @@ fn default_double_tap_lock() -> bool {
     true
 }
 
-/// The current schema version. Bump when an existing key changes meaning.
-pub const CONFIG_VERSION: u32 = 4;
+/// The current schema version. Bump when an existing key changes meaning —
+/// including when leaving a key out starts to mean a different default.
+pub const CONFIG_VERSION: u32 = 5;
+
+/// The first version whose documents mean today's defaults for `send`,
+/// `noise_filter` and `keep_history` when they leave them out.
+const NEW_INSTALL_DEFAULTS_VERSION: u64 = 5;
+
+impl Serialize for Config {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // The inherent, derived function (see `remote = "Self"`).
+        Config::serialize(self, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Config {
+    /// Reads any document, including one from an older release, as that
+    /// release meant it. Every path that reads settings — startup, the
+    /// compare-before-save check, importing another installation's file —
+    /// goes through here, so none can hand an existing user a new default by
+    /// accident.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut document = serde_json::Value::deserialize(deserializer)?;
+        if let serde_json::Value::Object(fields) = &mut document {
+            restore_pre_v5_defaults(fields);
+        }
+        // The inherent, derived function (see `remote = "Self"`).
+        Config::deserialize(&document).map_err(|error| {
+            // Reading from the buffered document loses the parser's position,
+            // so name the offending key instead: a hand-edited file should
+            // still say what is wrong with it.
+            let key = document.as_object().and_then(|fields| {
+                fields.iter().find_map(|(key, value)| {
+                    let alone = serde_json::Value::Object(
+                        [(key.clone(), value.clone())].into_iter().collect(),
+                    );
+                    Config::deserialize(&alone).is_err().then_some(key)
+                })
+            });
+            match key {
+                Some(key) => serde::de::Error::custom(format_args!("`{key}`: {error}")),
+                None => serde::de::Error::custom(error),
+            }
+        })
+    }
+}
+
+/// v5 changed what three omitted keys mean. A document older than that (or
+/// with no version at all) that leaves one out meant the value it would have
+/// been given then, so that value is written back in before the current
+/// defaults can apply. An explicit value is always kept as written.
+fn restore_pre_v5_defaults(fields: &mut serde_json::Map<String, serde_json::Value>) {
+    let version = fields
+        .get("config_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if version >= NEW_INSTALL_DEFAULTS_VERSION {
+        return;
+    }
+    let implied = [
+        ("send", serde_json::to_value(pre_v5_send())),
+        ("noise_filter", Ok(serde_json::Value::Bool(false))),
+        ("keep_history", serde_json::to_value(HistoryRetention::Off)),
+    ];
+    for (key, value) in implied {
+        if let Ok(value) = value {
+            fields.entry(key).or_insert(value);
+        }
+    }
+}
 
 impl Config {
     /// Reject pathological settings before they reach quadratic overlap checks,
@@ -608,6 +745,12 @@ impl Config {
         if self.config_version < 4 && self.language == "zh" && self.model.is_empty() {
             self.model = "sensevoice".to_string();
         }
+        // v4 -> v5: a new install no longer binds the mouse Back button to
+        // Enter, and now gates non-speech noise and keeps a week of encrypted
+        // History. Existing installs keep what they had. That cannot be decided here:
+        // by now an omitted key and an explicit one look the same. It was
+        // decided while reading the document (`restore_pre_v5_defaults`),
+        // which is why nothing is left to do for this step.
         self.config_version = CONFIG_VERSION;
         true
     }
@@ -796,17 +939,24 @@ fn default_talk() -> Vec<Trigger> {
     ]
 }
 
-/// Tap-to-send bindings. Send is a stand-in for a key every keyboard already
-/// has, so it earns a binding exactly where a mouse is the norm and the hand is
-/// already on it — and nothing where it would cost a globally swallowed key to
-/// duplicate a Return key already under the user's finger.
-#[cfg(not(target_os = "macos"))]
+/// Tap-to-send bindings for a new install: none. Send stands in for a key
+/// every keyboard already has, and binding it swallows that button in every
+/// other application — on a mouse, the Back button browsers and file managers
+/// use. First run offers it as an explicit, unticked choice instead.
 fn default_send() -> Vec<Trigger> {
+    Vec::new()
+}
+
+/// What `send` defaulted to before config v5: the mouse Back button on
+/// Windows, where a mouse is the norm and the hand is already on it, and
+/// nothing on macOS. Only an older document that leaves `send` out gets it.
+#[cfg(not(target_os = "macos"))]
+fn pre_v5_send() -> Vec<Trigger> {
     vec![Trigger::MouseButton(MouseExtra::X1)]
 }
 
 #[cfg(target_os = "macos")]
-fn default_send() -> Vec<Trigger> {
+fn pre_v5_send() -> Vec<Trigger> {
     Vec::new()
 }
 
@@ -820,7 +970,7 @@ impl Default for Config {
             paste_insert: false,
             correction_window_ms: default_correction_window_ms(),
             live_caption: false, // default: clean insert on release, no live churn
-            noise_filter: false,
+            noise_filter: true,
             local_diagnostic_history: None,
             cue_sounds: default_cue_sounds(),
             model: String::new(), // resolve after the user's language choice
@@ -838,6 +988,7 @@ impl Default for Config {
             config_version: CONFIG_VERSION,
             double_tap_lock: default_double_tap_lock(),
             mute_while_dictating: false,
+            keep_history: HistoryRetention::default(),
             writing: WritingConfig::default(),
         }
     }
@@ -915,7 +1066,7 @@ mod tests {
     }
 
     #[test]
-    fn acoustic_filter_is_an_independent_opt_in() {
+    fn acoustic_filter_is_independent_and_off_only_for_older_files() {
         let old: Config = toml::from_str("").unwrap();
         assert!(!old.noise_filter);
         let enabled: Config = toml::from_str("noise_filter = true").unwrap();
@@ -1213,7 +1364,10 @@ mod migration_tests {
     #[test]
     fn later_versions_are_untouched() {
         // A config already at the current version is left alone.
-        let mut c: Config = toml::from_str("paste_insert = true\nconfig_version = 4\n").unwrap();
+        let mut c: Config = toml::from_str(&format!(
+            "paste_insert = true\nconfig_version = {CONFIG_VERSION}\n"
+        ))
+        .unwrap();
         assert!(!c.migrate(), "should report no change");
         assert!(c.paste_insert, "a user's own choice must survive");
     }
@@ -1239,7 +1393,7 @@ mod migration_tests {
         assert_eq!(c.talk, vec![Trigger::Key("ControlRight".into())]);
         assert!(c.send.is_empty(), "talk must retain precedence over send");
         assert_eq!(c.teach, vec![Trigger::Key("CapsLock".into())]);
-        assert_eq!(c.config_version, 4);
+        assert_eq!(c.config_version, CONFIG_VERSION);
     }
 
     #[test]
@@ -1275,6 +1429,269 @@ mod migration_tests {
         assert!(c.migrate());
         assert!(c.model.is_empty());
         assert_eq!(c.config_version, CONFIG_VERSION);
+    }
+}
+
+/// v5 changed three defaults for new installs only. Every existing file,
+/// whatever it spells out, must keep behaving as it did.
+#[cfg(test)]
+mod new_install_defaults_tests {
+    use super::*;
+
+    /// Byte-for-byte what VocalCode Community 1.4.0 wrote on first launch.
+    const WRITTEN_BY_1_4_0: &str = r#"teach = []
+min_record_ms = 250
+paste_insert = false
+correction_window_ms = 8000
+live_caption = false
+noise_filter = false
+cue_sounds = true
+model = ""
+language = "auto"
+autostart = false
+smart_meeting_reminders = false
+ignored_meeting_apps = []
+ui_lang = "auto"
+talk_mode = "hold"
+overlay_style = "classic"
+desktop_control = false
+desktop_control_edge = "bottom"
+onboarded = false
+config_version = 4
+double_tap_lock = true
+mute_while_dictating = false
+
+[[talk]]
+mouse_button = "x2"
+
+[[talk]]
+key = "ControlRight"
+
+[[send]]
+mouse_button = "x1"
+
+[writing]
+commands = false
+backtrack = false
+lists = false
+code = false
+press_enter = false
+style = "formal"
+
+[writing.app_styles]
+"#;
+
+    fn old_send() -> Vec<Trigger> {
+        if cfg!(target_os = "macos") {
+            Vec::new()
+        } else {
+            vec![Trigger::MouseButton(MouseExtra::X1)]
+        }
+    }
+
+    fn assert_old_behaviour(config: &Config, context: &str) {
+        assert_eq!(config.send, old_send(), "{context}: send");
+        assert!(!config.noise_filter, "{context}: noise_filter");
+        assert_eq!(
+            config.keep_history,
+            HistoryRetention::Off,
+            "{context}: keep_history"
+        );
+    }
+
+    /// Drop every line that sets one of `keys`, and the table header of an
+    /// array-of-tables entry for them.
+    fn without(source: &str, keys: &[&str]) -> String {
+        let mut out = String::new();
+        let mut skipping = false;
+        for line in source.lines() {
+            let header = line.trim_start_matches('[').trim_end_matches(']');
+            if line.starts_with('[') {
+                skipping = keys.contains(&header);
+                if skipping {
+                    continue;
+                }
+            }
+            let key = line.split('=').next().unwrap_or("").trim();
+            if skipping || keys.contains(&key) {
+                continue;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn a_new_install_gets_the_new_defaults() {
+        let fresh = Config::default();
+        assert!(fresh.send.is_empty(), "no mouse button is taken by default");
+        assert!(fresh.noise_filter, "the speech gate is on");
+        assert_eq!(fresh.keep_history, HistoryRetention::Week);
+        assert_eq!(fresh.config_version, CONFIG_VERSION);
+
+        // What a new install writes reads back as itself.
+        let text = toml::to_string_pretty(&fresh).unwrap();
+        assert!(text.contains("keep_history = \"7d\""), "{text}");
+        assert!(text.contains("noise_filter = true"), "{text}");
+        let back: Config = toml::from_str(&text).unwrap();
+        assert!(back.send.is_empty());
+        assert!(back.noise_filter);
+        assert_eq!(back.keep_history, HistoryRetention::Week);
+    }
+
+    #[test]
+    fn a_current_file_that_leaves_them_out_means_the_new_defaults() {
+        let c: Config = toml::from_str(&format!("config_version = {CONFIG_VERSION}\n")).unwrap();
+        assert!(c.send.is_empty());
+        assert!(c.noise_filter);
+        assert_eq!(c.keep_history, HistoryRetention::Week);
+    }
+
+    #[test]
+    fn the_file_1_4_0_wrote_keeps_its_behaviour_through_migration_and_save() {
+        let mut c: Config = toml::from_str(WRITTEN_BY_1_4_0).unwrap();
+        assert_eq!(c.config_version, 4);
+        // 1.4.0 spelled the Back button out on every platform it bound it.
+        assert_eq!(c.send, vec![Trigger::MouseButton(MouseExtra::X1)]);
+        assert!(!c.noise_filter);
+        assert_eq!(c.keep_history, HistoryRetention::Off);
+
+        assert!(c.migrate());
+        assert_eq!(c.config_version, CONFIG_VERSION);
+        assert_eq!(c.send, vec![Trigger::MouseButton(MouseExtra::X1)]);
+        assert!(!c.noise_filter);
+        assert_eq!(c.keep_history, HistoryRetention::Off);
+
+        // The first Settings save writes v5 with the old values spelled out,
+        // so they no longer depend on reading an old document.
+        let saved = toml::to_string_pretty(&c).unwrap();
+        assert!(saved.contains("keep_history = \"off\""), "{saved}");
+        assert!(saved.contains("noise_filter = false"), "{saved}");
+        let mut back: Config = toml::from_str(&saved).unwrap();
+        assert!(!back.migrate(), "already current");
+        assert_eq!(back.send, vec![Trigger::MouseButton(MouseExtra::X1)]);
+        assert!(!back.noise_filter);
+        assert_eq!(back.keep_history, HistoryRetention::Off);
+    }
+
+    #[test]
+    fn older_files_that_leave_the_keys_out_keep_the_old_defaults() {
+        let bare = without(WRITTEN_BY_1_4_0, &["send", "noise_filter"]);
+        assert!(
+            !bare.contains("x1") && !bare.contains("noise_filter"),
+            "{bare}"
+        );
+        let mut c: Config = toml::from_str(&bare).unwrap();
+        assert_old_behaviour(&c, "1.4.0 file without the keys");
+        c.migrate();
+        assert_old_behaviour(&c, "1.4.0 file without the keys, migrated");
+
+        // Every earlier schema, including files with no version at all.
+        for version in [None, Some(0), Some(1), Some(2), Some(3), Some(4)] {
+            let source = match version {
+                Some(version) => format!("language = \"en\"\nconfig_version = {version}\n"),
+                None => "language = \"en\"\n".to_string(),
+            };
+            let mut c: Config = toml::from_str(&source).unwrap();
+            assert_old_behaviour(&c, &source);
+            c.migrate();
+            assert_old_behaviour(&c, &source);
+            let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+            assert_old_behaviour(&back, &source);
+        }
+    }
+
+    #[test]
+    fn explicit_values_in_older_files_are_kept_as_written() {
+        for version in ["", "config_version = 2\n", "config_version = 4\n"] {
+            let source = format!(
+                "{version}send = []\nnoise_filter = true\nkeep_history = \"24h\"\nlanguage = \"en\"\n"
+            );
+            let mut c: Config = toml::from_str(&source).unwrap();
+            c.migrate();
+            assert!(c.send.is_empty(), "{source}");
+            assert!(c.noise_filter, "an explicit opt-in survives: {source}");
+            assert_eq!(c.keep_history, HistoryRetention::Day, "{source}");
+
+            let source = format!("{version}send = [{{ key = \"F13\" }}]\nnoise_filter = false\n");
+            let c: Config = toml::from_str(&source).unwrap();
+            assert_eq!(c.send, vec![Trigger::Key("F13".into())], "{source}");
+            assert!(!c.noise_filter, "{source}");
+        }
+    }
+
+    /// The "Import from the previous VocalCode" flow reads the other
+    /// installation's file as a table (to learn which keys it spells out) and
+    /// as a `Config`, then migrates it. Its explicit values must arrive
+    /// exactly as written, and its omitted keys must mean what they meant.
+    #[test]
+    fn an_imported_older_file_goes_through_the_same_migration() {
+        let source = without(WRITTEN_BY_1_4_0, &["noise_filter"]);
+        let written: toml::Table = toml::from_str(&source).unwrap();
+        let mut config: Config = toml::from_str(&source).unwrap();
+        config.validate_bounds().unwrap();
+        config.migrate();
+        assert!(written.contains_key("send"));
+        assert_eq!(config.send, vec![Trigger::MouseButton(MouseExtra::X1)]);
+        assert!(!written.contains_key("noise_filter"));
+        assert!(
+            !config.noise_filter,
+            "omitted in an old file: the old default"
+        );
+        assert!(!written.contains_key("keep_history"));
+        assert_eq!(config.keep_history, HistoryRetention::Off);
+    }
+
+    #[test]
+    fn history_retention_spellings_round_trip_and_nothing_else_parses() {
+        for retention in [
+            HistoryRetention::Off,
+            HistoryRetention::Day,
+            HistoryRetention::Week,
+        ] {
+            assert_eq!(HistoryRetention::parse(retention.as_str()), Some(retention));
+            let c = Config {
+                keep_history: retention,
+                ..Config::default()
+            };
+            let back: Config = toml::from_str(&toml::to_string_pretty(&c).unwrap()).unwrap();
+            assert_eq!(back.keep_history, retention);
+        }
+        assert_eq!(HistoryRetention::Off.max_age_secs(), None);
+        assert_eq!(HistoryRetention::Day.max_age_secs(), Some(86_400));
+        assert_eq!(HistoryRetention::Week.max_age_secs(), Some(604_800));
+        assert!(!HistoryRetention::Off.keeps() && HistoryRetention::Week.keeps());
+        for bad in [
+            "keep_history = \"30d\"",
+            "keep_history = 7",
+            "keep_history = \"\"",
+        ] {
+            assert!(toml::from_str::<Config>(bad).is_err(), "{bad}");
+            assert!(
+                toml::from_str::<Config>(&format!("config_version = 5\n{bad}")).is_err(),
+                "{bad}"
+            );
+        }
+        assert_eq!(HistoryRetention::parse("forever"), None);
+    }
+
+    /// Reading through the migration must not make a broken file look valid
+    /// or hide what is wrong with it.
+    #[test]
+    fn invalid_documents_are_still_rejected_with_the_reason() {
+        let error = toml::from_str::<Config>("language = 'en'\nnoise_filter = 'true'")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("expected a boolean"), "{error}");
+        assert!(error.contains("`noise_filter`"), "{error}");
+        let error = toml::from_str::<Config>("send = 'x1'")
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("`send`"), "{error}");
+        assert!(toml::from_str::<Config>("config_version = 'five'").is_err());
+        assert!(toml::from_str::<Config>("config_version = -1").is_err());
+        assert!(toml::from_str::<Config>("min_record_ms = 250.5").is_err());
     }
 }
 
