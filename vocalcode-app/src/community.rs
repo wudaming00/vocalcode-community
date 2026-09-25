@@ -11,21 +11,89 @@
 //! are. The early free builds, published as "VocalCode Community" 1.3.1 and
 //! 1.4.0, had an identity of their own; [`early`] names it so this build can
 //! import from that folder and tell whether that app is still running.
+//!
+//! Only a packaging build carries that installed identity ([`release`]). Any
+//! other build (`cargo build`, `cargo run`, QA and diagnostic builds) uses
+//! [`development`]: its own data folder, login item and running-copy names,
+//! so running it on a computer with VocalCode installed never reads or
+//! rewrites that installation's settings. That matters beyond tidiness: once
+//! this build saves settings, paid VocalCode 1.2.1 and earlier refuse to start
+//! with that folder (its config version is newer than theirs).
 
 pub const ENABLED: bool = cfg!(feature = "community");
-pub const DATA_DIR_NAME: &str = "VocalCode";
+
+/// True only in a binary built with `VOCALCODE_RELEASE_IDENTITY=1` in the
+/// compiler's environment, which the packaging build sets (see BUILDING.md).
+/// Decided at compile time, never from the environment at run time.
+pub const RELEASE_IDENTITY: bool =
+    release_identity_requested(option_env!("VOCALCODE_RELEASE_IDENTITY"));
+
+const fn release_identity_requested(value: Option<&str>) -> bool {
+    match value {
+        Some(value) => matches!(value.as_bytes(), [b'1']),
+        None => false,
+    }
+}
+
+const fn pick(release: &'static str, development: &'static str) -> &'static str {
+    if RELEASE_IDENTITY {
+        release
+    } else {
+        development
+    }
+}
+
+/// The installed app's identity, exactly as the paid releases (up to 1.2.1)
+/// installed: their data folder, login item, bundle identifier, lifecycle
+/// locks and the running-copy mutex their installer and updater wait on.
+pub mod release {
+    pub const DATA_DIR_NAME: &str = "VocalCode";
+    #[cfg(any(test, windows))]
+    pub const AUTOSTART_NAME: &str = "VocalCode";
+    #[cfg(any(test, target_os = "macos"))]
+    pub const BUNDLE_ID: &str = "app.vocalcode.VocalCode";
+    pub const DATA_LOCK_NAME: &str = ".vocalcode-data-lifecycle.lock";
+    pub const TRANSITION_LOCK_NAME: &str = ".vocalcode-data-transition.lock";
+    #[cfg(windows)]
+    pub const INSTALLER_MUTEX: &str = r"Local\VocalCode.Desktop";
+}
+
+/// Every build that is not a packaging build. Distinct in each name that
+/// could reach an installed VocalCode: a different bundle identifier also
+/// makes the macOS updater refuse to replace an installed app from here, and
+/// the Windows installer refuses an update whose relaunch target is not the
+/// installed VocalCode.exe.
+pub mod development {
+    pub const DATA_DIR_NAME: &str = "VocalCode Dev";
+    #[cfg(any(test, windows))]
+    pub const AUTOSTART_NAME: &str = "VocalCodeDev";
+    #[cfg(any(test, target_os = "macos"))]
+    pub const BUNDLE_ID: &str = "app.vocalcode.VocalCode.dev";
+    pub const DATA_LOCK_NAME: &str = ".vocalcode-dev-data-lifecycle.lock";
+    pub const TRANSITION_LOCK_NAME: &str = ".vocalcode-dev-data-transition.lock";
+    #[cfg(windows)]
+    pub const INSTALLER_MUTEX: &str = r"Local\VocalCode.Dev.Desktop";
+}
+
+pub const DATA_DIR_NAME: &str = pick(release::DATA_DIR_NAME, development::DATA_DIR_NAME);
 #[cfg(any(test, windows))]
-pub const AUTOSTART_NAME: &str = "VocalCode";
+pub const AUTOSTART_NAME: &str = pick(release::AUTOSTART_NAME, development::AUTOSTART_NAME);
 #[cfg(any(test, target_os = "macos"))]
-pub const BUNDLE_ID: &str = "app.vocalcode.VocalCode";
+pub const BUNDLE_ID: &str = pick(release::BUNDLE_ID, development::BUNDLE_ID);
+/// The bundle a paid VocalCode's updater downloads and swaps in. A
+/// development build is never that bundle, and its own bundle identifier
+/// keeps its updater from replacing one.
 #[cfg(any(test, target_os = "macos"))]
 pub const BUNDLE_NAME: &str = "VocalCode.app";
 #[cfg(any(test, target_os = "macos"))]
 pub const UPDATE_STEM: &str = ".VocalCode-update";
-pub const DATA_LOCK_NAME: &str = ".vocalcode-data-lifecycle.lock";
-pub const TRANSITION_LOCK_NAME: &str = ".vocalcode-data-transition.lock";
+pub const DATA_LOCK_NAME: &str = pick(release::DATA_LOCK_NAME, development::DATA_LOCK_NAME);
+pub const TRANSITION_LOCK_NAME: &str = pick(
+    release::TRANSITION_LOCK_NAME,
+    development::TRANSITION_LOCK_NAME,
+);
 #[cfg(windows)]
-pub const INSTALLER_MUTEX: &str = r"Local\VocalCode.Desktop";
+pub const INSTALLER_MUTEX: &str = pick(release::INSTALLER_MUTEX, development::INSTALLER_MUTEX);
 /// Shown where the paid build showed its plan.
 pub const LABEL: &str = "Free and open source (AGPL-3.0)";
 pub const ACTIVATION_NOTICE: &str = "VocalCode is free: there is nothing to buy or activate.";
@@ -200,15 +268,96 @@ mod tests {
     /// the same data folder, login item, bundle and running-copy name.
     #[test]
     fn identity_is_the_one_paid_installations_already_have() {
-        assert_eq!(DATA_DIR_NAME, "VocalCode");
-        assert_eq!(AUTOSTART_NAME, "VocalCode");
-        assert_eq!(BUNDLE_ID, "app.vocalcode.VocalCode");
+        assert_eq!(release::DATA_DIR_NAME, "VocalCode");
+        assert_eq!(release::AUTOSTART_NAME, "VocalCode");
+        assert_eq!(release::BUNDLE_ID, "app.vocalcode.VocalCode");
         assert_eq!(BUNDLE_NAME, "VocalCode.app");
         assert_eq!(UPDATE_STEM, ".VocalCode-update");
-        assert_eq!(DATA_LOCK_NAME, ".vocalcode-data-lifecycle.lock");
-        assert_eq!(TRANSITION_LOCK_NAME, ".vocalcode-data-transition.lock");
+        assert_eq!(release::DATA_LOCK_NAME, ".vocalcode-data-lifecycle.lock");
+        assert_eq!(
+            release::TRANSITION_LOCK_NAME,
+            ".vocalcode-data-transition.lock"
+        );
         #[cfg(windows)]
-        assert_eq!(INSTALLER_MUTEX, r"Local\VocalCode.Desktop");
+        assert_eq!(release::INSTALLER_MUTEX, r"Local\VocalCode.Desktop");
+    }
+
+    /// Only `VOCALCODE_RELEASE_IDENTITY=1` at compile time selects the
+    /// installed identity; anything else is a development build.
+    #[test]
+    fn only_a_packaging_build_has_the_installed_identity() {
+        assert!(release_identity_requested(Some("1")));
+        for value in [
+            None,
+            Some(""),
+            Some("0"),
+            Some("true"),
+            Some("1 "),
+            Some("11"),
+        ] {
+            assert!(!release_identity_requested(value), "{value:?}");
+        }
+        let (data, autostart, bundle, lock, transition) = if RELEASE_IDENTITY {
+            (
+                release::DATA_DIR_NAME,
+                release::AUTOSTART_NAME,
+                release::BUNDLE_ID,
+                release::DATA_LOCK_NAME,
+                release::TRANSITION_LOCK_NAME,
+            )
+        } else {
+            (
+                development::DATA_DIR_NAME,
+                development::AUTOSTART_NAME,
+                development::BUNDLE_ID,
+                development::DATA_LOCK_NAME,
+                development::TRANSITION_LOCK_NAME,
+            )
+        };
+        assert_eq!(DATA_DIR_NAME, data);
+        assert_eq!(AUTOSTART_NAME, autostart);
+        assert_eq!(BUNDLE_ID, bundle);
+        assert_eq!(DATA_LOCK_NAME, lock);
+        assert_eq!(TRANSITION_LOCK_NAME, transition);
+        #[cfg(windows)]
+        assert_eq!(
+            INSTALLER_MUTEX,
+            if RELEASE_IDENTITY {
+                release::INSTALLER_MUTEX
+            } else {
+                development::INSTALLER_MUTEX
+            }
+        );
+    }
+
+    /// A development build shares no name with the installed app or with the
+    /// early free builds, so it can never read, lock or relaunch either.
+    #[test]
+    fn a_development_build_shares_no_name_with_an_installation() {
+        let pairs = [
+            (development::DATA_DIR_NAME, release::DATA_DIR_NAME),
+            (development::AUTOSTART_NAME, release::AUTOSTART_NAME),
+            (development::BUNDLE_ID, release::BUNDLE_ID),
+            (development::DATA_LOCK_NAME, release::DATA_LOCK_NAME),
+            (
+                development::TRANSITION_LOCK_NAME,
+                release::TRANSITION_LOCK_NAME,
+            ),
+            (development::DATA_DIR_NAME, early::DATA_DIR_NAME),
+            (development::AUTOSTART_NAME, early::AUTOSTART_NAME),
+            (development::BUNDLE_ID, early::BUNDLE_ID),
+        ];
+        for (development, installed) in pairs {
+            assert!(
+                !development.eq_ignore_ascii_case(installed),
+                "{development}"
+            );
+        }
+        #[cfg(windows)]
+        {
+            assert_ne!(development::INSTALLER_MUTEX, release::INSTALLER_MUTEX);
+            assert_ne!(development::INSTALLER_MUTEX, early::MUTEX);
+        }
     }
 
     #[test]
@@ -218,9 +367,9 @@ mod tests {
         assert_eq!(early::EXECUTABLE, "VocalCodeCommunity.exe");
         assert_eq!(early::MUTEX, r"Local\VocalCode.Community.Desktop");
         assert_eq!(early::BUNDLE_ID, "app.vocalcode.Community");
-        assert_ne!(early::DATA_DIR_NAME, DATA_DIR_NAME);
-        assert_ne!(early::AUTOSTART_NAME, AUTOSTART_NAME);
-        assert_ne!(early::BUNDLE_ID, BUNDLE_ID);
+        assert_ne!(early::DATA_DIR_NAME, release::DATA_DIR_NAME);
+        assert_ne!(early::AUTOSTART_NAME, release::AUTOSTART_NAME);
+        assert_ne!(early::BUNDLE_ID, release::BUNDLE_ID);
     }
 
     #[test]

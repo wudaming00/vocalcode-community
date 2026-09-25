@@ -67,10 +67,14 @@ cd vocalcode-community
 cargo build -p vocalcode-app --release --locked --features community
 ```
 
-`community` 构建选项（默认开启）即免费版本，显式写出只是为了清楚。
+`community` 构建选项（默认开启）即免费版本，显式写出只是为了清楚。自行构建的是开发版：
+它有自己的数据文件夹（`VocalCode Dev`）和开机启动项，不会读取或改动已安装 VocalCode 的数据，
+详见 [构建文档](BUILDING.md#development-builds-and-an-installed-vocalcode)。
 
 **从旧版 VocalCode 过来。** VocalCode 安装在付费版（1.2.1 及更早）原来的位置，并使用同一个数据
 文件夹，所以装在付费版上面会原地替换它，设置、词典、会议记录和已下载的模型都原样保留，无需导入。
+如果付费版是用 Scoop 安装的，请先运行 `scoop uninstall vocalcode`（数据文件夹会保留），再安装 VocalCode：
+Scoop 解包的副本无法原地更新，它的更新会失败且不改动任何东西。如果之前开启了开机启动，请在 VocalCode 里重新打开。
 早期免费版 VocalCode Community 1.3.1 和 1.4.0 是单独安装的：Windows 安装程序会卸载它并保留它的
 数据文件夹，在 **设置 → 系统 → 旧版 VocalCode** 里可以选择要复制过来的内容。
 不要同时运行两个副本，否则每次听写都会被输入两遍。

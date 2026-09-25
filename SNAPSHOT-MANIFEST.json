@@ -42,13 +42,13 @@
     },
     {
       "path": ".github/workflows/community-ci.yml",
-      "bytes": 11393,
-      "sha256": "0ac628b0f8ae3d3793fbe57a60eb3de8b601d88990f81cc76fc58ed662cf9ea1"
+      "bytes": 11678,
+      "sha256": "869d5c8cb3367d1fff232974e5472277cf78d4e93d94c3b7b17fe08ee3cfee8a"
     },
     {
       "path": ".github/workflows/community-release.yml",
-      "bytes": 11579,
-      "sha256": "b2d5e389a8c0916bc8b2859d9b0232cbd9487ab6c4865b1a07895d39a28dcb2c"
+      "bytes": 11967,
+      "sha256": "155c8b03ac6c6a5a636d0311eed4423595bf3d7f62546b36621f4f864d78df73"
     },
     {
       "path": ".gitignore",
@@ -62,8 +62,8 @@
     },
     {
       "path": "BUILDING.md",
-      "bytes": 13118,
-      "sha256": "3174c0845d3a414187451927158354ac33de2ea9911ac9209e655b504d56c084"
+      "bytes": 15930,
+      "sha256": "c3c654afe38b1e1dd8deb82b1e720263afde8050d004510d5a260ab753ef3c08"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -102,13 +102,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 12856,
-      "sha256": "e4e60c4983548031ca25fb590cabbe7ccdaa84d81fbc75797cbca25e6cac3cf4"
+      "bytes": 13405,
+      "sha256": "64d2051e6502ce107535f51da616891f4d879cfbf8250428c1b646a9ec42381f"
     },
     {
       "path": "README.zh-CN.md",
-      "bytes": 8974,
-      "sha256": "f533b5edbce89c0e7d3bf27fbd4d8e90b240dfe4481dbee59b2ce212078b81ba"
+      "bytes": 9512,
+      "sha256": "9d1f0f0759a313f9e8068327f15e90c85ad8e5620bdaa7b765783d14185383a3"
     },
     {
       "path": "ROADMAP.md",
@@ -242,8 +242,8 @@
     },
     {
       "path": "THIRD-PARTY-LICENSES/Microsoft-Visual-Cpp-Runtime-NOTICE.txt",
-      "bytes": 1109,
-      "sha256": "6e816c889b3b7e559f9878f99376ab9db49b6af0529a1bb8e17c6ab2b1eb950a"
+      "bytes": 1099,
+      "sha256": "7d95625793fef88cbf3aee8a337846c7e2bc747f9506851a35996b65eb5f13de"
     },
     {
       "path": "THIRD-PARTY-LICENSES/NlohmannJson-LICENSE.MIT.txt",
@@ -392,13 +392,13 @@
     },
     {
       "path": "packaging/community/RELEASE-NOTES.md",
-      "bytes": 4621,
-      "sha256": "f6eefe385cd089d704c517e8bb7a3bfd0deab2c2fed8f0f44b87f9df4bf0dbd2"
+      "bytes": 6723,
+      "sha256": "fe99d0a989e01403452032379f412c1c06d72b5bc691324ca341ca563e4e5626"
     },
     {
       "path": "packaging/community/e2e-windows.ps1",
-      "bytes": 25317,
-      "sha256": "9a13a91db0c8db4fc73b35d606ae17a36e1f22125a650c0b25bc8232c628b748"
+      "bytes": 30427,
+      "sha256": "6c14706590d15060ae1c1af519776822969c88aed3197815dfec8339b81d1021"
     },
     {
       "path": "packaging/community/e2e/community-1.4.0/activity.json",
@@ -467,8 +467,8 @@
     },
     {
       "path": "packaging/community/release.py",
-      "bytes": 15184,
-      "sha256": "a5e82eeee29620af6130ac1fd776c72858926171538763928bc1b556a7e5f208"
+      "bytes": 18276,
+      "sha256": "02a00936a5f31f41b8dc9e147444c50e0f4a992c91ad669bb4c62e0b03ff8a18"
     },
     {
       "path": "packaging/community/source-manifest.mjs",
@@ -487,18 +487,18 @@
     },
     {
       "path": "packaging/community/test_release.py",
-      "bytes": 9479,
-      "sha256": "b9e6182ad9ad9ede21ddea54fba9c6e1e5ef79e4f41fa90465be0557f2180901"
+      "bytes": 13787,
+      "sha256": "696d7045a31519f756fd597db42896d8a8b869a3a7100b1702ac8ab4f61f5ab8"
     },
     {
       "path": "packaging/community/windows.iss",
-      "bytes": 10578,
-      "sha256": "1821ef0b71bdda69c5812d27af974fcba4704aa9ffe6def2f8943d94fdc825d5"
+      "bytes": 12727,
+      "sha256": "e03308836607dfda58e2118999c563355ad3b2abb12a9be960730ab14e4eec2d"
     },
     {
       "path": "packaging/community/windows.ps1",
-      "bytes": 10216,
-      "sha256": "d8b1c0849528daca954b5bb03ca1bbb649bd8b6ff4ad68626cc92a3c757e4165"
+      "bytes": 10651,
+      "sha256": "bac42502d972edf1bdaf689db5cc242937c6244f0a11e7297bd4b84b05946e5a"
     },
     {
       "path": "packaging/deliver/receipt-contract-fixture.json",
@@ -1242,8 +1242,8 @@
     },
     {
       "path": "vocalcode-app/src/community.rs",
-      "bytes": 11049,
-      "sha256": "3c945b2bceaadeaeb516c9eb84c10cc5067f7164254dbff8d3e53fcdbc7ec6a9"
+      "bytes": 17144,
+      "sha256": "6a24981c1d15dab23f1c8295725fc2a8863ec58aa621aa562bb8b949539d2327"
     },
     {
       "path": "vocalcode-app/src/control_bar.html",
@@ -1297,8 +1297,8 @@
     },
     {
       "path": "vocalcode-app/src/main.rs",
-      "bytes": 390709,
-      "sha256": "01832231fc40b14cbe55b133f52e26b5affa055ba4a88ec7e7ea89adebe433c6"
+      "bytes": 391259,
+      "sha256": "458a4d47ee8d414d61aa4ac2e1e2d555ab39ed4e15913e56c0e838304bd024df"
     },
     {
       "path": "vocalcode-app/src/meeting.rs",
@@ -1362,8 +1362,8 @@
     },
     {
       "path": "vocalcode-app/src/paths.rs",
-      "bytes": 77874,
-      "sha256": "95cf33ef08c2793cbde3ae68508bdf878ec813dfeba3c15ee3d9543e8eba669b"
+      "bytes": 77905,
+      "sha256": "af0a2378ebf5504186aa94cd8e672a658507d5b67fcf2847b1d3a593b33ec15d"
     },
     {
       "path": "vocalcode-app/src/rewrite.rs",

@@ -33,6 +33,49 @@ WINDOWS_INSTALLER = "VocalCodeSetup.exe"
 
 def dmg_name(value: str) -> str:
     return f"VocalCode-{value}.dmg"
+
+
+def source_archive_name(value: str) -> str:
+    return f"VocalCode-source-{value}.tar.gz"
+
+
+# Published word for word as the GitHub release body (community-release.yml).
+RELEASE_NOTES = Path("packaging/community/RELEASE-NOTES.md")
+
+
+def release_notes_problems(text: str, current: str | None = None) -> list[str]:
+    """Why RELEASE-NOTES.md cannot be this release's body, or [] when it can.
+
+    One product, VocalCode: the title, the three asset names the release
+    attaches, and "Community" (or 社区版) only where the early free builds,
+    VocalCode Community 1.3.1 and 1.4.0, are named. With `current`, the notes
+    must also have that version's "## New in" section, so a release cannot
+    ship the previous release's notes."""
+    problems = []
+    lines = text.splitlines()
+    if not lines or lines[0] != "# VocalCode":
+        problems.append('the title must be "# VocalCode"')
+    for name in (WINDOWS_INSTALLER, dmg_name("<version>"), source_archive_name("<version>")):
+        if f"`{name}`" not in text:
+            problems.append(f"the downloads must name `{name}`")
+    for legacy in ("VocalCodeCommunitySetup", "VocalCodeCommunity-"):
+        if legacy in text:
+            problems.append(f"{legacy} is an early build's asset, not this release's")
+    flat = " ".join(text.split())
+    for match in re.finditer(r"Community|社区版", flat):
+        before, after = flat[:match.start()], flat[match.end():]
+        early = (before.endswith("VocalCode ") and after.startswith(" 1.3.1")) if match.group() == "Community" \
+            else "1.3.1" in after[:8]
+        if not early:
+            problems.append(f"'{match.group()}' names something other than the early builds 1.3.1 and 1.4.0: "
+                            f"…{flat[max(0, match.start() - 30):match.end() + 30]}…")
+    if not re.search(r"^## New in \d+\.\d+\.\d+$", text, re.MULTILINE):
+        problems.append('the notes need a "## New in <version>" section')
+    if current is not None and f"## New in {current}" not in lines:
+        problems.append(f'the notes have no "## New in {current}" section for this release')
+    return problems
+
+
 RUNTIMES = ("libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib", "libsherpa-onnx-cxx-api.dylib")
 
 
@@ -41,6 +84,12 @@ def version() -> str:
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", value):
         raise ValueError("stable versions must be canonical X.Y.Z")
     return value
+
+
+def has_release_identity(build_info: dict) -> bool:
+    """Only a binary built with VOCALCODE_RELEASE_IDENTITY=1 uses the installed
+    app's data folder, login item and bundle identifier (community.rs)."""
+    return build_info.get("identity") == "release" and build_info.get("data_directory") == "VocalCode"
 
 
 def run(*args: str | Path, timeout: int = 180, env=None) -> str:
@@ -107,6 +156,8 @@ def build_macos() -> None:
     info = json.loads(run(contents / "MacOS" / EXECUTABLE, "--build-info"))
     if info.get("edition") != "community" or info.get("version") != version():
         raise ValueError("bundle is not the expected runnable free build")
+    if not has_release_identity(info):
+        raise ValueError("bundle holds a development build; build it with VOCALCODE_RELEASE_IDENTITY=1")
     run("/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", volume, ROOT / "dist-community/macos-unsigned.zip")
 
 
@@ -256,10 +307,19 @@ def verify_macos() -> None:
             build = json.loads(run(app / "Contents/MacOS" / EXECUTABLE, "--build-info"))
             if build.get("edition") != "community" or build.get("version") != version():
                 raise ValueError("signed app is not runnable or has the wrong edition")
+            if not has_release_identity(build):
+                raise ValueError("signed app is a development build")
         finally:
             run("/usr/bin/hdiutil", "detach", mount)
     print("DMG and app signature, notarization, identity and actual executable linkage verified "
           "as a paid VocalCode's updater verifies them.")
+
+
+def check_notes() -> None:
+    problems = release_notes_problems((ROOT / RELEASE_NOTES).read_text(encoding="utf-8"), version())
+    if problems:
+        raise SystemExit("RELEASE-NOTES.md is not the body for VocalCode " + version() + ":\n- " + "\n- ".join(problems))
+    print(f"RELEASE-NOTES.md is the release body for VocalCode {version()}.")
 
 
 def manifest() -> None:
@@ -274,7 +334,7 @@ def manifest() -> None:
     for platform, name in names.items():
         data[platform] = {"version": value, "url": f"https://github.com/{REPOSITORY}/releases/download/v{value}/{name}", **file_record(output / name)}
     (output / "latest.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    source = output / f"VocalCode-source-{value}.tar.gz"
+    source = output / source_archive_name(value)
     run("git", "archive", "--format=tar.gz", f"--prefix=VocalCode-{value}/", f"--output={source}", commit)
     lines = [f"{file_record(path)['sha256']}  {path.name}" for path in sorted(output.iterdir()) if path.is_file() and path.name != "SHA256SUMS"]
     (output / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -282,7 +342,7 @@ def manifest() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=("version", "build-macos", "sign-macos", "verify-macos", "manifest"))
+    parser.add_argument("command", choices=("version", "check-notes", "build-macos", "sign-macos", "verify-macos", "manifest"))
     arguments = parser.parse_args()
-    {"version": lambda: print(version()), "build-macos": build_macos, "sign-macos": sign_macos,
-     "verify-macos": verify_macos, "manifest": manifest}[arguments.command]()
+    {"version": lambda: print(version()), "check-notes": check_notes, "build-macos": build_macos,
+     "sign-macos": sign_macos, "verify-macos": verify_macos, "manifest": manifest}[arguments.command]()

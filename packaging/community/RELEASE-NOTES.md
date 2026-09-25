@@ -1,8 +1,8 @@
-# VocalCode Community
+# VocalCode
 
-Free, local-first dictation and meeting notes under AGPL-3.0-only. No purchase,
-account or activation code is required. Recognition runs on your CPU after
-the selected model downloads.
+Free, local-first dictation and meeting notes, open source under
+AGPL-3.0-only. There is nothing to buy: no purchase, account or activation
+code. Recognition runs on your CPU after the selected model downloads.
 
 ## New in 1.4.0
 
@@ -37,25 +37,45 @@ the selected model downloads.
 
 ## Downloads
 
-- Windows x64: `VocalCodeCommunitySetup.exe` (publisher: Daming Wu).
-- Apple-silicon macOS: `VocalCodeCommunity-<version>.dmg` (signed and notarized).
-- Exact Corresponding Source: the attached versioned source archive.
+- Windows x64: `VocalCodeSetup.exe` (publisher: Daming Wu).
+- Apple-silicon macOS: `VocalCode-<version>.dmg` (signed and notarized).
+- Exact Corresponding Source: `VocalCode-source-<version>.tar.gz`.
 - `SHA256SUMS`: hashes of release assets; `latest.json`: the app's update feed.
 
-Community installs separately from the previous paid edition, with its own
-data folder, startup entry and update channel. Existing data is neither moved
-nor deleted. Close the other edition before dictating to avoid two global
-hotkey listeners. Dictionary/snippets can be exported and imported explicitly.
+## Installing over an earlier VocalCode
 
-The first community installer has automated installation, upgrade, signature,
-notarization, native-linkage and data-preservation checks. Actual microphone,
-system-audio, meeting and accessibility behavior still depends on the device
-and operating-system permissions; these checks do not promise perfect speech
-recognition or replace broad native-device testing.
+VocalCode is now a single free app. It installs where the paid VocalCode
+releases (1.2.1 and earlier) were installed and uses the same data folder, so
+it replaces such an installation in place: settings, dictionary, snippets,
+meetings and downloaded models stay where they are, and nothing needs
+importing. A paid release whose licence or trial is still active offers this
+version as an in-app update; otherwise run the installer over it (on a Mac,
+replace VocalCode.app in Applications). The paid licence and trial files are
+left where they are, and VocalCode never reads them. Uninstalling VocalCode
+later keeps your data folder.
 
-Community updates use GitHub Releases and still verify exact sizes/hashes and
-the expected platform publisher and product identity before installation.
-The previous paid updater does not silently migrate users to this edition.
+A paid VocalCode installed with Scoop cannot update itself this way: run
+`scoop uninstall vocalcode`, then install from this page.
+
+The early free builds, VocalCode Community 1.3.1 and 1.4.0, were a separate
+app. On Windows, the installer uninstalls VocalCode Community 1.3.1 or 1.4.0
+and keeps its data folder; **Settings → System → Previous VocalCode** copies
+what you choose from it. On a Mac, remove VocalCode Community 1.3.1 or 1.4.0
+yourself. Those builds cannot update to this version in the app: download it
+from this page once. Don't run two copies at once: each would type every
+dictation.
+
+## Checks
+
+Before publication, every release is tested for installation, upgrade,
+signatures, notarization, native linkage and data preservation, and on
+Windows for an in-place update of a real paid VocalCode 1.2.1 through its own
+updater. Actual microphone, system-audio, meeting and accessibility behavior
+still depends on the device and operating-system permissions; these checks do
+not promise perfect speech recognition or replace broad native-device testing.
+
+VocalCode updates from this project's GitHub Releases and verifies the exact
+size, SHA-256, publisher signature and product identity before installing.
 
 ## 中文
 
@@ -66,9 +86,20 @@ The previous paid updater does not silently migrate users to this edition.
 不再把换行当回车发出半句话；Qwen3-ASR 输出里带换行或漏出提示头时，不再丢掉整句或打出乱码。
 发布前用 1072 段合成语音在四条识别路线上做了完整回放测试。
 
-社区版免费使用全部本地功能，无需激活。Windows 与 Apple 芯片 Mac 安装包
-均经过签名；Mac 包完成 Apple 公证。社区版独立安装，不覆盖旧版或迁移／删除旧数据。
-开始听写前请退出另一个版本，避免快捷键监听冲突。词典与片段可由用户主动导入。
+VocalCode 现在是一个免费应用，按 AGPL-3.0 开源，无需购买、账户或激活。下载：Windows 用
+`VocalCodeSetup.exe`，Apple 芯片 Mac 用 `VocalCode-<版本>.dmg`，源码为
+`VocalCode-source-<版本>.tar.gz`。两个平台的安装包均经过签名，Mac 包完成 Apple 公证。
+
+VocalCode 安装在付费版（1.2.1 及更早）原来的位置，使用同一个数据文件夹，所以会原地替换付费版：
+设置、词典、片段、会议记录和已下载的模型原样保留，无需导入；付费版的授权与试用文件保持原样，
+VocalCode 从不读取。授权或试用仍有效的付费版会在应用内提示这次更新，其他情况请直接覆盖安装
+（Mac 上替换“应用程序”里的 VocalCode.app）。之后卸载 VocalCode 也会保留数据文件夹。
+通过 Scoop 安装的付费版无法这样更新：请先运行 `scoop uninstall vocalcode`，再从本页安装。
+
+早期免费版 VocalCode Community 1.3.1 和 1.4.0 是单独的应用。在 Windows 上，安装程序会卸载
+VocalCode Community 1.3.1 或 1.4.0 并保留它的数据文件夹，可在 **设置 → 系统 → 旧版 VocalCode**
+里选择要复制的内容；在 Mac 上请自行删除 VocalCode Community 1.3.1 或 1.4.0。这两个早期版本无法在
+应用内更新到本版本，请从本页下载一次。不要同时运行两个副本，否则每次听写都会被输入两遍。
 首次下载模型和检查更新需要联网；录音与识别在本地处理。
 
 Maintainer: [Daming Wu](https://github.com/wudaming00).

@@ -82,6 +82,9 @@ switch ($Mode) {
         Assert-Signature $webview 'Microsoft Corporation'
         $info = (& (Join-Path $dist 'VocalCode.exe') --build-info | ConvertFrom-Json)
         if ($LASTEXITCODE -ne 0 -or $info.edition -ne 'community' -or $info.version -ne $version) { throw 'Packaged app cannot load or has wrong edition' }
+        # Only a build made with VOCALCODE_RELEASE_IDENTITY=1 has the installed app's data folder,
+        # login item and running-copy mutex that a paid installation updates in place.
+        if ($info.identity -ne 'release' -or $info.data_directory -ne 'VocalCode') { throw 'Packaged app is a development build; build it with VOCALCODE_RELEASE_IDENTITY=1' }
         Get-ChildItem -LiteralPath $dist -Filter '*.dll' -File | ForEach-Object {
             [pscustomobject]@{ name=$_.Name; version=$_.VersionInfo.FileVersion; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
         } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $dist 'runtime-inventory.json') -Encoding utf8
@@ -127,7 +130,7 @@ switch ($Mode) {
             $exe = Join-Path $install 'VocalCode.exe'
             Assert-VocalCode $exe 'VocalCode.exe'
             $info = (& $exe --build-info | ConvertFrom-Json)
-            if ($LASTEXITCODE -ne 0 -or $info.edition -ne 'community' -or $info.version -ne $version) { throw 'Installed app smoke failed' }
+            if ($LASTEXITCODE -ne 0 -or $info.edition -ne 'community' -or $info.version -ne $version -or $info.identity -ne 'release' -or $info.data_directory -ne 'VocalCode') { throw 'Installed app smoke failed' }
             if ([IO.File]::ReadAllText($fixture) -ne 'synthetic user data must survive upgrades and uninstall') { throw 'Upgrade changed user data' }
         }
         $uninstaller = Join-Path $install 'unins000.exe'

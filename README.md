@@ -98,12 +98,19 @@ cargo build -p vocalcode-app --release --locked --features community
 
 No payment account, activation code, or operator credential is required.
 The `community` build feature (on by default) is the free build; the explicit
-flag only makes that clear.
+flag only makes that clear. A build from source is a development build: it
+keeps its own data folder (`VocalCode Dev`) and login item, so it never reads
+or changes an installed VocalCode's data. See
+[BUILDING.md](BUILDING.md#development-builds-and-an-installed-vocalcode).
 
 **Coming from an earlier VocalCode.** VocalCode installs where the paid
 VocalCode releases (1.2.1 and earlier) did and uses the same data folder, so
 installing it over one of them replaces that app in place and keeps its
 settings, dictionary, meetings and downloaded models; nothing needs importing.
+If you installed the paid VocalCode with Scoop, run `scoop uninstall vocalcode`
+first (your data folder stays), then install VocalCode: a copy Scoop unpacked
+cannot update itself in place, and its update attempt fails without changing
+anything. Turn on launch at login again in VocalCode if you used it.
 The early free builds, VocalCode Community 1.3.1 and 1.4.0, had their own
 installation: the Windows installer uninstalls that app and keeps its data
 folder, and **Settings → System → Previous VocalCode** copies what you choose

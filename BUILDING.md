@@ -48,6 +48,36 @@ the binary. The repository's rpaths cover that layout. This command is not an
 `.app` packaging/signing/notarization workflow. Microphone, Accessibility,
 Input Monitoring, and relevant system-audio permissions still apply.
 
+## Development builds and an installed VocalCode
+
+Every build above, and `cargo run`, the examples and any QA or
+`diagnostic-cli` build, is a **development build**. It keeps its data in
+`%LOCALAPPDATA%\VocalCode Dev` (Windows) or
+`~/Library/Application Support/VocalCode Dev` (macOS), with its own login
+item (Run value `VocalCodeDev`, LaunchAgent `app.vocalcode.VocalCode.dev`),
+lifecycle locks and running-copy mutex (`Local\VocalCode.Dev.Desktop`). So
+running one never reads or changes an installed VocalCode's settings,
+dictionary, meetings, models or login item, and its updater never replaces the
+installed app (the Windows installer refuses an update whose relaunch target
+is not the installed `VocalCode.exe`; on macOS the bundle identifier differs).
+`--build-info` reports `"identity": "development"`. Both apps hook the talk
+key, so quit the installed VocalCode before dictating with a development build.
+
+Only a packaging build has the installed app's identity: the CI step that
+produces the release binaries sets `VOCALCODE_RELEASE_IDENTITY=1` (read at
+compile time, never at run time), and packaging (`windows.ps1 -Mode Pack`,
+`release.py build-macos`, and the signed-release checks) refuses any binary
+whose `--build-info` does not report `"identity": "release"`. Such a binary
+shares everything with an installed VocalCode, paid or free: the data folder
+`%LOCALAPPDATA%\VocalCode` / `~/Library/Application Support/VocalCode`, the
+login item `VocalCode` / `app.vocalcode.VocalCode` and the running-copy mutex
+`Local\VocalCode.Desktop`. **Never run a release-identity build on a computer
+whose installed VocalCode you care about.** The first settings it saves are
+written as config version 5, after which paid VocalCode 1.2.1 and earlier
+refuse to start with that folder; turning on launch at login repoints the
+installed app's login item at the binary you ran; and while it runs, the
+installer and updaters take it for the installed app.
+
 ## Verification
 
 ```sh
@@ -133,9 +163,11 @@ VocalCode 1.2.1 and VocalCode Community 1.4.0 installers (sha-pinned, cached)
 on a disposable runner, gives them realistic data, and then installs this
 commit's unsigned `VocalCodeSetup.exe`: over the paid app exactly as that
 app's own updater runs it, and over the early free build. It checks the
-registration, program files, login items, that every seeded file (including
-licence-named decoys) is untouched, that the new build started and loads
-that data, and that uninstalling keeps it. See
+registration, program files (files only paid 1.0 and 1.1 shipped are
+removed), login items, that every seeded file (including licence-named
+decoys) is untouched, that the new build started and loads that data, and
+that uninstalling keeps it. It also checks that the same updater running from
+a copy no installer registered, as Scoop leaves it, installs nothing. See
 `packaging/community/e2e-windows.ps1`.
 
 Non-PR builds retain unsigned developer artifacts for three days. These are
@@ -211,15 +243,25 @@ The release's `VocalCodeSetup.exe` and `VocalCode-<version>.dmg` are built to
 pass exactly these checks, so the website only has to serve those same bytes
 under those names and list their SHA-256 and size.
 
+A paid installation that Scoop unpacked (bucket `wudaming00/vocalcode-docs`,
+`"innosetup": true`) was never registered with Windows, so the installer has
+no earlier folder to replace. When the updater's relaunch target
+(`VC_UPDATE_EXE`, which the paid and free updaters both set) is not
+`{app}\VocalCode.exe`, the installer refuses before changing anything: a
+silent run exits with code 7 and the app reports that the update failed,
+instead of installing a second copy that the updater would never start.
+Scoop users run `scoop uninstall vocalcode` and then install normally.
+
 These checks do not establish real microphone quality, meeting echo performance,
 all OS permission flows, or a cross-version data migration. Those require
 device testing; see [validation scope](PUBLICATION_BLOCKERS.md).
 
 ## Data and models
 
-VocalCode keeps its data in `%LOCALAPPDATA%\VocalCode` on Windows and
-`~/Library/Application Support/VocalCode` on macOS, the folders the paid
-releases used, with the same bundle ID (`app.vocalcode.VocalCode`), executable
+An installed VocalCode (a packaging build; development builds use
+`VocalCode Dev`, see above) keeps its data in `%LOCALAPPDATA%\VocalCode` on
+Windows and `~/Library/Application Support/VocalCode` on macOS, the folders
+the paid releases used, with the same bundle ID (`app.vocalcode.VocalCode`), executable
 (`VocalCode.exe`), login item (`VocalCode`), running-copy mutex
 (`Local\VocalCode.Desktop`) and installer registration (`VocalCode_is1`). A
 paid installation that updates therefore keeps everything in place; the free
@@ -233,9 +275,10 @@ names (`VocalCode Community`, `app.vocalcode.Community`,
 which keeps its data folder; **Settings → System → Previous VocalCode** copies
 from it. Don't run two copies at once: each hooks the talk key.
 
-Unit tests never touch those locations: a test build keeps its data folder in
-a temporary directory and never writes the login item. Installer and
-end-to-end tests refuse to run outside disposable hosted CI.
+Unit tests never touch those locations, nor a development build's: a test
+build keeps its data folder in a temporary directory and never writes the
+login item. Installer and end-to-end tests refuse to run outside disposable
+hosted CI.
 
 The small Silero VAD artifact is bundled with its MIT notice and pinned hash.
 Recognition model weights are not in this source snapshot. The app downloads

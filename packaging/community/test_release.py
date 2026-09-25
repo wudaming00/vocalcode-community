@@ -98,6 +98,54 @@ class ReleaseTests(unittest.TestCase):
             self.assertIn("latest.json", (output / "SHA256SUMS").read_text())
             self.assertTrue((output / "VocalCode-source-1.3.1.tar.gz").is_file())
 
+    def test_release_notes_are_the_body_of_this_one_product(self):
+        # community-release.yml publishes this file word for word.
+        text = (release.ROOT / release.RELEASE_NOTES).read_text(encoding="utf-8")
+        self.assertEqual(release.release_notes_problems(text), [])
+        self.assertTrue(text.startswith("# VocalCode\n"))
+        for name in ("`VocalCodeSetup.exe`", "`VocalCode-<version>.dmg`", "`VocalCode-source-<version>.tar.gz`"):
+            self.assertIn(name, text)
+        self.assertIn("scoop uninstall vocalcode", text)
+        workflow = (release.ROOT / ".github/workflows/community-release.yml").read_text(encoding="utf-8")
+        self.assertIn("--notes-file packaging/community/RELEASE-NOTES.md", workflow)
+        self.assertIn("release_notes_problems(", workflow)
+
+    def test_stale_or_misnamed_release_notes_are_refused(self):
+        good = (release.ROOT / release.RELEASE_NOTES).read_text(encoding="utf-8")
+        stale = [
+            good.replace("# VocalCode\n", "# VocalCode Community\n", 1),
+            good.replace("`VocalCodeSetup.exe`", "`VocalCodeCommunitySetup.exe`"),
+            good.replace("`VocalCode-<version>.dmg`", "`VocalCodeCommunity-<version>.dmg`"),
+            good.replace("`VocalCode-source-<version>.tar.gz`", "the attached source archive"),
+            good + "\nCommunity installs separately from the previous paid edition.\n",
+            good + "\nVocalCode Community updates use GitHub Releases.\n",
+            good + "\n社区版独立安装，不覆盖旧版。\n",
+            good.replace("## New in ", "## Changes in "),
+        ]
+        for text in stale:
+            self.assertNotEqual(release.release_notes_problems(text), [], text[:80])
+        # The early builds may be named, across a line break too.
+        for text in (good + "\nVocalCode\nCommunity 1.3.1 and 1.4.0 were separate.\n",
+                     good + "\n早期社区版 1.3.1 和 1.4.0。\n"):
+            self.assertEqual(release.release_notes_problems(text), [])
+        # A release needs its own section: the previous one's notes are refused.
+        self.assertEqual(release.release_notes_problems("# VocalCode\n\n## New in 1.4.1\n" + good.split("\n", 1)[1], "1.4.1"), [])
+        self.assertNotEqual(release.release_notes_problems(good, "9.9.9"), [])
+
+    def test_packaging_accepts_only_the_installed_identity(self):
+        release_build = {"edition": "community", "identity": "release", "data_directory": "VocalCode"}
+        self.assertTrue(release.has_release_identity(release_build))
+        for change in ({"identity": "development"}, {"data_directory": "VocalCode Dev"}, {"identity": None}):
+            self.assertFalse(release.has_release_identity({**release_build, **change}))
+        self.assertFalse(release.has_release_identity({"edition": "community", "data_directory": "VocalCode"}))
+        # The binaries the signed release packages come from this CI step.
+        ci = (release.ROOT / ".github/workflows/community-ci.yml").read_text(encoding="utf-8")
+        step = ci.split("- name: Unsigned community build", 1)[1].split("- name:", 1)[0]
+        self.assertIn("VOCALCODE_RELEASE_IDENTITY: '1'", step)
+        script = (release.ROOT / "packaging/community/windows.ps1").read_text(encoding="utf-8")
+        self.assertIn("$info.identity -ne 'release'", script)
+        self.assertEqual(script.count("$info.data_directory -ne 'VocalCode'"), 2)
+
     def test_release_workflow_fails_closed_and_limits_credentials(self):
         workflow = (release.ROOT / ".github/workflows/community-release.yml").read_text(encoding="utf-8")
         self.assertNotIn("pull_request_target", workflow)
@@ -142,6 +190,17 @@ class ReleaseTests(unittest.TestCase):
         for line in install_delete.splitlines():
             if line.startswith("Type:"):
                 self.assertIn('Name: "{app}\\', line)
+        self.assertIn('Name: "{app}\\cargs.dll"', install_delete)
+        self.assertIn('Name: "{app}\\THIRD-PARTY-LICENSES"', install_delete)
+        # An updater that would restart a copy other than {app}\VocalCode.exe
+        # (a Scoop installation, which registers nothing) is refused before
+        # anything else happens, so the silent run exits with code 7.
+        prepare = text.split("function PrepareToInstall(", 1)[1].split("\nend;", 1)[0]
+        body = [line.strip() for line in prepare.split("begin\n", 1)[1].splitlines()]
+        self.assertEqual(body[:3], ["Result := UpdaterRestartsAnotherCopy();", "if Result <> '' then", "exit;"])
+        check = text.split("function UpdaterRestartsAnotherCopy(", 1)[1].split("\nend;", 1)[0]
+        self.assertIn("GetEnv('VC_UPDATE_EXE')", check)
+        self.assertIn("AddBackslash(ExpandConstant('{app}')) + '{#AppExe}'", check)
         # The early free build is replaced by running its own uninstaller,
         # which keeps its data folder for the import.
         self.assertIn("VocalCode.Community_is1", text)

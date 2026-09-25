@@ -58,11 +58,10 @@ SignedUninstallerDir={#SIGNED_CACHE}
 ; to 1.1 bundled cargs.dll, which nothing imports now; a DLL left beside
 ; VocalCode.exe is the kind of file Windows could load by mistake.
 Type: files; Name: "{app}\cargs.dll"
-; Their licence notices describe their own runtime; this installer brings a
+; Their licence notices describe their own runtime (1.0 to 1.1 also had
+; Cargs-LICENSE.txt, which paid 1.2 left behind); this installer brings a
 ; complete set for what it installs.
 Type: filesandordirs; Name: "{app}\THIRD-PARTY-LICENSES"
-; Installer prerequisites some paid releases copied into {app}.
-Type: filesandordirs; Name: "{app}\prerequisites"
 
 [Dirs]
 ; Removed on uninstall when empty, even when a paid release created it.
@@ -108,10 +107,58 @@ begin
             (RegQueryStringValue(HKLM64, K, 'pv', V) and (V <> '') and (V <> '0.0.0.0'));
 end;
 
+function GetLongPathName(ShortPath: String; LongPath: String; Size: Cardinal): Cardinal;
+  external 'GetLongPathNameW@kernel32.dll stdcall';
+
+{ The full, long spelling of a path, so that two spellings of one existing
+  file compare equal. A path that does not exist is compared as written. }
+function LongPathOf(Path: String): String;
+var
+  Buffer: String;
+  Count: Cardinal;
+begin
+  Result := Trim(RemoveQuotes(Trim(Path)));
+  if Copy(Result, 1, 4) = '\\?\' then
+    Result := Copy(Result, 5, Length(Result));
+  Result := ExpandFileName(Result);
+  SetLength(Buffer, 1024);
+  Count := GetLongPathName(Result, Buffer, 1024);
+  if (Count > 0) and (Count < 1024) then
+    Result := Copy(Buffer, 1, Count);
+end;
+
+{ The paid releases' in-app updater, and this app's own, runs this installer
+  silently with VC_UPDATE_EXE set to the running VocalCode.exe and restarts
+  exactly that file afterwards. When that copy is not VocalCode.exe in the
+  folder this installer installs into - a Scoop installation unpacks the
+  installer and never registers itself, so that folder is then a new one -
+  installing would leave a second VocalCode there while the updater restarts
+  the old one, which offers the same update again. Refuse before anything is
+  changed: a silent run exits with code 7, and the updater restarts the old
+  app with --update-failed 7. A normal install, without VC_UPDATE_EXE, is
+  unaffected. }
+function UpdaterRestartsAnotherCopy(): String;
+var
+  Restarts, Installs: String;
+begin
+  Result := '';
+  Restarts := Trim(GetEnv('VC_UPDATE_EXE'));
+  if Restarts = '' then
+    exit;
+  Installs := AddBackslash(ExpandConstant('{app}')) + '{#AppExe}';
+  if CompareText(LongPathOf(Restarts), LongPathOf(Installs)) = 0 then
+    exit;
+  Log('The updater would restart ' + Restarts + ', not ' + Installs + '; nothing is installed.');
+  Result := 'This copy of VocalCode was not installed by VocalCodeSetup.exe (for example, it came from Scoop), so it cannot update itself. ' +
+            'Remove it (for Scoop: scoop uninstall vocalcode), then install VocalCode from https://github.com/wudaming00/vocalcode-community/releases.';
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var ExitCode: Integer;
 begin
-  Result := '';
+  Result := UpdaterRestartsAnotherCopy();
+  if Result <> '' then
+    exit;
   if not HasWebView2() then begin
     ExtractTemporaryFile('MicrosoftEdgeWebview2Setup.exe');
     if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe'), '/silent /install', '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then

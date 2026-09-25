@@ -42,7 +42,11 @@ jobs:
           import json, os, subprocess, sys
           from pathlib import Path
           sys.path.insert(0, 'packaging/community')
-          from release import version
+          from release import RELEASE_NOTES, release_notes_problems, version
+          # The release body is RELEASE-NOTES.md, word for word: it must be
+          # this version's notes for VocalCode, naming the assets it attaches.
+          notes = release_notes_problems(Path(RELEASE_NOTES).read_text(encoding='utf-8'), version())
+          assert not notes, 'RELEASE-NOTES.md is not this release body: ' + '; '.join(notes)
           repo = os.environ['GITHUB_REPOSITORY']
           sha = os.environ['GITHUB_SHA']
           def api(path):

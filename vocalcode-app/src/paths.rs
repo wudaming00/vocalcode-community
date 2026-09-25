@@ -307,9 +307,10 @@ fn raw_data_dir() -> PathBuf {
 }
 
 /// Unit tests run on developers' own machines, where the folder named above
-/// holds the installed VocalCode's real data (the paid releases used the same
-/// name). A test build keeps every data location, and the lifecycle locks
-/// beside it, under a private temporary root instead.
+/// holds real data: the installed VocalCode's (the paid releases used the
+/// same name), or a development build's. A test build keeps every data
+/// location, and the lifecycle locks beside it, under a private temporary
+/// root instead.
 #[cfg(all(any(target_os = "macos", windows), test))]
 fn raw_data_dir() -> PathBuf {
     static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();

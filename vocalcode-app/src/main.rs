@@ -5931,6 +5931,9 @@ fn main() -> anyhow::Result<()> {
             serde_json::json!({
                 "version": env!("CARGO_PKG_VERSION"),
                 "edition": if community::ENABLED { "community" } else { "legacy" },
+                // Packaging refuses a binary that is not "release": only that
+                // one shares the installed VocalCode's data and login item.
+                "identity": if community::RELEASE_IDENTITY { "release" } else { "development" },
                 "data_directory": community::DATA_DIR_NAME,
                 "update_manifest": UPDATE_MANIFEST_URL,
             })
@@ -8634,9 +8637,18 @@ mod tests {
             instance_platform::private_sddl_for_test("S-1-5-21-123"),
             "D:P(A;;GA;;;SY)(A;;GA;;;S-1-5-21-123)"
         );
-        // The name the paid releases' installers and updater wait on.
+        // The name the paid releases' installers and updater wait on, which
+        // only a packaging build holds.
         assert_eq!(
             WINDOWS_INSTALLER_OBSERVATION_MUTEX,
+            if community::RELEASE_IDENTITY {
+                r"Local\VocalCode.Desktop"
+            } else {
+                r"Local\VocalCode.Dev.Desktop"
+            }
+        );
+        assert_eq!(
+            community::release::INSTALLER_MUTEX,
             r"Local\VocalCode.Desktop"
         );
     }

@@ -116,7 +116,12 @@ jobs:
         run: node packaging/community/source-manifest.mjs --git-check
       - name: Signed-release and packaging contracts
         run: python -m unittest discover -s packaging/community -p 'test_*.py' -v
+      # The one build that carries the installed app's identity (data folder,
+      # login item, running-copy mutex; see community.rs). The signed release
+      # packages exactly these binaries, and packaging refuses any other.
       - name: Unsigned community build — no production secrets
+        env:
+          VOCALCODE_RELEASE_IDENTITY: '1'
         run: cargo build -p vocalcode-app --release --locked --features community
       - name: Validate Windows packaging and actual native linkage without credentials
         if: runner.os == 'Windows'

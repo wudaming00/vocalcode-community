@@ -7,6 +7,8 @@
 #          installed, given realistic paid-format data, and updated exactly as
 #          its own in-app updater does it: the helper script below is that
 #          release's WINDOWS_UPDATE_HELPER, byte for byte, run the same way.
+#          First, the same updater running from a copy that no installer
+#          registered (as Scoop unpacks it) must install nothing.
 #   Early  The early free build, VocalCode Community 1.4.0 (its signed
 #          installer, sha-pinned), is replaced by VocalCodeSetup.exe.
 #
@@ -111,7 +113,7 @@ function Get-Snapshot([string]$Root) {
     return $map
 }
 
-function Assert-Unchanged([hashtable]$Before, [string]$Root, [string[]]$Allowed = @()) {
+function Assert-Unchanged([hashtable]$Before, [string]$Root, [string[]]$Allowed = @(), [switch]$NothingAdded) {
     foreach ($name in $Before.Keys) {
         if ($Allowed -contains $name) { continue }
         $path = Join-Path $Root $name
@@ -120,6 +122,35 @@ function Assert-Unchanged([hashtable]$Before, [string]$Root, [string[]]$Allowed 
         $now = '{0}|{1}|{2}' -f (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash, $file.Length, $file.LastWriteTimeUtc.Ticks
         if ($now -ne $Before[$name]) { throw "Changed: $name" }
     }
+    if ($NothingAdded) {
+        foreach ($name in (Get-Snapshot $Root).Keys) {
+            if (-not $Before.ContainsKey($name)) { throw "Added: $name" }
+        }
+    }
+}
+
+# Every per-user uninstall entry that names VocalCode, whatever its key.
+function Get-VocalCodeEntries {
+    return @(Get-ChildItem -LiteralPath $uninstallRoot | ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
+        Where-Object { $_.PSObject.Properties.Name -contains 'DisplayName' -and [string]$_.DisplayName -like 'VocalCode*' })
+}
+
+# A stand-in VocalCode.exe for a copy no installer registered, as Scoop
+# leaves it (scoop\apps\vocalcode\current). It only records the arguments it
+# was started with, beside itself in started.txt. Built with the C# compiler
+# of the .NET Framework that Windows includes.
+function New-StandInApp([string]$Folder) {
+    $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
+    if (-not (Test-Path -LiteralPath $csc)) { throw "The .NET Framework C# compiler is missing: $csc" }
+    New-Item -ItemType Directory -Force -Path $Folder | Out-Null
+    $source = Join-Path $work 'stand-in.cs'
+    $code = 'using System; using System.IO; static class StandIn { static int Main(string[] args) { ' +
+            'File.WriteAllText(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "started.txt"), string.Join("|", args)); return 0; } }'
+    [IO.File]::WriteAllText($source, $code)
+    $exe = Join-Path $Folder 'VocalCode.exe'
+    $out = & $csc /nologo /target:winexe ('/out:' + $exe) $source 2>&1 | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $exe)) { throw "Could not build the stand-in app: $out" }
+    return $exe
 }
 
 # A 0.1 s, 16 kHz mono PCM chunk of silence, written here rather than
@@ -186,6 +217,39 @@ $ErrorActionPreference = 'Stop'; $cleanupWorkspace = $true; function Restart-Nor
 # SHA-256 of the text above as the paid binaries embed it (UTF-8, 2186 bytes).
 $PaidUpdateHelperSha256 = '54001A33BAD75F146CC3EB937794C6AF134AB3C43054D9AFD7EF1362BCAD5ECD'
 
+# One in-app update of a paid release, with this VocalCodeSetup.exe as the
+# downloaded installer and $RestartExe as the app that is updating (the
+# helper restarts it afterwards). Returns the finished helper process.
+function Invoke-PaidUpdate([string]$RestartExe) {
+    $updateDir = Join-Path $env:TEMP ('vocalcode-update-' + [Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $updateDir | Out-Null
+    $staged = Join-Path $updateDir 'VocalCodeSetup.exe'
+    Copy-Item -LiteralPath $Installer -Destination $staged
+    $ready = Join-Path $updateDir 'helper.ready'
+    # Stands in for the paid app: it owns Local\VocalCode.Desktop, as that
+    # app does, and exits a few seconds after the helper is ready.
+    $parentScript = '$m = New-Object System.Threading.Mutex($false, ''Local\VocalCode.Desktop''); $null = $m.WaitOne(); Start-Sleep -Seconds 6; $m.ReleaseMutex(); $m.Dispose()'
+    $parent = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $parentScript) -PassThru -WindowStyle Hidden
+    Start-Sleep -Seconds 1
+    $powershell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
+    $psi = New-Object Diagnostics.ProcessStartInfo($powershell)
+    foreach ($argument in @('-NoProfile', '-NonInteractive', '-Command', $PaidUpdateHelper.Trim())) { $psi.ArgumentList.Add($argument) }
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['VC_UPDATE_INSTALLER'] = $staged
+    $psi.EnvironmentVariables['VC_UPDATE_EXE'] = $RestartExe
+    $psi.EnvironmentVariables['VC_UPDATE_DIR'] = $updateDir
+    $psi.EnvironmentVariables['VC_UPDATE_PID'] = [string]$parent.Id
+    $psi.EnvironmentVariables['VC_UPDATE_READY'] = $ready
+    $helper = [Diagnostics.Process]::Start($psi)
+    Wait-Until { Test-Path -LiteralPath $ready } 20 'the helper acknowledgement'
+    if (-not $parent.WaitForExit(60000)) { throw 'The stand-in paid app did not exit' }
+    if (-not $helper.WaitForExit(16 * 60 * 1000)) { throw 'The paid update helper did not finish' }
+    if (Test-Path -LiteralPath (Join-Path $updateDir 'failure.txt')) { throw "The helper recorded a failure: $(Get-Content -LiteralPath (Join-Path $updateDir 'failure.txt'))" }
+    if (Test-Path -LiteralPath $updateDir) { throw 'The helper kept its workspace, which it does only after a failure' }
+    return $helper
+}
+
 function Assert-VocalCodeInstalled([string]$Location) {
     $entry = Get-Uninstall 'VocalCode_is1'
     if ($null -eq $entry) { throw 'VocalCode_is1 is not registered' }
@@ -199,7 +263,7 @@ function Assert-VocalCodeInstalled([string]$Location) {
         throw "$exe is not this build ($($info.ProductName) $($info.ProductVersion))"
     }
     $build = & $exe --build-info | ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0 -or $build.version -ne $version -or $build.edition -ne 'community' -or $build.data_directory -ne 'VocalCode') {
+    if ($LASTEXITCODE -ne 0 -or $build.version -ne $version -or $build.edition -ne 'community' -or $build.identity -ne 'release' -or $build.data_directory -ne 'VocalCode') {
         throw "$exe --build-info does not describe this free build"
     }
 }
@@ -213,6 +277,20 @@ switch ($Scenario) {
     }
     $helperHash = (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($PaidUpdateHelper.Trim())))).Hash
     if ($helperHash -ne $PaidUpdateHelperSha256) { throw 'The replayed helper is not the paid releases'' text' }
+
+    # Scoop's bucket (wudaming00/vocalcode-docs, "innosetup": true) unpacks
+    # the paid installer into scoop\apps\vocalcode and registers nothing.
+    Step 'An update from a copy no installer registered (as Scoop unpacks it) installs nothing'
+    $standIn = New-StandInApp (Join-Path $work 'scoop\apps\vocalcode\current')
+    $standInLog = Join-Path (Split-Path -Parent $standIn) 'started.txt'
+    $null = Invoke-PaidUpdate $standIn
+    Wait-Until { Test-Path -LiteralPath $standInLog } 60 'the helper to restart the unregistered copy'
+    $restartedWith = [IO.File]::ReadAllText($standInLog)
+    if ($restartedWith -ne '--update-failed|7') { throw "The unregistered copy was restarted with '$restartedWith', not '--update-failed 7'" }
+    if ((Get-VocalCodeEntries).Count -ne 0) { throw 'An update of an unregistered copy registered an app' }
+    if (Test-Path -LiteralPath $app) { throw "An update of an unregistered copy installed into $app" }
+    if (Test-Path -LiteralPath $data) { throw "An update of an unregistered copy created $data" }
+    Remove-Item -LiteralPath $standInLog
 
     $paidSetup = Get-PinnedFile 'https://vocalcode.app/VocalCodeSetup-1.2.1.exe' '2BA1B7B36BE74AE3819B5EEC2E8A217DBBFBAC2A44E0232D01F325E91028CB1A' 'VocalCodeSetup-1.2.1.exe'
     $signature = Get-AuthenticodeSignature -LiteralPath $paidSetup
@@ -231,6 +309,22 @@ switch ($Scenario) {
     # The paid app is never started: its trial check would contact the
     # production licence service.
 
+    Step 'With paid 1.2.1 registered, an updater that would restart another copy is refused too'
+    $appBefore = Get-Snapshot $app
+    $refusedLog = Join-Path $work 'refused-install.log'
+    $env:VC_UPDATE_EXE = $standIn
+    try {
+        $code = Invoke-Exe $Installer @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NOCANCEL', '/NORESTART', ('/LOG="' + $refusedLog + '"'))
+    } finally {
+        Remove-Item -Path 'Env:VC_UPDATE_EXE'
+    }
+    if ($code -ne 7) { throw "VocalCodeSetup.exe exited with $code for an updater restarting another copy; expected 7" }
+    if (-not (Select-String -LiteralPath $refusedLog -SimpleMatch 'nothing is installed' -Quiet)) { throw 'The installer log does not say why it refused' }
+    $entries = @(Get-VocalCodeEntries)
+    if ($entries.Count -ne 1 -or $entries[0].PSChildName -ne 'VocalCode_is1' -or $entries[0].DisplayVersion -ne '1.2.1') { throw 'The refused update changed the registration' }
+    Assert-Unchanged $appBefore $app -NothingAdded
+    if (Test-Path -LiteralPath $standInLog) { throw 'A refused installer started an app' }
+
     Step 'Seed paid-1.2.1-format data, credential decoys and the paid login item'
     Copy-Fixture 'paid-1.2.1' $data
     $decoys = @('vocalcode-license.json', 'vocalcode-license.legacy.json', 'vocalcode-trial.dat', 'vocalcode-time-anchor.bin',
@@ -244,34 +338,16 @@ switch ($Scenario) {
     New-ItemProperty -LiteralPath $runKey -Name 'VocalCode' -Value $login -PropertyType String -Force | Out-Null
     $before = Get-Snapshot $data
 
+    # Paid 1.0 and 1.1 installed cargs.dll and THIRD-PARTY-LICENSES\Cargs-
+    # LICENSE.txt (their pack.ps1 and vocalcode.iss); 1.2 removes the DLL but
+    # leaves the notice. The 1.2.1 installed above has neither, so they are
+    # put where a person updating from 1.0 or 1.1 still has them.
+    $stale = @('cargs.dll', 'THIRD-PARTY-LICENSES\Cargs-LICENSE.txt')
+    foreach ($name in $stale) { Write-Decoy (Join-Path $app $name) }
+
     Step 'Replay the paid in-app update with this VocalCodeSetup.exe'
-    $updateDir = Join-Path $env:TEMP ('vocalcode-update-' + [Guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $updateDir | Out-Null
-    $staged = Join-Path $updateDir 'VocalCodeSetup.exe'
-    Copy-Item -LiteralPath $Installer -Destination $staged
-    $ready = Join-Path $updateDir 'helper.ready'
-    # Stands in for the paid app: it owns Local\VocalCode.Desktop, as that
-    # app does, and exits a few seconds after the helper is ready.
-    $parentScript = '$m = New-Object System.Threading.Mutex($false, ''Local\VocalCode.Desktop''); $null = $m.WaitOne(); Start-Sleep -Seconds 6; $m.ReleaseMutex(); $m.Dispose()'
-    $parent = Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', $parentScript) -PassThru -WindowStyle Hidden
-    Start-Sleep -Seconds 1
-    $powershell = Join-Path ([Environment]::SystemDirectory) 'WindowsPowerShell\v1.0\powershell.exe'
-    $psi = New-Object Diagnostics.ProcessStartInfo($powershell)
-    foreach ($argument in @('-NoProfile', '-NonInteractive', '-Command', $PaidUpdateHelper.Trim())) { $psi.ArgumentList.Add($argument) }
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.EnvironmentVariables['VC_UPDATE_INSTALLER'] = $staged
-    $psi.EnvironmentVariables['VC_UPDATE_EXE'] = $exe
-    $psi.EnvironmentVariables['VC_UPDATE_DIR'] = $updateDir
-    $psi.EnvironmentVariables['VC_UPDATE_PID'] = [string]$parent.Id
-    $psi.EnvironmentVariables['VC_UPDATE_READY'] = $ready
     $started = Get-Date
-    $helper = [Diagnostics.Process]::Start($psi)
-    Wait-Until { Test-Path -LiteralPath $ready } 20 'the helper acknowledgement'
-    if (-not $parent.WaitForExit(60000)) { throw 'The stand-in paid app did not exit' }
-    if (-not $helper.WaitForExit(16 * 60 * 1000)) { throw 'The paid update helper did not finish' }
-    if (Test-Path -LiteralPath (Join-Path $updateDir 'failure.txt')) { throw "The helper recorded a failure: $(Get-Content -LiteralPath (Join-Path $updateDir 'failure.txt'))" }
-    if (Test-Path -LiteralPath $updateDir) { throw 'The helper kept its workspace, which it does only after a failure' }
+    $helper = Invoke-PaidUpdate $exe
 
     Step 'The helper started the new VocalCode.exe'
     $running = $null
@@ -305,7 +381,11 @@ switch ($Scenario) {
     Assert-VocalCodeInstalled $app
     if (Get-Uninstall 'VocalCode.Community_is1') { throw 'A second app was registered' }
     if ((Get-FileHash -LiteralPath (Join-Path $app 'unins000.exe') -Algorithm SHA256).Hash -eq $paidUninstaller) { throw 'The paid uninstaller was not replaced' }
-    if (Test-Path -LiteralPath (Join-Path $app 'cargs.dll')) { throw 'A paid-only runtime file is left' }
+    foreach ($name in $stale) {
+        if (Test-Path -LiteralPath (Join-Path $app $name)) { throw "A paid-only program file is left: $name" }
+    }
+    $notice = Join-Path $app 'THIRD-PARTY-LICENSES\Microsoft-Visual-Cpp-Runtime-NOTICE.txt'
+    if (-not (Select-String -LiteralPath $notice -SimpleMatch "VocalCode's Windows package" -Quiet)) { throw 'The installed licence notices are not this build''s' }
     if ((Get-RunValue 'VocalCode') -ne $login) { throw 'The login item changed' }
     if ((Get-FileHash -LiteralPath (Join-Path $app 'vocalcode-trial.dat') -Algorithm SHA256).Hash -ne $appDecoy) { throw 'The program-folder trial decoy changed' }
 
