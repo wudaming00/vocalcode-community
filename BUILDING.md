@@ -172,7 +172,10 @@ a copy no installer registered, as Scoop leaves it, installs nothing. See
 
 Non-PR builds retain unsigned developer artifacts for three days. These are
 not signed installers or a macOS `.app` bundle. Keep runtime libraries next to
-the executable. No production secrets or code-signing keys are available to
+the executable. They are the binaries a signed release packages, so they have
+the installed app's identity: running one shares an installed VocalCode's
+data folder and login item (see
+[Development builds](#development-builds-and-an-installed-vocalcode)). No production secrets or code-signing keys are available to
 these CI jobs; the separately protected release workflow handles signing.
 Standard public-repository runner time is free under GitHub's current terms;
 artifact storage has separate limits.
