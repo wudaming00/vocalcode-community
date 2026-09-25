@@ -13,7 +13,7 @@ function setup(){
   }
   const nodes=new Map(),sent=[],timers=[];
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-  const ctx={document:{getElementById:node,createElement:tag=>new Element(tag)},window:{},hasPro:true,t:x=>x,
+  const ctx={document:{getElementById:node,createElement:tag=>new Element(tag)},window:{},t:x=>x,
     send:m=>sent.push(m),toast(){},showPanel(){},cfg:{},persist(){},setTimeout:()=>1,clearTimeout(){},setInterval:f=>timers.push(f),prompt:()=>'',confirm:()=>false};
   vm.createContext(ctx);vm.runInContext(controller,ctx);
   return {node,sent,ctx,tick:()=>timers.forEach(f=>f()),receive:s=>ctx.window.vocalcodeMeetings(s)};
@@ -98,4 +98,14 @@ test('auto end setting is explicit and countdown continuation is token bound',()
   assert.match(f.node('meetingAutoEndText').textContent,/27s/);
   f.node('meetingContinue').onclick();assert.equal(f.sent.at(-1).type,'meeting_auto_end_continue');assert.equal(f.sent.at(-1).id,42);
   f.receive({active:false,detail:meeting});assert.equal(f.node('meetingAutoEndNotice').hidden,true);
+});
+
+test('meetings are never gated on a paid plan',()=>{
+  // No plan flag exists in the page, so the controller must run without one.
+  const f=setup();assert.equal('hasPro' in f.ctx,false);
+  f.receive({active:false,meetings:[]});
+  for(const id of ['meetingTitle','meetingMic','meetingSystem','meetingKeepAudio','meetingAutoEnd']) assert.equal(f.node(id).disabled,false,id);
+  f.node('meetingMic').checked=true;f.node('meetingStart').onclick();assert.equal(f.sent.at(-1).type,'meeting_start');
+  f.node('meetingImport').onclick();assert.equal(f.sent.at(-1).type,'meeting_import');
+  assert.doesNotMatch(controller,/hasPro|included in Pro|showPanel\("license"/);
 });

@@ -158,6 +158,24 @@ mod tests {
     }
 
     #[test]
+    fn shipped_page_has_no_commerce_ui_to_send_those_commands() {
+        // The native refusal above is defence in depth. The page itself has
+        // no plan card, licence key, checkout, restore or support-mail action.
+        let page = include_str!("webui.html");
+        for command in ["activate", "buy", "restore"] {
+            assert!(!page.contains(&format!("type:\"{command}\"")), "{command}");
+        }
+        for element in [
+            "data-panel=\"license\"",
+            "id=\"planBadge\"",
+            "data-pro-badge",
+        ] {
+            assert!(!page.contains(element), "{element}");
+        }
+        assert!(page.contains("<div class=\"panel\" data-panel=\"about\">"));
+    }
+
+    #[test]
     fn community_updater_is_available_but_cannot_offer_paid_installers() {
         for command in ["checkupdate", "update"] {
             assert!(blocked_ipc_for_edition(true, Some(command)).is_none());

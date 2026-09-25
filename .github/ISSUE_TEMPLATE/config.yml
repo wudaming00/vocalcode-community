@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Existing issues and feature requests
+    url: https://github.com/wudaming00/vocalcode-community/issues
+    about: Search open and closed issues first; focused feature requests are welcome as a blank issue.
+  - name: Security vulnerability
+    url: https://github.com/wudaming00/vocalcode-community/security/advisories/new
+    about: Report security problems privately, never in a public issue.

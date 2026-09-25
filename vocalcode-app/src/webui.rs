@@ -540,6 +540,9 @@ pub struct RuntimeStatus {
     /// the picker overlay, and gates the background thread's first model
     /// download so nothing is fetched until a language is chosen.
     pub onboarded: AtomicBool,
+    /// Set at startup when the previous session ended in a panic; cleared
+    /// when the person dismisses the notice. Never persisted again.
+    pub crash_notice: Mutex<Option<crate::support::CrashNotice>>,
     /// Cooperative stop for maintenance/permission/download loops.
     pub shutdown: AtomicBool,
     /// What main should do only after engine/model/clipboard workers are gone.
@@ -2259,6 +2262,7 @@ fn push_status(
         "totals": status.totals.lock().ok().map(|t| serde_json::json!({
             "dictations": t.dictations, "words": t.words, "chars": t.chars })),
         "insights": status.activity.snapshot(),
+        "crash_notice": status.crash_notice.lock().ok().and_then(|n| n.clone()),
         "history": status.history.lock().ok().map(|h| h.clone()).unwrap_or_default(),
         "download": download
             .map(|(label, pct, done, total)| serde_json::json!({
@@ -2278,13 +2282,12 @@ fn push_status(
         *last_meeting_revision = revision;
     }
 
-    // Hand a finished activation result to the page exactly once.
-    if let Some((ok, msg)) = status.activation.lock().ok().and_then(|mut a| a.take()) {
-        let payload = serde_json::json!({ "ok": ok, "msg": msg });
-        let _ = webview.evaluate_script(&format!(
-            "window.vocalcodeActivated({}, {})",
-            payload["ok"], payload["msg"]
-        ));
+    // The page has no licence screen any more. A refused commerce request can
+    // only come from something other than the shipped page, so its answer is
+    // an ordinary runtime notice rather than a call into removed UI.
+    if let Some((_, msg)) = status.activation.lock().ok().and_then(|mut a| a.take()) {
+        let payload = serde_json::json!(msg);
+        let _ = webview.evaluate_script(&format!("window.vocalcodeRuntimeError({payload})"));
     }
     // A word the user right-clicked somewhere else entirely.
     if let Some(word) = status
@@ -2393,20 +2396,84 @@ fn push_status(
     }
 }
 
+/// About & help links. The page names one of these values; the URL is always
+/// the host's constant, so no page-controlled URI reaches an OS handler.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InfoTarget {
     Privacy,
-    Support,
+    Report,
+    Source,
 }
 
 impl InfoTarget {
     fn parse(value: &str) -> Option<Self> {
         match value {
             "privacy" => Some(Self::Privacy),
-            "support" => Some(Self::Support),
+            "report" => Some(Self::Report),
+            "source" => Some(Self::Source),
             _ => None,
         }
     }
+
+    fn url(self) -> &'static str {
+        match self {
+            Self::Privacy => crate::support::PRIVACY_URL,
+            Self::Report => crate::support::REPORT_URL,
+            Self::Source => crate::support::SOURCE_URL,
+        }
+    }
+}
+
+/// The text behind About & help → Copy diagnostics. It identifies the build
+/// and setup and carries the log tail; dictation, history, dictionary and
+/// meeting content never enter it.
+fn diagnostics_text(
+    cfg: &Config,
+    status: &RuntimeStatus,
+    log_dir: &Path,
+    home: Option<&Path>,
+) -> String {
+    let hardware = system_summary(vocalcode_platform::HardwareProfile::detect());
+    let model = status
+        .model_label
+        .lock()
+        .map(|label| label.clone())
+        .unwrap_or_default();
+    let microphone = match cfg.input_device.as_deref().filter(|d| !d.is_empty()) {
+        None => "System default".to_string(),
+        Some(selected) => vocalcode_platform::list_input_device_choices()
+            .into_iter()
+            .find(|choice| choice.selector == selected || choice.legacy_name == selected)
+            .map(|choice| choice.label)
+            .unwrap_or_else(|| "Previously selected microphone (unavailable)".to_string()),
+    };
+    crate::support::diagnostics_report(
+        &crate::support::DiagnosticFacts {
+            version: env!("CARGO_PKG_VERSION"),
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            hardware: &hardware,
+            language: &cfg.language,
+            model: if model.is_empty() { &cfg.model } else { &model },
+            model_status: if status.ready.load(Ordering::Relaxed) {
+                "ready"
+            } else {
+                "not ready"
+            },
+            microphone: &microphone,
+        },
+        &crate::support::log_tail(log_dir, crate::support::DIAGNOSTIC_LOG_LINES),
+        home,
+    )
+}
+
+/// The person has seen the crash notice; it does not come back this session,
+/// and its marker was already consumed at startup.
+fn dismiss_crash_notice(status: &RuntimeStatus) {
+    *status
+        .crash_notice
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
 }
 
 fn save_dictionary_request(
@@ -2472,6 +2539,13 @@ fn save_dictionary_request(
             }
         }
     }
+}
+
+/// Meetings were a paid feature of the legacy build. The community edition
+/// has no paid tier, so its answer never depends on the legacy licence gate
+/// and its "included in Pro" refusals are unreachable.
+fn paid_features_unlocked(status: &RuntimeStatus) -> bool {
+    crate::community::ENABLED || status.pro_gate.load(Ordering::Acquire)
 }
 
 /// Handle one JSON message from the page.
@@ -2983,7 +3057,7 @@ fn handle_ipc(
                 .get("keep_audio")
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            if !status.pro_gate.load(Ordering::Acquire) {
+            if !paid_features_unlocked(status) {
                 *status.runtime_error.lock().unwrap() = Some(
                     "Meetings are included in Pro. Start the Pro trial or activate a licence to record one."
                         .to_string(),
@@ -3031,7 +3105,7 @@ fn handle_ipc(
             }
         }
         Some("meeting_import") => {
-            if !status.pro_gate.load(Ordering::Acquire) {
+            if !paid_features_unlocked(status) {
                 *status.runtime_error.lock().unwrap() = Some(
                     "Meeting import is included in Pro. Start the Pro trial or activate a licence to use it."
                         .to_string(),
@@ -3481,11 +3555,8 @@ fn handle_ipc(
             .and_then(Value::as_str)
             .and_then(InfoTarget::parse)
         {
-            Some(InfoTarget::Privacy) => {
-                open_url("https://vocalcode.app/privacy/");
-            }
-            Some(InfoTarget::Support) => {
-                open_support_email();
+            Some(target) => {
+                open_url(target.url());
             }
             None => log::warn!("ipc: rejected missing or unknown info target"),
         },
@@ -3496,6 +3567,32 @@ fn handle_ipc(
             status.reload_model.store(true, Ordering::Release);
         }
         Some("reveal_data") => reveal_in_file_manager(&crate::app_dir()),
+        // vocalcode.log lives in the data directory itself; see `init_logging`.
+        Some("open_log_folder") => reveal_in_file_manager(&crate::app_dir()),
+        Some("crash_notice_dismiss") => dismiss_crash_notice(status),
+        Some("copy_diagnostics") => {
+            let id = v
+                .get("id")
+                .and_then(Value::as_str)
+                .filter(|id| id.len() <= MAX_CONFIG_TOKEN_UTF8_BYTES)
+                .unwrap_or("")
+                .to_string();
+            // A snapshot, so device enumeration never holds the settings lock.
+            let config = cfg
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            let text = diagnostics_text(
+                &config,
+                status,
+                &crate::app_dir(),
+                std::env::home_dir().as_deref(),
+            );
+            *status.clipboard_result.lock().unwrap() = Some(match copy_to_clipboard(&text) {
+                Ok(()) => (id, true, "Copied".to_string()),
+                Err(e) => (id, false, format!("Copy failed: {e}")),
+            });
+        }
         Some("purge_data") => {
             // Deletion is deliberately deferred to main. The engine owns ONNX
             // models/audio, Teach may own a complete clipboard snapshot, and the
@@ -7574,42 +7671,6 @@ pub(crate) fn open_url(url: &str) -> bool {
     }
 }
 
-/// Open the one support address exposed by the settings UI. The IPC caller
-/// sends only the `support` enum value; no page-controlled URI reaches an OS
-/// handler, avoiding `file:`, custom-protocol, or command-line surprises.
-fn open_support_email() -> bool {
-    const SUPPORT: &str = "mailto:support@vocalcode.app";
-    #[cfg(windows)]
-    {
-        let Ok(rundll32) = windows_directory(true).map(|dir| dir.join("rundll32.exe")) else {
-            log::warn!("could not resolve the Windows system directory for email handling");
-            return false;
-        };
-        if !rundll32.is_file() {
-            log::warn!("the system email handler is missing");
-            return false;
-        }
-        std::process::Command::new(rundll32)
-            .args(["url.dll,FileProtocolHandler", SUPPORT])
-            .spawn()
-            .is_ok()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        std::process::Command::new("/usr/bin/open")
-            .arg(SUPPORT)
-            .spawn()
-            .is_ok()
-    }
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    {
-        std::process::Command::new("xdg-open")
-            .arg(SUPPORT)
-            .spawn()
-            .is_ok()
-    }
-}
-
 /// The VocalCode mark: five bars of differing height, the same waveform the
 /// recording indicator draws.
 ///
@@ -9212,8 +9273,8 @@ mod webui_copy_contract_tests {
             .contains(r#"getElementById("meetingStartBox").style.display=active?"none":"grid""#));
         assert!(html.contains("class=\"meeting-keep-short\">Keep audio</span>"));
         assert!(html.contains(".meeting-retention{align-items:center;flex-wrap:nowrap}"));
-        assert!(html.contains(".usage,.footline{display:none}"));
-        assert_eq!(html.matches("class=\"nav-label\"").count(), 8);
+        assert!(html.contains(".footline{display:none}"));
+        assert_eq!(html.matches("class=\"nav-label\"").count(), 9);
         assert!(html.contains(
             ".nav-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}"
         ));
@@ -9339,7 +9400,9 @@ mod webui_copy_contract_tests {
         let html = include_str!("webui.html");
 
         assert!(production_rust.contains(ACCEPTED));
-        assert_eq!(html.matches(&format!("\"{ACCEPTED}\":")).count(), 4);
+        // Restore belongs to the legacy licence runtime; the community page
+        // has no restore form, so it no longer carries this copy at all.
+        assert_eq!(html.matches(ACCEPTED).count(), 0);
         for completed_claim in [
             "the key has been sent to that email",
             "the email has been sent",
@@ -9542,30 +9605,148 @@ mod webui_copy_contract_tests {
     }
 
     #[test]
-    fn basic_and_pro_controls_are_explicit_and_native_meeting_gates_remain() {
+    fn community_settings_page_has_no_plan_licence_or_pro_gating() {
         let html = include_str!("webui.html");
         let rust = include_str!("webui.rs");
-        assert!(html.contains("Basic dictation is free forever."));
-        assert!(html.contains("Upgrade to Pro — $4.99 once"));
-        assert!(html.contains("correction.disabled=!hasPro"));
-        assert!(html.contains("if(!hasPro){showPanel(\"license\",true)"));
-        assert!(rust.contains("if !status.pro_gate.load(Ordering::Acquire)"));
-        assert!(rust.contains("Meetings are included in Pro."));
+        // Spelled in pieces so this test cannot satisfy itself by matching
+        // its own source through include_str!.
+        for forbidden in [
+            ["plan", "Badge"].concat(),
+            ["data-pro", "-badge"].concat(),
+            ["has", "Pro"].concat(),
+            ["lic", "Buy"].concat(),
+            ["lic", "Owned"].concat(),
+            ["lic", "Community"].concat(),
+            ["data-panel=\"", "license\""].concat(),
+            ["$4", ".99"].concat(),
+            ["Upgrade to ", "Pro"].concat(),
+            ["Restore with the ", "email"].concat(),
+            ["licence key", ""].concat(),
+            ["type:\"", "activate\""].concat(),
+            ["type:\"", "buy\""].concat(),
+            ["type:\"", "restore\""].concat(),
+            ["included in ", "Pro"].concat(),
+            ["trial ", "days"].concat(),
+            ["and licensing ", "still connect online"].concat(),
+            ["window.vocalcode", "Activated"].concat(),
+            ["https://vocal", "code.app"].concat(),
+        ] {
+            assert!(!html.contains(&forbidden), "{forbidden}");
+        }
+        // Meetings and correction learning are simply available.
+        assert!(!html.contains("correction.disabled="));
+        assert!(html.contains(
+            r#"document.getElementById("meetingImport").onclick=function(){send({type:"meeting_import"});};"#
+        ));
+        // The native gate cannot answer a community request with a Pro upsell.
+        let gate = ["if !paid_features_", "unlocked(status) {"].concat();
+        assert_eq!(rust.matches(&gate).count(), 2);
+        assert_eq!(
+            paid_features_unlocked(&RuntimeStatus::default()),
+            crate::community::ENABLED
+        );
     }
 
     #[test]
-    fn checkout_reference_is_cryptographically_random_and_fails_closed() {
+    fn about_and_help_replaces_the_licence_page() {
         let html = include_str!("webui.html");
-        let buy = html
-            .split("function securePurchaseReference()")
+        assert!(html.contains(r#"<button type="button" class="nav" data-panel="about">"#));
+        assert!(html.contains(r#"<div class="panel" data-panel="about">"#));
+        assert!(html.contains("<p>Free and open source (AGPL-3.0)</p>"));
+        assert!(html.contains(r#"av.textContent="v"+c.version"#));
+        for action in [
+            r#"document.getElementById("aboutSource").onclick=info("source")"#,
+            r#"document.getElementById("aboutPrivacy").onclick=info("privacy")"#,
+            r#"document.getElementById("aboutReport").onclick=info("report")"#,
+            r#"document.getElementById("aboutLogs").onclick=function(){ send({type:"open_log_folder"}); }"#,
+            r#"send({type:"copy_diagnostics",id:id})"#,
+        ] {
+            assert!(html.contains(action), "{action}");
+        }
+        // The page names a destination; it never carries a URL of its own.
+        let about = html
+            .split("// About & help. The page only names a link or action")
             .nth(1)
-            .and_then(|tail| tail.split("function flashNotes").next())
-            .expect("checkout JavaScript");
-        assert!(buy.contains("source.randomUUID()"));
-        assert!(buy.contains("source.getRandomValues(bytes)"));
-        assert!(buy.contains("if(!ref){"));
-        assert!(!buy.contains("Math.random"));
-        assert!(!buy.contains("Date.now"));
+            .and_then(|tail| tail.split("// Uninstall.").next())
+            .expect("About & help script");
+        assert!(!about.contains("http"));
+        assert!(!about.contains("mailto:"));
+        assert_eq!(
+            html.matches("class=\"nav-label\">About &amp; help<")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn crash_notice_is_driven_by_status_and_dismissed_natively() {
+        let html = include_str!("webui.html");
+        let rust = include_str!("webui.rs");
+        assert!(rust.contains(
+            r#""crash_notice": status.crash_notice.lock().ok().and_then(|n| n.clone()),"#
+        ));
+        assert!(html.contains(r#"document.getElementById("crashNotice").hidden=!s.crash_notice;"#));
+        assert!(html.contains(r#"<div class="crash" id="crashNotice" role="status" hidden>"#));
+        assert!(html.contains(">VocalCode closed unexpectedly last time<"));
+        assert!(html.contains(">Open log folder</button>"));
+        assert!(html.contains(">Report on GitHub</button>"));
+        assert!(html.contains(r#"send({type:"crash_notice_dismiss"})"#));
+        assert!(html.contains(r#"document.getElementById("crashLogs").onclick=function(){ send({type:"open_log_folder"}); }"#));
+
+        let status = RuntimeStatus::default();
+        *status.crash_notice.lock().unwrap() = Some(crate::support::CrashNotice::default());
+        dismiss_crash_notice(&status);
+        assert!(status.crash_notice.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn diagnostics_identify_the_setup_without_dictated_text() {
+        let dir = std::env::temp_dir().join(format!(
+            "vocalcode-webui-diagnostics-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join(crate::support::LOG_FILE_NAME),
+            "[t INFO vocalcode_app] loaded config\n[t INFO vocalcode_app] model ready\n",
+        )
+        .unwrap();
+        let status = RuntimeStatus::default();
+        *status.model_label.lock().unwrap() = "SenseVoice · zh".to_string();
+        status.ready.store(true, Ordering::Relaxed);
+        *status.last_text.lock().unwrap() = "private dictated sentence".to_string();
+        status.history.lock().unwrap().push(HistoryEntry::new(
+            1,
+            "private dictated sentence".to_string(),
+        ));
+        let config = Config {
+            language: "zh".to_string(),
+            input_device: None,
+            ..Config::default()
+        };
+
+        let text = diagnostics_text(&config, &status, &dir, None);
+        let _ = std::fs::remove_dir_all(&dir);
+        for expected in [
+            concat!("Version: ", env!("CARGO_PKG_VERSION")),
+            "Spoken language: zh",
+            "Model: SenseVoice · zh (ready)",
+            "Microphone: System default",
+            "Last 2 lines of vocalcode.log",
+            "model ready",
+        ] {
+            assert!(text.contains(expected), "{expected}\n{text}");
+        }
+        assert!(!text.contains("private dictated sentence"));
+        // Copied through the same bounded native bridge as History -> Copy.
+        let rust = include_str!("webui.rs");
+        let handler = rust
+            .split(r#"Some("copy_diagnostics") => {"#)
+            .nth(1)
+            .and_then(|tail| tail.split("Some(\"capture\")").next())
+            .expect("copy_diagnostics handler");
+        assert!(handler.contains("copy_to_clipboard(&text)"));
+        assert!(handler.contains("status.clipboard_result"));
     }
 
     #[test]
@@ -9603,23 +9784,9 @@ mod webui_copy_contract_tests {
     }
 
     #[test]
-    fn revealed_license_key_is_remasked_on_context_changes() {
-        let html = include_str!("webui.html");
-        assert!(html.contains("if(p!==\"license\") maskLicenseKey()"));
-        assert!(html.contains(
-            "document.addEventListener(\"visibilitychange\",function(){ if(document.hidden) maskLicenseKey(); })"
-        ));
-        assert!(html.contains("window.addEventListener(\"blur\",maskLicenseKey)"));
-        assert!(html.contains("window.addEventListener(\"pagehide\",maskLicenseKey)"));
-        assert!(html.contains("field.type=\"password\""));
-        assert!(html.contains("button.setAttribute(\"aria-pressed\",\"false\")"));
-    }
-
-    #[test]
-    fn share_link_uses_the_native_clipboard_bridge() {
+    fn settings_webview_has_no_web_clipboard_permission() {
         let html = include_str!("webui.html");
         let rust = include_str!("webui.rs");
-        assert!(html.contains("send({type:\"copy\", id:id, text:\"https://vocalcode.app\"})"));
         assert!(!html.contains("navigator.clipboard.writeText"));
         let enabled_webview_clipboard = [".with_clipboard(", "true)"].concat();
         assert!(!rust.contains(&enabled_webview_clipboard));
@@ -9753,11 +9920,30 @@ mod updater_contract_tests {
     }
 
     #[test]
-    fn info_ipc_accepts_only_the_two_constant_targets() {
+    fn info_ipc_accepts_only_constant_github_targets() {
         assert_eq!(InfoTarget::parse("privacy"), Some(InfoTarget::Privacy));
-        assert_eq!(InfoTarget::parse("support"), Some(InfoTarget::Support));
+        assert_eq!(InfoTarget::parse("report"), Some(InfoTarget::Report));
+        assert_eq!(InfoTarget::parse("source"), Some(InfoTarget::Source));
+        assert_eq!(
+            InfoTarget::Report.url(),
+            "https://github.com/wudaming00/vocalcode-community/issues/new/choose"
+        );
+        assert_eq!(
+            InfoTarget::Privacy.url(),
+            "https://github.com/wudaming00/vocalcode-community#privacy-and-network-access"
+        );
+        for target in [InfoTarget::Privacy, InfoTarget::Report, InfoTarget::Source] {
+            assert!(target
+                .url()
+                .starts_with("https://github.com/wudaming00/vocalcode-community"));
+        }
+        // The retired e-mail and website destinations are gone for good.
+        let rust = include_str!("webui.rs");
+        assert!(!rust.contains(&["support", "@vocalcode.app"].concat()));
+        assert!(!rust.contains(&["vocalcode.app", "/privacy"].concat()));
         for rejected in [
             "",
+            "support",
             "Privacy",
             "terms",
             "https://evil.example/",
