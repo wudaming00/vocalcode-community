@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -256,16 +256,19 @@ struct ConfigSaveRequest {
     config: Value,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+/// Also the on-disk shape of a kept History entry (see `diagnostics`), so a
+/// new field needs a serde default to keep older entries readable.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HistoryEntry {
     pub at: u64,
     pub text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recognition: Option<String>,
+    #[serde(default)]
     pub filler_removed: u32,
     /// Writing-rule applications (line breaks, "scratch that", lists, coding
     /// words, style). Like pause-word removal, the original stays reviewable.
-    #[serde(skip_serializing_if = "is_zero")]
+    #[serde(default, skip_serializing_if = "is_zero")]
     pub writing_edits: u32,
 }
 
@@ -458,6 +461,10 @@ pub struct RuntimeStatus {
     /// request or consume that request's revision token.
     pub correction_result: Mutex<Option<CorrectionResult>>,
     pub diagnostic_events: Mutex<std::collections::VecDeque<crate::diagnostics::Record>>,
+    /// History entries waiting for the engine loop to keep them on disk,
+    /// oldest first. Whether they are written is decided there, from the
+    /// active "Keep history" setting; the in-memory list never depends on it.
+    pub history_pending: Mutex<VecDeque<HistoryEntry>>,
     /// Result of applying one page config snapshot: (request id, ok, detail).
     /// Kept separate from dictionary/language acknowledgements so an unrelated
     /// save cannot be mistaken for the config request currently in flight.
@@ -509,12 +516,14 @@ pub struct RuntimeStatus {
     /// Taken once, so the window can answer a "check now" press either way.
     /// A kind rather than a sentence — prose built here cannot be translated.
     pub update_check: Mutex<Option<String>>,
-    /// Recent transcriptions this session, newest first: (clock time, text).
-    /// In memory only — a dictation log on disk is a privacy liability for an
-    /// app whose whole pitch is that nothing leaves the machine.
-    /// Unix seconds plus text. JavaScript formats the timestamp in the user's
+    /// Recent transcriptions, newest first: this session's, plus what "Keep
+    /// history" kept (encrypted) from earlier sessions. With it off this is
+    /// memory only. Unix seconds plus text. JavaScript formats the timestamp in the user's
     /// actual local timezone; the host must not label UTC as local HH:MM.
     pub history: Mutex<Vec<HistoryEntry>>,
+    /// Rows this process added to `history`. Home's "this session" figure:
+    /// the list itself also holds rows restored from earlier sessions.
+    pub history_this_session: AtomicUsize,
     /// Lifetime dictation counts, loaded at startup and written after each
     /// utterance. Counts only — never the text; see `Totals` in main.rs.
     pub totals: Mutex<crate::Totals>,
@@ -2209,6 +2218,8 @@ pub(crate) fn config_snapshot_for_page(config: &Config) -> Value {
         "double_tap_lock": config.double_tap_lock,
         "mute_while_dictating": config.mute_while_dictating,
         "mute_available": cfg!(windows),
+        "keep_history": config.keep_history.as_str(),
+        "keep_history_available": crate::diagnostics::KEPT_SUPPORTED,
         "writing": config.writing,
     })
 }
@@ -2366,6 +2377,7 @@ fn push_status(
         "insights": status.activity.snapshot(),
         "crash_notice": status.crash_notice.lock().ok().and_then(|n| n.clone()),
         "history": status.history.lock().ok().map(|h| h.clone()).unwrap_or_default(),
+        "history_this_session": status.history_this_session.load(Ordering::Relaxed),
         "download": download
             .map(|(label, pct, done, total)| serde_json::json!({
                 "label": label, "pct": pct, "done": done, "total": total })),
@@ -3993,6 +4005,12 @@ where
     if let Some(b) = v.get("mute_while_dictating").and_then(Value::as_bool) {
         next.mute_while_dictating = b;
     }
+    if let Some(value) = v.get("keep_history") {
+        next.keep_history = value
+            .as_str()
+            .and_then(vocalcode_core::config::HistoryRetention::parse)
+            .ok_or_else(|| "History can be kept for Off, 24 hours or 7 days only".to_string())?;
+    }
     if let Some(writing) = v.get("writing") {
         next.writing = serde_json::from_value(writing.clone())
             .map_err(|_| "writing settings are malformed".to_string())?;
@@ -4222,6 +4240,8 @@ fn init_config_json(
     initial["double_tap_lock"] = serde_json::json!(c.double_tap_lock);
     initial["mute_while_dictating"] = serde_json::json!(c.mute_while_dictating);
     initial["mute_available"] = serde_json::json!(cfg!(windows));
+    initial["keep_history"] = serde_json::json!(c.keep_history.as_str());
+    initial["keep_history_available"] = serde_json::json!(crate::diagnostics::KEPT_SUPPORTED);
     initial["writing"] = serde_json::json!(c.writing);
     initial.to_string()
 }
@@ -9078,6 +9098,85 @@ mod config_apply_contract_tests {
         );
     }
 
+    /// History's retention is an ordinary Settings value: saved through the
+    /// same transaction, echoed back to the page, and refused unless it is
+    /// one of the three choices the page offers.
+    #[test]
+    fn keep_history_is_a_validated_settings_value() {
+        use vocalcode_core::config::HistoryRetention;
+        let cfg = Mutex::new(configured());
+        assert_eq!(
+            config_snapshot_for_page(&cfg.lock().unwrap())["keep_history"],
+            "7d"
+        );
+        for (value, expected) in [
+            ("off", HistoryRetention::Off),
+            ("24h", HistoryRetention::Day),
+            ("7d", HistoryRetention::Week),
+        ] {
+            let saved = apply_save_with(
+                &cfg,
+                &serde_json::json!({ "keep_history": value }),
+                |_, _| Ok(()),
+                |_| Ok(()),
+                || false,
+            )
+            .unwrap();
+            assert_eq!(saved.keep_history, expected);
+            assert_eq!(config_snapshot_for_page(&saved)["keep_history"], value);
+        }
+        for bad in [
+            serde_json::json!("30d"),
+            serde_json::json!(7),
+            serde_json::json!(""),
+            serde_json::json!(null),
+        ] {
+            let persisted = std::cell::Cell::new(false);
+            let error = apply_save_with(
+                &cfg,
+                &serde_json::json!({ "keep_history": bad }),
+                |_, _| {
+                    persisted.set(true);
+                    Ok(())
+                },
+                |_| Ok(()),
+                || false,
+            )
+            .unwrap_err();
+            assert!(error.contains("History"), "{error}");
+            assert!(!persisted.get(), "{bad}");
+        }
+        assert_eq!(cfg.lock().unwrap().keep_history, HistoryRetention::Week);
+    }
+
+    /// The first payload the page gets on a new install shows the new
+    /// defaults, so first run and History render them before any save.
+    #[test]
+    fn a_new_install_page_starts_with_the_new_defaults() {
+        let initial: Value =
+            serde_json::from_str(&init_config_json(&Config::default(), &[], None, None)).unwrap();
+        assert_eq!(initial["send"], serde_json::json!([]));
+        assert_eq!(initial["noise_filter"], true);
+        assert_eq!(initial["keep_history"], "7d");
+        // Offered only where it can be encrypted; the page hides it elsewhere.
+        let available = cfg!(any(windows, target_os = "macos"));
+        assert_eq!(initial["keep_history_available"], available);
+        assert_eq!(
+            config_snapshot_for_page(&Config::default())["keep_history_available"],
+            available
+        );
+    }
+
+    /// Home's "this session" reads the host's count of rows added since
+    /// launch, never the list, which also holds History restored from disk.
+    #[test]
+    fn the_status_payload_counts_this_session_apart_from_the_list() {
+        let source = include_str!("webui.rs");
+        assert!(source.contains(
+            "\"history_this_session\": status.history_this_session.load(Ordering::Relaxed),"
+        ));
+    }
+
     #[test]
     fn save_ipc_only_enqueues_and_never_runs_devices_or_disk_on_the_ui_thread() {
         let source = include_str!("webui.rs");
@@ -11376,6 +11475,8 @@ mod purge_tests {
         std::fs::write(d.join(TRUSTED_TIME_FILE), b"trusted-time-cache").unwrap();
         std::fs::write(d.join("vocalcode.toml"), b"language = \"zh\"").unwrap();
         std::fs::write(d.join("replacements.txt"), b"a => b").unwrap();
+        std::fs::create_dir_all(d.join("dictation-history")).unwrap();
+        std::fs::write(d.join("dictation-history/1-1-0.vcd"), b"kept").unwrap();
         std::fs::create_dir_all(d.join("webview2/settings/Default")).unwrap();
         std::fs::write(
             d.join("webview2/settings/Default/Web Data"),
@@ -11394,6 +11495,10 @@ mod purge_tests {
         assert!(!d.join("models").exists(), "the 537 MB is the point");
         assert!(!d.join("vocalcode.toml").exists());
         assert!(!d.join("replacements.txt").exists());
+        assert!(
+            !d.join("dictation-history").exists(),
+            "kept History goes with the rest of the app data"
+        );
         assert!(!d.join("webview2").exists(), "browser state is user data");
         assert!(
             d.join(TRIAL_FILE).exists(),

@@ -53,10 +53,25 @@ and [who maintains it / how to get in touch](MAINTAINERS.md).
 | **Dictate into your apps** | Hold a shortcut, speak, and insert text into a supported focused field. Focus checks protect against accidental delivery to the wrong target. |
 | **Take local meeting notes** | Record microphone and system audio, import audio, search transcripts, add bookmarks and speaker labels, and export notes. Recording always needs your confirmation and participants' permission. |
 | **Teach your vocabulary** | Add dictionary entries or review a learned correction, edit it, or undo it. |
-| **Recover your words** | Copy from session history; optionally enable persistent local diagnostics with storage controls. |
-| **Choose your trade-offs** | Select local language/model routes, noise filtering, and experimental pause-delimited progressive typing. No GPU is required. |
+| **Recover your words** | History keeps recent dictations encrypted on this device (Off / 24 hours / 7 days); text that could not be typed stays there until you quit. Optional local diagnostics have their own storage controls. |
+| **Choose your trade-offs** | Select local language/model routes, the non-speech noise filter, and experimental pause-delimited progressive typing. No GPU is required. |
 
 This is a desktop tool, not a meeting bot or a cloud transcription subscription.
+
+### Defaults for a new install
+
+| Setting | New install | Where to change it |
+| --- | --- | --- |
+| Mouse Back button (X1) sends Enter | Off. First run offers it as an unticked box, **Use the mouse Back button as Enter**. | Shortcuts → Tap to send |
+| Filter non-speech noise | On. Without it, fan, keyboard or pink noise can be typed as "I.", "그." or "我。". | Settings → Dictation |
+| Keep history | 7 days: up to 50 recent dictations, encrypted with your Windows account or a Keychain key, then deleted. Off deletes what was kept. Uninstalling does not; **Remove…** under Settings → System does. | History |
+
+Updating does not change these for an existing install. Settings written by
+1.4.0 or earlier keep the Back button as Enter if they had it, keep the noise
+filter off and keep History to the current session, until you change them.
+Settings saved by this version use a newer settings format that 1.4.0 and
+earlier will not start with, so going back to an older release is not
+supported.
 
 The current **development tree** also includes an opt-in Windows desktop control
 bar and a manual rewrite scratchpad. The bar is off by default and uses the
@@ -106,6 +121,10 @@ First run takes three short steps:
 
    Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key
    in this step or later under **Shortcuts**.
+
+   The same step offers **Use the mouse Back button as Enter**, unticked.
+   Ticking it makes Back send what you dictated, and other apps stop
+   receiving it as Back.
 3. **Try it.** Once the model is ready, hold the key, say a sentence, and let
    go: the text appears in the box. Skip the step if the download is still
    running.
@@ -133,8 +152,12 @@ connections the app makes:
   summary, model, microphone name and the last 200 lines of `vocalcode.log`
   on your clipboard. Nothing is sent; you decide where to paste it. The log
   never contains transcripts, and your home-folder path is shortened to `~`.
-- Recording, clipboard history, exports, and optional diagnostic persistence
-  can contain sensitive information. Review your OS sync and backup settings.
+- Recording, clipboard history, exports, kept History and optional diagnostic
+  persistence can contain sensitive information. Kept History is encrypted and
+  expires, and **Remove…** under Settings → System deletes it with the rest of
+  the app data; uninstalling does not. Text that could not be typed, including
+  text refused by a password field and copied to the clipboard instead, is
+  kept like any other dictation. Review your OS sync and backup settings.
   Local speech recognition is not the same as an air-gapped app.
 
 ## Languages and performance

@@ -1152,6 +1152,36 @@ fn reject_future_config_version(path: &Path, source: &str) -> Result<(), String>
     Ok(())
 }
 
+/// The `config_version` a settings document recorded, read as far as a
+/// damaged file allows: from the document when it is valid TOML (where
+/// leaving it out means a file from before versioning, 0), otherwise from a
+/// top-level `config_version = N` line. `None` when it cannot be told.
+fn written_config_version(source: &str) -> Option<u64> {
+    if let Ok(document) = toml::from_str::<toml::Value>(source) {
+        return match document.get("config_version") {
+            None => Some(0),
+            Some(version) => version
+                .as_integer()
+                .and_then(|version| u64::try_from(version).ok()),
+        };
+    }
+    for line in source.lines() {
+        let line = line.trim();
+        // Top-level keys come before the first table.
+        if line.starts_with('[') {
+            break;
+        }
+        let Some(value) = line
+            .strip_prefix("config_version")
+            .and_then(|rest| rest.trim_start().strip_prefix('='))
+        else {
+            continue;
+        };
+        return value.split('#').next()?.trim().parse().ok();
+    }
+    None
+}
+
 struct ConfigWriteGuard(std::fs::File);
 
 impl Drop for ConfigWriteGuard {
@@ -1278,7 +1308,7 @@ where
                     // the exact source text has reached a unique, flushed recovery
                     // file. If that cannot be guaranteed, propagate the error so no
                     // later save can silently erase the only copy.
-                    let config = Config::default();
+                    let config = Config::recovery_defaults(written_config_version(&s));
                     let serialized = toml::to_string_pretty(&config).map_err(|error| {
                     format!(
                         "invalid settings in {} ({e}), and defaults could not be serialized: {error}; the original was left untouched",
@@ -1895,10 +1925,12 @@ fn prepare_model_pipeline(
 /// Record a transcription in the session history.
 /// Lifetime totals, kept across restarts.
 ///
-/// Deliberately not the transcripts. Those stay in memory only, because a
-/// dictation log on disk is a privacy liability for an app whose whole pitch is
-/// that nothing leaves the machine — but that argument is about the *text*, not
-/// about how much of it there was. Three integers give away nothing, and without
+/// Deliberately not the transcripts. Those belong to History, which keeps them
+/// on disk only encrypted, only for the period the user picks, and deletes them
+/// when that setting is turned off — a plain dictation log would be a privacy
+/// liability for an app whose whole pitch is that nothing leaves the machine.
+/// That argument is about the *text*, not about how much of it there was.
+/// Three integers give away nothing, and without
 /// them the window said "you have saved 12 min of typing with VocalCode" and
 /// then reset to zero the next time you opened it, which reads as a lifetime
 /// achievement and behaved like a scratch counter. Updating the app made it
@@ -2042,37 +2074,137 @@ fn totals_writable() -> bool {
     TOTALS_WRITABLE.load(Ordering::Acquire)
 }
 
+/// The in-memory History list and the kept-on-disk copy share this bound.
+const HISTORY_LIMIT: usize = vocalcode_core::config::HistoryRetention::MAX_ENTRIES;
+/// How often kept History is checked for entries past their period.
+const KEPT_HISTORY_EXPIRY_INTERVAL: Duration = Duration::from_secs(10 * 60);
+
+/// Add one row to History. The session list always gets it — including text
+/// that could not be typed, whatever "Keep history" says — and it is queued
+/// for the engine loop, which keeps it on disk only if the setting allows.
+fn record_history(status: &RuntimeStatus, entry: webui::HistoryEntry) {
+    if let Ok(mut history) = status.history.lock() {
+        history.insert(0, entry.clone());
+        // Bounded: this lives in memory and is pushed to the UI on every tick.
+        history.truncate(HISTORY_LIMIT);
+    }
+    // Rows restored from earlier sessions share the list but never this
+    // count, which is what Home calls "this session".
+    status.history_this_session.fetch_add(1, Ordering::Relaxed);
+    let mut pending = status
+        .history_pending
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if pending.len() >= HISTORY_LIMIT {
+        pending.pop_front();
+    }
+    pending.push_back(entry);
+}
+
 fn push_history(status: &Arc<RuntimeStatus>, text: &str) {
     bump_totals(status, text);
-    let secs = now_unix();
-    if let Ok(mut h) = status.history.lock() {
-        h.insert(0, webui::HistoryEntry::new(secs, text.to_string()));
-        // Bounded: this lives in memory and is pushed to the UI on every tick.
-        h.truncate(50);
-    }
+    record_history(
+        status,
+        webui::HistoryEntry::new(now_unix(), text.to_string()),
+    );
 }
 
 fn publish_filler_review(status: &RuntimeStatus, trace: &vocalcode_core::engine::DictationTrace) {
     if (trace.filler_removed == 0 && trace.writing_edits == 0) || trace.raw_text_truncated {
         return;
     }
+    if trace.final_text.is_empty() && trace.result == "delivery_completed" {
+        // A pause-only utterance inserts nothing, but its original remains
+        // available to copy without counting an empty dictation in totals.
+        record_history(
+            status,
+            webui::HistoryEntry::new(now_unix(), String::new()).with_trace(trace),
+        );
+        return;
+    }
     if let Ok(mut history) = status.history.lock() {
-        if trace.final_text.is_empty() && trace.result == "delivery_completed" {
-            // A pause-only utterance inserts nothing, but its original remains
-            // available to copy without counting an empty dictation in totals.
-            history.insert(
-                0,
-                webui::HistoryEntry::new(now_unix(), String::new()).with_trace(trace),
-            );
-            history.truncate(50);
-        } else if let Some(entry) = history.first_mut() {
+        if let Some(entry) = history.first_mut() {
             // Called before handling the next input event. Do not associate a
             // failed/partial transcript with an unrelated previous history row.
             if !trace.final_text.is_empty() && entry.text == trace.final_text {
-                *entry = entry.clone().with_trace(trace);
+                let before = entry.clone();
+                *entry = before.clone().with_trace(trace);
+                // Not yet written: keep the reviewable original with it.
+                let mut pending = status
+                    .history_pending
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                if let Some(queued) = pending.iter_mut().rev().find(|queued| **queued == before) {
+                    *queued = entry.clone();
+                }
             }
         }
     }
+}
+
+/// Hand queued History entries to the encrypted writer if "Keep history" is
+/// on. With it off they are dropped here; the session list still has them.
+fn keep_pending_history(
+    status: &RuntimeStatus,
+    writer: Option<&diagnostics::Writer>,
+    retention: vocalcode_core::config::HistoryRetention,
+) {
+    let pending: Vec<_> = status
+        .history_pending
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .drain(..)
+        .collect();
+    if !retention.keeps() {
+        return;
+    }
+    let Some(writer) = writer else {
+        return;
+    };
+    for entry in pending {
+        if let Err(error) = writer.keep(entry, retention) {
+            report_runtime_error(status, error);
+            break;
+        }
+    }
+}
+
+/// The list History opens with: what "Keep history" kept and, with local
+/// diagnostics on, their newest records, newest first. One dictation is
+/// usually in both, written a moment apart, and is shown once: each kept
+/// entry absorbs at most one diagnostic record of the same words. Two entries
+/// from the same source are two dictations however alike ("yes", "yes"), and
+/// diagnostics alone open History exactly as they did before kept History.
+fn restored_history(
+    kept: Vec<webui::HistoryEntry>,
+    diagnostic: Vec<webui::HistoryEntry>,
+) -> Vec<webui::HistoryEntry> {
+    let same_dictation = |kept: &webui::HistoryEntry, recorded: &webui::HistoryEntry| {
+        kept.text == recorded.text
+            && (!kept.text.is_empty() || kept.recognition == recorded.recognition)
+            && kept.at.abs_diff(recorded.at) <= 5
+    };
+    let mut twinned = vec![false; kept.len()];
+    let mut unmatched = Vec::with_capacity(diagnostic.len());
+    for recorded in diagnostic {
+        match (0..kept.len())
+            .find(|&index| !twinned[index] && same_dictation(&kept[index], &recorded))
+        {
+            Some(index) => twinned[index] = true,
+            None => unmatched.push(recorded),
+        }
+    }
+    let mut restored = if kept.is_empty() {
+        unmatched
+    } else {
+        let mut merged = kept;
+        merged.extend(unmatched);
+        // Stable: within one second a kept entry stays ahead of a record.
+        merged.sort_by_key(|entry| std::cmp::Reverse(entry.at));
+        merged
+    };
+    restored.truncate(HISTORY_LIMIT);
+    restored
 }
 
 /// Renew finite signed receipts without holding up the first window. The first
@@ -3970,17 +4102,35 @@ fn start_background(
         );
         engine.set_snippets(status.snippets.clone());
         let workflow_base = paths::data_dir();
+        // Expired entries, or all of them after "Keep history" was turned
+        // off, go before anything is shown. Off with nothing kept is a no-op
+        // that creates nothing on disk.
+        let now = diagnostics::now_ms();
+        if let Err(error) = diagnostics::prune_kept(&workflow_base, active_config.keep_history, now)
+        {
+            report_runtime_error(&status, error);
+        }
+        let kept = diagnostics::recent_kept(&workflow_base, active_config.keep_history, now)
+            .unwrap_or_else(|error| {
+                report_runtime_error(&status, error);
+                Vec::new()
+            });
+        let mut recorded = Vec::new();
         match workflows::load(&workflow_base) {
             Ok((_, prefs)) => {
                 if prefs.diagnostics {
                     match diagnostics::recent(&workflow_base) {
-                        Ok(history) => *status.history.lock().unwrap() = history,
+                        Ok(history) => recorded = history,
                         Err(error) => report_runtime_error(&status, error),
                     }
                 }
                 *status.workflows.lock().unwrap() = prefs;
             }
             Err(error) => report_runtime_error(&status, error),
+        }
+        let restored = restored_history(kept, recorded);
+        if !restored.is_empty() {
+            *status.history.lock().unwrap() = restored;
         }
         let diagnostic_writer = match diagnostics::Writer::start(workflow_base, status.clone()) {
             Ok(writer) => Some(writer),
@@ -4021,6 +4171,10 @@ fn start_background(
         // recv with a deadline so maintenance still runs under a continuous
         // stream of input events rather than only after a quiet timeout.
         let mut maintenance = MaintenanceClock::new(std::time::Instant::now());
+        let mut last_history_expiry = std::time::Instant::now();
+        // A retention pass the writer's queue was too full to take. Retried
+        // on the next maintenance pass, so a change to Off still deletes.
+        let mut kept_history_retry = false;
         let mut last_dictation_poll = std::time::Instant::now();
         let mut pending_input = None;
         let mut pending_meeting = None;
@@ -4063,6 +4217,13 @@ fn start_background(
                     }
                 }
             }
+            // After the trace above: an entry recorded on the previous pass
+            // now carries its reviewable original, and is kept with it.
+            keep_pending_history(
+                &status,
+                diagnostic_writer.as_ref(),
+                active_config.keep_history,
+            );
             if let Some((result, _)) = meeting_in_flight.as_ref() {
                 let completed = match result.try_recv() {
                     Ok(text) => Some(text),
@@ -4124,6 +4285,29 @@ fn start_background(
                     engine.is_recording(),
                     utterance_prefs.diagnostics,
                 );
+                // Kept History expires while the app stays open, not only at
+                // the next dictation or restart. With Off the pass deletes
+                // whatever an earlier one could not (a file held open by a
+                // scanner, say) and is otherwise a single lookup that never
+                // creates the folder.
+                if kept_history_retry
+                    || maintenance_now.duration_since(last_history_expiry)
+                        >= KEPT_HISTORY_EXPIRY_INTERVAL
+                {
+                    last_history_expiry = maintenance_now;
+                    kept_history_retry = match &diagnostic_writer {
+                        Some(writer) => match writer.retain(active_config.keep_history) {
+                            Ok(()) => false,
+                            Err(error) => {
+                                if !kept_history_retry {
+                                    log::warn!("{error}");
+                                }
+                                true
+                            }
+                        },
+                        None => false,
+                    };
+                }
                 if let Err(error) = engine.poll_audio_health() {
                     invalidate_audio_on_error(&error, &mut audio_ready);
                     publish_recoverable_text(&status, &mut engine);
@@ -4587,6 +4771,17 @@ fn start_background(
                         .store(want.talk_mode == "toggle", Ordering::Release);
                     status.cue_sounds.store(want.cue_sounds, Ordering::Release);
                     status.onboarded.store(want.onboarded, Ordering::Release);
+                    if want.keep_history != active_config.keep_history {
+                        // Off deletes what was kept; a shorter period drops
+                        // what it no longer covers. Takes effect now, not at
+                        // the next dictation.
+                        if let Some(writer) = &diagnostic_writer {
+                            if let Err(error) = writer.retain(want.keep_history) {
+                                kept_history_retry = true;
+                                report_runtime_error(&status, error);
+                            }
+                        }
+                    }
                     active_config = want;
                     status.noise_filter.set_enabled(active_config.noise_filter);
                     status
@@ -5047,6 +5242,16 @@ fn start_background(
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+        // Keep what the final pass recorded; dropping the writer below waits
+        // for it to reach disk.
+        if let Some(trace) = engine.take_trace() {
+            publish_filler_review(&status, &trace);
+        }
+        keep_pending_history(
+            &status,
+            diagnostic_writer.as_ref(),
+            active_config.keep_history,
+        );
         // Never leave someone's music muted behind an exiting engine.
         vocalcode_platform::mute::restore_blocking(Duration::from_millis(500));
     });
@@ -6168,7 +6373,7 @@ mod tests {
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 
     #[test]
-    fn filler_review_is_session_only_bounded_and_never_attaches_to_other_text() {
+    fn filler_review_is_bounded_and_never_attaches_to_other_text() {
         let status = RuntimeStatus::default();
         let mut trace = vocalcode_core::engine::DictationTrace {
             raw_text: "uh retry".into(),
@@ -6547,6 +6752,195 @@ mod tests {
             source,
             "startup must not write a migrated snapshot over a concurrent edit"
         );
+    }
+
+    /// v5 changed three defaults for new installs only. An existing settings
+    /// file keeps the behaviour it had through startup, the compare-before-save
+    /// check and the save itself — including when it never spelled the keys
+    /// out and serde would otherwise have filled in today's defaults.
+    #[test]
+    fn existing_settings_keep_the_old_defaults_through_load_and_save() {
+        use vocalcode_core::config::{HistoryRetention, MouseExtra, Trigger};
+        let old_send = if cfg!(target_os = "macos") {
+            Vec::new()
+        } else {
+            vec![Trigger::MouseButton(MouseExtra::X1)]
+        };
+        for version in ["", "config_version = 3\n", "config_version = 4\n"] {
+            let scratch = TempDir::new("existing-settings-old-defaults");
+            let path = scratch.path().join("vocalcode.toml");
+            let source = format!(
+                "{version}language = \"en\"\nonboarded = true\n\n[[talk]]\nkey = \"F13\"\n"
+            );
+            std::fs::write(&path, &source).unwrap();
+
+            let loaded = load_config_from(&path).unwrap();
+            assert_eq!(loaded.send, old_send, "{source}");
+            assert!(!loaded.noise_filter, "{source}");
+            assert_eq!(loaded.keep_history, HistoryRetention::Off, "{source}");
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
+
+            // An unrelated Settings change is compared against disk read the
+            // same way, then written as v5 with the old values spelled out.
+            let edited = Config {
+                cue_sounds: false,
+                ..loaded.clone()
+            };
+            persist_config_if_current(&path, &loaded, &edited).unwrap();
+            let written = std::fs::read_to_string(&path).unwrap();
+            assert!(
+                written.contains(&format!(
+                    "config_version = {}",
+                    vocalcode_core::config::CONFIG_VERSION
+                )),
+                "{written}"
+            );
+            assert!(written.contains("keep_history = \"off\""), "{written}");
+            assert!(written.contains("noise_filter = false"), "{written}");
+            let reloaded = load_config_from(&path).unwrap();
+            assert_eq!(reloaded.send, old_send);
+            assert!(!reloaded.noise_filter);
+            assert_eq!(reloaded.keep_history, HistoryRetention::Off);
+            assert!(!reloaded.cue_sounds);
+        }
+    }
+
+    #[test]
+    fn a_new_install_writes_and_reloads_the_new_defaults() {
+        use vocalcode_core::config::HistoryRetention;
+        let scratch = TempDir::new("new-install-defaults");
+        let path = scratch.path().join("vocalcode.toml");
+        for config in [
+            load_config_from(&path).unwrap(),
+            load_config_from(&path).unwrap(),
+        ] {
+            assert!(config.send.is_empty(), "no mouse button is taken");
+            assert!(config.noise_filter, "the speech gate is on");
+            assert_eq!(config.keep_history, HistoryRetention::Week);
+            assert!(!config.onboarded, "first run still asks");
+        }
+    }
+
+    /// History opens with kept entries and, with diagnostics on, their newest
+    /// records — each dictation once, newest first, and never more than the
+    /// session list holds.
+    #[test]
+    fn restored_history_merges_sources_once_and_stays_bounded() {
+        let entry = |at: u64, text: &str| webui::HistoryEntry::new(at, text.to_string());
+        let restored = restored_history(
+            vec![entry(300, "newest"), entry(150, ""), entry(100, "kept")],
+            vec![
+                // The same dictation as recorded by diagnostics a moment later.
+                entry(103, "kept"),
+                // The same words dictated again, much later, are a new row.
+                entry(200, "kept"),
+                entry(151, ""),
+            ],
+        );
+        let order: Vec<_> = restored.iter().map(|e| (e.at, e.text.as_str())).collect();
+        assert_eq!(
+            order,
+            [(300, "newest"), (200, "kept"), (150, ""), (100, "kept")]
+        );
+
+        let many: Vec<_> = (0..120).rev().map(|at| entry(at * 10, "x")).collect();
+        let restored = restored_history(many.clone(), Vec::new());
+        assert_eq!(restored.len(), HISTORY_LIMIT);
+        assert_eq!(restored[0].at, 1190);
+        assert_eq!(restored_history(Vec::new(), many).len(), HISTORY_LIMIT);
+    }
+
+    /// Only a kept entry and its diagnostic twin are one dictation. The same
+    /// words said twice within seconds are two rows from either source, and
+    /// diagnostics alone come back exactly as they did before kept History.
+    #[test]
+    fn restored_history_never_merges_repeats_from_one_source() {
+        let entry = |at: u64, text: &str| webui::HistoryEntry::new(at, text.to_string());
+        let twice = vec![entry(105, "yes"), entry(103, "yes")];
+        assert_eq!(restored_history(Vec::new(), twice.clone()), twice);
+        assert_eq!(restored_history(twice.clone(), Vec::new()), twice);
+        let both = restored_history(twice.clone(), vec![entry(106, "yes"), entry(104, "yes")]);
+        assert_eq!(both, twice, "each kept entry absorbs one record, no more");
+
+        // Diagnostics alone keep their own order and content untouched.
+        let recorded = vec![entry(200, "a"), entry(205, "b"), entry(203, "a")];
+        assert_eq!(restored_history(Vec::new(), recorded.clone()), recorded);
+    }
+
+    /// Home's "this session" is what this process added. Rows restored from
+    /// earlier sessions share the list but never the count.
+    #[test]
+    fn restored_rows_do_not_count_as_this_session() {
+        let status = Arc::new(RuntimeStatus::default());
+        *status.history.lock().unwrap() = restored_history(
+            (0..37)
+                .map(|at| webui::HistoryEntry::new(1_000 + at, format!("kept {at}")))
+                .collect(),
+            Vec::new(),
+        );
+        assert_eq!(status.history.lock().unwrap().len(), 37);
+        assert_eq!(status.history_this_session.load(Ordering::Relaxed), 0);
+
+        push_history(&status, "said now");
+        assert_eq!(status.history_this_session.load(Ordering::Relaxed), 1);
+        // A pause-only utterance is a row of this session, as it always was.
+        publish_filler_review(
+            &status,
+            &vocalcode_core::engine::DictationTrace {
+                raw_text: "um".into(),
+                filler_removed: 1,
+                result: "delivery_completed".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(status.history_this_session.load(Ordering::Relaxed), 2);
+        assert_eq!(status.history.lock().unwrap().len(), 39);
+    }
+
+    /// The session list gets every entry whatever "Keep history" says; the
+    /// setting only decides whether the queued copy reaches the writer.
+    #[test]
+    fn history_rows_are_queued_with_their_reviewable_original() {
+        let status = Arc::new(RuntimeStatus::default());
+        push_history(&status, "Retry.");
+        assert_eq!(status.history_pending.lock().unwrap().len(), 1);
+        let trace = vocalcode_core::engine::DictationTrace {
+            raw_text: "um Retry.".into(),
+            final_text: "Retry.".into(),
+            filler_removed: 1,
+            result: "delivery_completed".into(),
+            ..Default::default()
+        };
+        publish_filler_review(&status, &trace);
+        let queued = status.history_pending.lock().unwrap()[0].clone();
+        assert_eq!(queued.recognition.as_deref(), Some("um Retry."));
+        assert_eq!(status.history.lock().unwrap()[0], queued);
+
+        // Off: the queue is emptied without a writer, the list keeps the row.
+        keep_pending_history(&status, None, vocalcode_core::config::HistoryRetention::Off);
+        assert!(status.history_pending.lock().unwrap().is_empty());
+        assert_eq!(status.history.lock().unwrap().len(), 1);
+
+        // A pause-only utterance is a row of its own and is queued too.
+        let pause_only = vocalcode_core::engine::DictationTrace {
+            raw_text: "um".into(),
+            filler_removed: 1,
+            result: "delivery_completed".into(),
+            ..Default::default()
+        };
+        publish_filler_review(&status, &pause_only);
+        assert_eq!(status.history.lock().unwrap().len(), 2);
+        assert_eq!(
+            status.history_pending.lock().unwrap()[0]
+                .recognition
+                .as_deref(),
+            Some("um")
+        );
+        for _ in 0..(HISTORY_LIMIT * 2) {
+            push_history(&status, "again");
+        }
+        assert_eq!(status.history.lock().unwrap().len(), HISTORY_LIMIT);
+        assert_eq!(status.history_pending.lock().unwrap().len(), HISTORY_LIMIT);
     }
 
     #[test]
@@ -7472,6 +7866,62 @@ mod tests {
         let installed: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(installed.model, defaults.model);
         assert_eq!(installed.language, defaults.language);
+    }
+
+    /// A damaged settings file is still replaced by defaults, but one that can
+    /// be told to predate v5 keeps what that install had: no History on disk,
+    /// no speech gate, the Back button as Enter.
+    #[test]
+    fn damaged_older_settings_are_not_opted_into_the_new_defaults() {
+        use vocalcode_core::config::HistoryRetention;
+        let old_send = if cfg!(target_os = "macos") {
+            Vec::new()
+        } else {
+            vec![vocalcode_core::config::Trigger::MouseButton(
+                vocalcode_core::config::MouseExtra::X1,
+            )]
+        };
+        for (damaged, predates_v5) in [
+            // Invalid TOML with a readable version line.
+            (
+                "config_version = 4\nlanguage = \"en\"\nnoise_filter = maybe\n",
+                true,
+            ),
+            ("# hand edit\nconfig_version=3 # note\ntalk = [\n", true),
+            // Valid TOML that is not valid settings; no version means pre-v1.
+            ("noise_filter = \"yes\"\n", true),
+            ("config_version = 4\nkeep_history = 7\n", true),
+            ("config_version = 5\nlanguage = [\n", false),
+            // Nothing tells the version: a reset to today's defaults.
+            ("talk = [\n", false),
+            ("[writing]\nconfig_version = 2\n= broken\n", false),
+        ] {
+            let scratch = TempDir::new("damaged-settings-version");
+            let path = scratch.path().join("vocalcode.toml");
+            std::fs::write(&path, damaged).unwrap();
+            let installed = load_config_from(&path).unwrap();
+            assert!(!installed.onboarded, "{damaged}");
+            let reloaded = load_config_from(&path).unwrap();
+            for config in [&installed, &reloaded] {
+                if predates_v5 {
+                    assert_eq!(config.send, old_send, "{damaged}");
+                    assert!(!config.noise_filter, "{damaged}");
+                    assert_eq!(config.keep_history, HistoryRetention::Off, "{damaged}");
+                } else {
+                    assert!(config.send.is_empty(), "{damaged}");
+                    assert!(config.noise_filter, "{damaged}");
+                    assert_eq!(config.keep_history, HistoryRetention::Week, "{damaged}");
+                }
+            }
+            let recoveries = recovery_files(scratch.path(), "vocalcode.toml");
+            assert_eq!(recoveries.len(), 1, "{damaged}");
+            assert_eq!(std::fs::read_to_string(&recoveries[0]).unwrap(), damaged);
+        }
+        assert_eq!(written_config_version("config_version = 4"), Some(4));
+        assert_eq!(written_config_version("language = 'en'"), Some(0));
+        assert_eq!(written_config_version("config_version = -1"), None);
+        assert_eq!(written_config_version("config_version = 'five'"), None);
+        assert_eq!(written_config_version("config_versions = 3\n=\n"), None);
     }
 
     #[test]

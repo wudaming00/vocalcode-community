@@ -410,9 +410,10 @@
   /* History rows: timestamp, text, copy. */
   .hist-row{display:flex;gap:13px;align-items:flex-start;padding:11px 2px;border-top:1px solid var(--hair)}
   .hist-row:first-child{border-top:0}
-  .hist-row .t{font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:0 0 auto;padding-top:3px}
+  .hist-row .t{font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:0 0 auto;padding-top:3px;white-space:pre-line}
   .hist-row .x{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:1.5;word-break:break-word;white-space:pre-line}
   .hist-original{margin-top:7px;font-size:12px;color:var(--mut)}
+  #keepHistoryCard[hidden]{display:none}
   .hist-original summary{cursor:pointer}.hist-original p{white-space:pre-wrap;overflow-wrap:anywhere}
   .hist-row .cp{appearance:none;flex:0 0 auto;border:0;background:transparent;font-family:var(--mono);font-size:11px;color:var(--mut);cursor:pointer;padding:3px 4px;min-height:24px}
   .hist-row .cp:hover{color:var(--ink)}
@@ -766,9 +767,13 @@
 .fr-language-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
 .fr-language-grid button{height:35px;min-width:0;padding:0 8px;border:1px solid var(--hair);border-radius:8px;background:#0f1216;color:var(--sub);font:12px var(--sans);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fr-language-grid button:hover,.fr-language-grid button:focus-visible{color:var(--ink);border-color:var(--amber);background:var(--panel-2)}
+.fr-option{display:flex;align-items:flex-start;gap:9px;max-width:520px;margin:14px auto 0;padding:9px 12px;border:1px solid var(--hair);border-radius:10px;background:#0f1216;color:var(--mut);font-size:11.5px;line-height:1.4;text-align:left;cursor:pointer}
+.fr-option input{flex:0 0 auto;margin:2px 0 0;accent-color:var(--amber);cursor:pointer}
+.fr-option b{display:block;color:var(--ink);font-size:12.5px;font-weight:600}
+.fr-option:focus-within{border-color:var(--amber)}
 @media(max-height:540px){
   #firstrun>.fr-shell{padding:18px 20px}.fr-language-grid button{height:31px;font-size:11px}
-  .fr-copy{margin-bottom:11px}
+  .fr-copy{margin-bottom:11px}.fr-option{margin-top:10px;padding:7px 10px}
 }
 @media(max-width:620px){
   .fr-language-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
@@ -828,6 +833,10 @@
       </div>
       <p class="fr-note" id="frTalkWarn" hidden>Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.</p>
       <p class="fr-fine">You can change these at any time in Shortcuts.</p>
+      <!-- Offered, never assumed: binding it takes Back away from every other
+           app, so a new install starts unticked. It is a key choice, so it
+           sits in this step, after the talk keys this step is about. -->
+      <label class="fr-option" for="frBackEnter"><input type="checkbox" id="frBackEnter"/><span><b>Use the mouse Back button as Enter</b>Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.</span></label>
       <div class="fr-actions">
         <button type="button" class="fr-back" data-fr-back>Back</button>
         <button type="button" class="fr-primary" id="frKeyNext">Next</button>
@@ -1126,7 +1135,7 @@
           </div>
           <div class="lbl">Downloaded data</div>
           <div class="card">
-            <div class="row"><div class="k">Models and settings<small id="dataNote">Dragging VocalCode to the Bin does not remove these.</small></div>
+            <div class="row"><div class="k">Models and settings<small id="dataNote">Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.</small></div>
               <span class="action-group"><span class="muted" id="dataSize">—</span><button id="revealData">Show in Finder</button><button id="purgeData">Remove…</button></span>
             </div>
           </div>
@@ -1309,6 +1318,11 @@
       <!-- HISTORY -->
       <div class="panel" data-panel="history">
         <div class="c-head"><h2 tabindex="-1">History</h2><span class="statuschip"><span class="d"></span> <span id="histCount">0</span></span></div>
+        <div class="card" id="keepHistoryCard" style="margin-bottom:14px">
+          <div class="row"><div class="k"><label for="keepHistory">Keep history</label><small id="keepHistoryNote" role="status"></small></div>
+            <select id="keepHistory" aria-label="Keep history"><option value="off">Off</option><option value="24h">24 hours</option><option value="7d">7 days</option></select>
+          </div>
+        </div>
         <details class="card" id="rewriteDetails" style="margin-bottom:14px"><summary>Rewrite scratchpad · optional Beta</summary>
           <p class="fine">Paste only the text you want to review. Local Ollama is the default: 127.0.0.1:11434, verified local GGUF models up to 8B / 8 GiB, CPU-only. Optional CLI providers may send text to the cloud and use your subscription or API quota. Detection sends no source text. Nothing is installed, downloaded or connected automatically; no fallback.</p>
           <div class="migration-tools"><button class="setbtn" id="rewriteModels">Detect installed providers</button><select id="rewriteProvider" aria-label="Rewrite provider"><option value="ollama">Ollama · local CPU</option></select><select id="rewriteModel" aria-label="Local rewrite model"></select><select id="rewriteAction" aria-label="Rewrite action"><option value="polish">Light polish</option><option value="bullets">Bullet list</option><option value="summary">Summary</option><option value="translate_en">Translate to English</option><option value="translate_zh">Translate to Chinese</option><option value="custom">Custom instruction…</option></select></div>
@@ -1327,7 +1341,7 @@
           <div id="histRows"></div>
           <p class="fine" id="histEmpty" style="margin:2px">Nothing dictated yet. What you say will appear here so you can copy it again if an insert goes astray.</p>
         </div>
-        <p class="fine" style="margin:14px 2px 0">Without local diagnostics this list is session-only. When diagnostics are enabled, recent saved entries return after restart. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.</p>
+        <p class="fine" style="margin:14px 2px 0">Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.</p>
         <details class="card" style="margin-top:14px"><summary>Saved diagnostic history</summary><p class="fine">Enable persistence in Settings → Dictation → Application profiles &amp; local diagnostics. Delivery completed means the injection API returned successfully; it does not independently verify the destination's contents.</p><div class="migration-tools"><button class="setbtn" id="diagnosticLoad">Load newest saved entries</button><button class="setbtn" id="diagnosticExport">Export readable JSONL…</button></div><p id="diagnosticMessage" role="status"></p><div id="diagnosticRows"></div><div class="migration-tools"><button class="setbtn" id="diagnosticPrev">Newer</button><span id="diagnosticPage"></span><button class="setbtn" id="diagnosticNext">Older</button></div></details>
       </div>
 
@@ -1383,7 +1397,7 @@
 </section>
 
 <script>
-  const cfg = { talk:"mouse_x2", send:"mouse_x1", language:"auto", model:"", live_caption:false, paste_insert:false, correction_window_ms:8000, cue_sounds:true, min_record_ms:250, input_device:"", autostart:false };
+  const cfg = { talk:"mouse_x2", send:[], language:"auto", model:"", live_caption:false, paste_insert:false, correction_window_ms:8000, cue_sounds:true, min_record_ms:250, input_device:"", autostart:false };
   const LIMITS = {
     dictionary_rules:512,
     dictionary_side_utf8_bytes:16384,
@@ -1517,6 +1531,8 @@
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"很多笔记本键盘没有右 Ctrl 键。如果你的键盘也没有，请再添加一个按键。",
       "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"现在只能用鼠标侧键说话。请再添加一个键盘按键，这样不接鼠标也能说话。",
       "You can change these at any time in Shortcuts.":"之后随时可以在“快捷键”中更改。",
+      "Use the mouse Back button as Enter":"把鼠标后退键当作回车键",
+      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"点一下就能发送刚听写的内容。开启后，其他应用不会再把它当作“后退”。随时可以在“快捷键”里更改。",
       "Step 3 of 3 · Try it":"第 3/3 步 · 试一试",
       "Your words appear here":"你说的话会出现在这里",
       "Try dictating here":"在这里试试听写",
@@ -1951,10 +1967,10 @@
       "Select the wrong word above, then click Teach":"先选中上面写错的词，再点「教它」",
       "Uninstall":"卸载",
       "Downloaded models and settings":"已下载的模型与设置",
-      "Dragging VocalCode to the Bin does not remove these.":"把 VocalCode 拖进废纸篓不会删除这些。",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.":"把 VocalCode 拖进废纸篓不会删除这些内容和保留的历史记录；点“删除…”才会删除。",
       "Show in Finder":"在访达中显示",
       "Show in File Explorer":"在文件资源管理器中显示",
-      "Uninstalling VocalCode does not remove downloaded models or settings.":"卸载 VocalCode 不会删除已下载的模型或设置。",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does.":"卸载 VocalCode 不会删除已下载的模型、设置或保留的历史记录；点“删除…”才会删除。",
       "Remove…":"删除…",
       "Remove and quit?":"删除并退出？",
       "Removing…":"正在删除…",
@@ -2003,6 +2019,13 @@
       "New word or replacement":"新词或替换",
       "Matching is case-insensitive and matches anywhere in a phrase, so avoid left-hand sides that are ordinary words — a rule for “call it” would also rewrite “I'll call it tomorrow”.":"匹配不分大小写，且会匹配句中任意位置，所以左边不要写普通词 —— 写「call it」也会把「I'll call it tomorrow」一起改掉。",
       "Nothing dictated yet. What you say will appear here so you can copy it again if an insert goes astray.":"还没有听写记录。你说的内容会出现在这里，万一插入出了岔子还能再复制一次。",
+      "Keep history":"保留历史记录",
+      "24 hours":"24 小时",
+      "7 days":"7 天",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"仅限本次运行。历史记录不会在磁盘上保留任何内容；选择“关闭”会删除之前保留的记录。本地诊断如已开启，会另行存储。",
+      "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"在本机加密保留最近最多 50 条听写，24 小时后删除。",
+      "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"在本机加密保留最近最多 50 条听写，7 天后删除。",
+      "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"没能输入出去的文字会一直留在这个列表里，直到 VocalCode 退出，不受“保留历史记录”设置影响。开启本地诊断时，也会带回最新的诊断记录。不会上传任何内容。复制、导出或粘贴文字，可能让剪贴板历史、同步工具或其他程序读到听写内容。",
       "VocalCode keeps this list in memory for the current session and does not upload it. Copying or Paste text can expose a transcript to system clipboard history or sync tools.":"VocalCode 只在当前会话的内存中保留此列表，不会上传。复制或使用“粘贴文本”可能让转写内容进入系统剪贴板历史记录或同步工具。",
       "1 MODEL · MANDARIN + ENGLISH":"1 个模型 · 普通话 + 英文",
       "1 MODEL · 25 LANGUAGES":"1 个模型 · 25 种语言",
@@ -2300,6 +2323,8 @@
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Muchos portátiles no tienen Ctrl derecha. Si el tuyo no la tiene, añade otra tecla.",
       "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Ahora solo puedes dictar con un botón lateral del ratón. Añade una tecla del teclado para poder hablar sin ese ratón.",
       "You can change these at any time in Shortcuts.":"Puedes cambiarlas cuando quieras en Atajos.",
+      "Use the mouse Back button as Enter":"Usar el botón Atrás del ratón como Intro",
+      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"Púlsalo para enviar lo que dictaste. Las aplicaciones dejarán de recibirlo como Atrás. Puedes cambiarlo cuando quieras en Atajos.",
       "Step 3 of 3 · Try it":"Paso 3 de 3 · Pruébalo",
       "Your words appear here":"Tus palabras aparecen aquí",
       "Try dictating here":"Prueba a dictar aquí",
@@ -2663,10 +2688,10 @@
       "Select the wrong word above, then click Teach":"Selecciona arriba la palabra incorrecta y pulsa Enseñar",
       "Uninstall":"Desinstalar",
       "Downloaded models and settings":"Modelos y ajustes descargados",
-      "Dragging VocalCode to the Bin does not remove these.":"Mover VocalCode a la Papelera no elimina esto.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.":"Mover VocalCode a la Papelera no elimina esto ni el historial conservado; «Eliminar…» sí.",
       "Show in Finder":"Mostrar en el Finder",
       "Show in File Explorer":"Mostrar en el Explorador de archivos",
-      "Uninstalling VocalCode does not remove downloaded models or settings.":"Desinstalar VocalCode no elimina los modelos descargados ni los ajustes.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does.":"Desinstalar VocalCode no elimina los modelos descargados, los ajustes ni el historial conservado; «Eliminar…» sí.",
       "Remove…":"Eliminar…",
       "Remove and quit?":"¿Eliminar y salir?",
       "Removing…":"Eliminando…",
@@ -2715,6 +2740,13 @@
       "New word or replacement":"Nueva palabra o reemplazo",
       "Matching is case-insensitive and matches anywhere in a phrase, so avoid left-hand sides that are ordinary words — a rule for “call it” would also rewrite “I'll call it tomorrow”.":"La coincidencia no distingue mayúsculas y ocurre en cualquier parte de la frase, así que evita poner palabras corrientes a la izquierda: una regla para «call it» también reescribiría «I'll call it tomorrow».",
       "Nothing dictated yet. What you say will appear here so you can copy it again if an insert goes astray.":"Aún no has dictado nada. Lo que digas aparecerá aquí para que puedas volver a copiarlo si una inserción falla.",
+      "Keep history":"Conservar historial",
+      "24 hours":"24 horas",
+      "7 days":"7 días",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Solo esta sesión. El historial no guarda nada en el disco, y elegir Desactivado elimina lo que había guardado. Los diagnósticos locales, si están activados, se guardan aparte.",
+      "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Se conservan hasta 50 dictados recientes, cifrados en este dispositivo, durante 24 horas; después se eliminan.",
+      "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Se conservan hasta 50 dictados recientes, cifrados en este dispositivo, durante 7 días; después se eliminan.",
+      "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"El texto que no se pudo escribir se queda en esta lista hasta que se cierra VocalCode, sea cual sea el valor de Conservar historial. Los diagnósticos locales, si están activados, también recuperan sus registros más recientes. No se sube nada. Copiar, exportar o pegar texto puede exponer las transcripciones al historial del portapapeles, a herramientas de sincronización o a otros lectores.",
       "VocalCode keeps this list in memory for the current session and does not upload it. Copying or Paste text can expose a transcript to system clipboard history or sync tools.":"VocalCode guarda esta lista en memoria durante la sesión actual y no la sube. Copiar o usar Pegar texto puede exponer una transcripción al historial o a las herramientas de sincronización del portapapeles.",
       "1 MODEL · MANDARIN + ENGLISH":"1 MODELO · MANDARÍN + INGLÉS",
       "1 MODEL · 25 LANGUAGES":"1 MODELO · 25 IDIOMAS",
@@ -3048,6 +3080,8 @@
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Beaucoup de claviers de portables n’ont pas de Ctrl droit. Si c’est le cas du vôtre, ajoutez une autre touche.",
       "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Pour l’instant, seul un bouton latéral de la souris lance la dictée. Ajoutez une touche du clavier pour pouvoir parler sans cette souris.",
       "You can change these at any time in Shortcuts.":"Vous pouvez les modifier à tout moment dans Raccourcis.",
+      "Use the mouse Back button as Enter":"Utiliser le bouton Précédent de la souris comme Entrée",
+      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"Appuyez dessus pour envoyer ce que vous avez dicté. Les applications ne le reçoivent alors plus comme Précédent. Vous pouvez changer cela à tout moment dans Raccourcis.",
       "Step 3 of 3 · Try it":"Étape 3 sur 3 · Essayer",
       "Your words appear here":"Vos mots apparaissent ici",
       "Try dictating here":"Essayez de dicter ici",
@@ -3411,10 +3445,10 @@
       "Select the wrong word above, then click Teach":"Sélectionnez le mot erroné ci-dessus, puis cliquez sur Apprendre",
       "Uninstall":"Désinstaller",
       "Downloaded models and settings":"Modèles et réglages téléchargés",
-      "Dragging VocalCode to the Bin does not remove these.":"Mettre VocalCode à la corbeille ne les supprime pas.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.":"Mettre VocalCode à la corbeille ne supprime ni ces données ni l'historique conservé ; « Supprimer… », si.",
       "Show in Finder":"Afficher dans le Finder",
       "Show in File Explorer":"Afficher dans l’Explorateur de fichiers",
-      "Uninstalling VocalCode does not remove downloaded models or settings.":"Désinstaller VocalCode ne supprime ni les modèles téléchargés ni les réglages.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does.":"Désinstaller VocalCode ne supprime ni les modèles téléchargés, ni les réglages, ni l'historique conservé ; « Supprimer… », si.",
       "Remove…":"Supprimer…",
       "Remove and quit?":"Supprimer et quitter ?",
       "Removing…":"Suppression…",
@@ -3463,6 +3497,13 @@
       "New word or replacement":"Nouveau mot ou remplacement",
       "Matching is case-insensitive and matches anywhere in a phrase, so avoid left-hand sides that are ordinary words — a rule for “call it” would also rewrite “I'll call it tomorrow”.":"La correspondance ignore la casse et s'applique n'importe où dans la phrase : évitez donc les mots courants à gauche — une règle pour « call it » réécrirait aussi « I'll call it tomorrow ».",
       "Nothing dictated yet. What you say will appear here so you can copy it again if an insert goes astray.":"Rien n'a encore été dicté. Ce que vous direz apparaîtra ici, pour pouvoir le recopier si une insertion échoue.",
+      "Keep history":"Conserver l'historique",
+      "24 hours":"24 heures",
+      "7 days":"7 jours",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Cette session uniquement. L'historique ne conserve rien sur le disque, et choisir Désactivé supprime ce qu'il avait conservé. Les diagnostics locaux, s'ils sont activés, sont stockés à part.",
+      "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Jusqu'à 50 dictées récentes sont conservées chiffrées sur cet appareil pendant 24 heures, puis supprimées.",
+      "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Jusqu'à 50 dictées récentes sont conservées chiffrées sur cet appareil pendant 7 jours, puis supprimées.",
+      "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"Le texte qui n'a pas pu être saisi reste dans cette liste jusqu'à la fermeture de VocalCode, quel que soit le réglage Conserver l'historique. Les diagnostics locaux, s'ils sont activés, font aussi revenir leurs derniers enregistrements. Rien n'est envoyé en ligne. Copier, exporter ou coller du texte peut exposer les transcriptions à l'historique du presse-papiers, aux outils de synchronisation ou à d'autres lecteurs.",
       "VocalCode keeps this list in memory for the current session and does not upload it. Copying or Paste text can expose a transcript to system clipboard history or sync tools.":"VocalCode conserve cette liste en mémoire pour la session en cours et ne la téléverse pas. Copier ou utiliser Coller le texte peut exposer une transcription à l’historique ou aux outils de synchronisation du presse-papiers.",
       "1 MODEL · MANDARIN + ENGLISH":"1 MODÈLE · MANDARIN + ANGLAIS",
       "1 MODEL · 25 LANGUAGES":"1 MODÈLE · 25 LANGUES",
@@ -3796,6 +3837,8 @@
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Viele Laptop-Tastaturen haben keine rechte Strg-Taste. Falls deine keine hat, füge eine andere Taste hinzu.",
       "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Im Moment startet nur eine seitliche Maustaste das Diktat. Füge eine Tastaturtaste hinzu, damit du auch ohne diese Maus sprechen kannst.",
       "You can change these at any time in Shortcuts.":"Du kannst sie jederzeit unter Kurzbefehle ändern.",
+      "Use the mouse Back button as Enter":"Zurück-Taste der Maus als Eingabetaste verwenden",
+      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"Drücke sie, um das Diktierte zu senden. Apps erhalten sie dann nicht mehr als Zurück. Du kannst das jederzeit unter Kurzbefehle ändern.",
       "Step 3 of 3 · Try it":"Schritt 3 von 3 · Ausprobieren",
       "Your words appear here":"Deine Worte erscheinen hier",
       "Try dictating here":"Hier Diktieren ausprobieren",
@@ -4159,10 +4202,10 @@
       "Select the wrong word above, then click Teach":"Markiere oben das falsche Wort und klicke auf Beibringen",
       "Uninstall":"Deinstallieren",
       "Downloaded models and settings":"Geladene Modelle und Einstellungen",
-      "Dragging VocalCode to the Bin does not remove these.":"VocalCode in den Papierkorb zu ziehen entfernt diese nicht.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.":"VocalCode in den Papierkorb zu ziehen entfernt weder diese Daten noch den behaltenen Verlauf; „Entfernen…“ schon.",
       "Show in Finder":"Im Finder zeigen",
       "Show in File Explorer":"Im Datei-Explorer anzeigen",
-      "Uninstalling VocalCode does not remove downloaded models or settings.":"Die Deinstallation von VocalCode entfernt weder heruntergeladene Modelle noch Einstellungen.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does.":"Die Deinstallation von VocalCode entfernt weder heruntergeladene Modelle noch Einstellungen oder den behaltenen Verlauf; „Entfernen…“ schon.",
       "Remove…":"Entfernen…",
       "Remove and quit?":"Entfernen und beenden?",
       "Removing…":"Wird entfernt…",
@@ -4211,6 +4254,13 @@
       "New word or replacement":"Neues Wort oder Ersetzung",
       "Matching is case-insensitive and matches anywhere in a phrase, so avoid left-hand sides that are ordinary words — a rule for “call it” would also rewrite “I'll call it tomorrow”.":"Der Abgleich ignoriert Groß-/Kleinschreibung und greift überall im Satz — vermeide daher gewöhnliche Wörter links: eine Regel für „call it“ würde auch „I'll call it tomorrow“ umschreiben.",
       "Nothing dictated yet. What you say will appear here so you can copy it again if an insert goes astray.":"Noch nichts diktiert. Was du sagst, erscheint hier, damit du es erneut kopieren kannst, falls eine Einfügung danebengeht.",
+      "Keep history":"Verlauf behalten",
+      "24 hours":"24 Stunden",
+      "7 days":"7 Tage",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Nur diese Sitzung. Der Verlauf behält nichts auf dem Datenträger, und „Aus“ löscht, was er behalten hatte. Lokale Diagnosen werden, falls aktiv, separat gespeichert.",
+      "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Bis zu 50 aktuelle Diktate werden 24 Stunden lang verschlüsselt auf diesem Gerät behalten und dann gelöscht.",
+      "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Bis zu 50 aktuelle Diktate werden 7 Tage lang verschlüsselt auf diesem Gerät behalten und dann gelöscht.",
+      "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"Text, der nicht eingegeben werden konnte, bleibt bis zum Beenden von VocalCode in dieser Liste – unabhängig von „Verlauf behalten“. Sind lokale Diagnosen aktiv, kehren auch deren neueste Einträge zurück. Nichts wird hochgeladen. Kopieren, Exportieren oder Einfügen von Text kann Transkripte für den Zwischenablageverlauf, Synchronisierungstools oder andere Programme sichtbar machen.",
       "VocalCode keeps this list in memory for the current session and does not upload it. Copying or Paste text can expose a transcript to system clipboard history or sync tools.":"VocalCode behält diese Liste für die aktuelle Sitzung im Arbeitsspeicher und lädt sie nicht hoch. Kopieren oder Text einsetzen kann ein Transkript dem Verlauf oder Synchronisierungswerkzeugen der Zwischenablage zugänglich machen.",
       "1 MODEL · MANDARIN + ENGLISH":"1 MODELL · MANDARIN + ENGLISCH",
       "1 MODEL · 25 LANGUAGES":"1 MODELL · 25 SPRACHEN",
@@ -4416,8 +4466,8 @@
     var reveal=document.getElementById("revealData"), note=document.getElementById("dataNote");
     if(reveal) reveal.textContent=t(OS==="windows" ? "Show in File Explorer" : "Show in Finder");
     if(note) note.textContent=t(OS==="windows"
-      ? "Uninstalling VocalCode does not remove downloaded models or settings."
-      : "Dragging VocalCode to the Bin does not remove these.");
+      ? "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does."
+      : "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does.");
   }
   function setLang(pref){
     LANG = (pref==="auto"||!pref) ? detectLang() : pref;
@@ -5128,6 +5178,32 @@
   });
   bindToggle("desktopControl","desktop_control",function(){renderConfigState();});
   document.getElementById("desktopControlEdge").onchange=function(event){cfg.desktop_control_edge=event.target.value;save();};
+  // KEEP HISTORY: how long recent dictations survive a restart. An ordinary
+  // setting — applied at once, rolled back with the rest if the host refuses.
+  // The host deletes what the new choice no longer covers as soon as it is
+  // applied; Off deletes everything that was kept.
+  var KEEP_HISTORY_NOTES={
+    "off":"This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.",
+    "24h":"Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.",
+    "7d":"Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted."
+  };
+  function keepHistoryValue(){
+    return Object.prototype.hasOwnProperty.call(KEEP_HISTORY_NOTES,cfg.keep_history) ? cfg.keep_history : "off";
+  }
+  function renderKeepHistory(){
+    var value=keepHistoryValue(), select=document.getElementById("keepHistory"), note=document.getElementById("keepHistoryNote"), card=document.getElementById("keepHistoryCard");
+    // Kept History needs the encrypted storage Windows and macOS provide.
+    // Elsewhere nothing is kept whatever is chosen, so nothing is offered.
+    if(card) card.hidden=cfg.keep_history_available===false;
+    if(select) select.value=value;
+    if(note) note.textContent=t(KEEP_HISTORY_NOTES[value]);
+  }
+  document.getElementById("keepHistory").onchange=function(event){
+    var value=event.target.value;
+    if(!Object.prototype.hasOwnProperty.call(KEEP_HISTORY_NOTES,value)){ renderKeepHistory(); return; }
+    cfg.keep_history=value; renderKeepHistory(); save();
+  };
+  // END KEEP HISTORY
   bindToggle("meetingReminders","smart_meeting_reminders",function(on){
     if(!on) document.getElementById("meetingReminder").classList.remove("show");
   });
@@ -5599,6 +5675,23 @@
   document.getElementById("frTrySkip").onclick=finishFirstRun;
   // END FIRST RUN
 
+  // FIRST RUN BACK BUTTON: the key step's box. It is the send binding
+  // itself, applied at once like any other control, so the box always shows
+  // what is saved. A new install has nothing bound and starts unticked; an
+  // older install that already sends with Back sees it ticked, and nothing
+  // changes unless the box does.
+  function backButtonSends(){ return bindList("send").indexOf("mouse_x1")>=0; }
+  function renderBackEnter(){
+    var box=document.getElementById("frBackEnter");
+    if(box) box.checked=backButtonSends();
+  }
+  document.getElementById("frBackEnter").onchange=function(e){
+    var list=bindList("send").filter(function(code){ return code!=="mouse_x1"; });
+    if(e.target.checked) list.push("mouse_x1");
+    cfg.send=list; showCap("send"); save();
+  };
+  // END FIRST RUN BACK BUTTON
+
   document.getElementById("tourReplay").onclick=startTour;
   document.getElementById("tourSkip").onclick=function(){ stopTour(); };
   document.getElementById("tourBack").onclick=function(){ if(tourIndex>0){tourIndex--;renderTour();} };
@@ -5652,6 +5745,8 @@
     });
     renderDoubleTap();
     document.getElementById("muteRow").hidden=!cfg.mute_available;
+    renderBackEnter();
+    renderKeepHistory();
     renderWriting();
     renderLangs();
     var onboarding=cfg.onboarded===false;
@@ -5932,8 +6027,12 @@
         sub.textContent  = t("After the download, speech recognition can run without a network connection.");
       }else if(saved >= 1){
         line.innerHTML = t("About")+" <em>"+fmtMinutes(saved)+"</em> "+t("of typing at 200 characters per minute");
+        // Rows added since this launch, from the host. The list itself also
+        // holds what Keep history restored from earlier sessions, so its
+        // length would say "37 this session" before anything was said.
+        var thisSession = Math.max(0, Number(s.history_this_session) || 0);
         sub.textContent = T.dictations + " " + t("dictations so far") + " · "
-                        + s.history.length + " " + t("this session");
+                        + thisSession + " " + t("this session");
       }else{
         line.textContent = t("VocalCode is ready");
         sub.textContent = t("Works with most supported desktop text fields");
@@ -6574,6 +6673,11 @@
     var date=new Date(value*1000);
     if(Number.isNaN(date.getTime())) return "—";
     try{
+      // Kept History spans days, so anything not from today says which day.
+      var today=new Date();
+      if(date.getFullYear()!==today.getFullYear() || date.getMonth()!==today.getMonth() || date.getDate()!==today.getDate()){
+        return date.toLocaleDateString([], {month:"short", day:"numeric"})+"\n"+date.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+      }
       return date.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
     }catch(_){
       return "—";
