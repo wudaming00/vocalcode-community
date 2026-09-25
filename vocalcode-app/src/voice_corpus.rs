@@ -17,7 +17,9 @@
 //! VOCALCODE_VOICE_RESULTS=<results.jsonl to write>
 //! cargo test --release -p vocalcode-app voice_corpus -- --ignored --nocapture
 //! ```
-//! Scoring: packaging/voice-corpus/score.py.
+//! Scoring: packaging/voice-corpus/score.py. To measure a text-pipeline change
+//! without models or audio, `voice_corpus_replay` re-runs the recognitions a
+//! results file recorded.
 
 use std::collections::HashMap;
 use std::io::Write;
@@ -175,16 +177,7 @@ fn build_route(models: &Path, language: &str, model_id: &str, index: usize) -> R
         Arc::new(Mutex::new(crate::merge_rules(&[]))),
         cleaners,
     );
-    engine.set_snippets(Arc::new(Mutex::new(vec![
-        Entry {
-            name: "signature".into(),
-            text: "Best regards,\nDaming".into(),
-        },
-        Entry {
-            name: "签名".into(),
-            text: "此致\n敬礼".into(),
-        },
-    ])));
+    engine.set_snippets(corpus_snippets());
     Route {
         name: format!("{language}:{model_id}"),
         language: language.to_string(),
@@ -228,6 +221,68 @@ fn wait_idle(busy: &AtomicUsize) {
     }
 }
 
+/// The settings the app applies at utterance start.
+fn configure(engine: &mut Engine, language: &str, options: writing::Options, on: bool) {
+    assert!(engine.set_trace_enabled(true));
+    assert!(engine.set_filler_removal(on, language));
+    assert!(engine.set_cleanup_enabled(true));
+    assert!(engine.set_writing(options, language));
+    // Double-tap locking measures the wall-clock hold; a virtual-clock
+    // utterance lasts microseconds and would be read as a tap. It has its own
+    // state-machine tests and a live speaker-to-microphone check.
+    engine.set_double_tap_lock(false);
+    assert!(engine.set_live_caption(false));
+}
+
+/// Writing options for one pass of a case: "all_on" enables every rule with
+/// the case's style, "baseline" turns every rule off.
+fn pass_options(case: &serde_json::Value, pass: &str) -> (writing::Options, bool) {
+    let on = pass == "all_on";
+    let style = case["style"]
+        .as_str()
+        .and_then(writing::Style::parse)
+        .unwrap_or_default();
+    let options = writing::Options {
+        commands: on,
+        backtrack: on,
+        lists: on,
+        code: on,
+        press_enter: on,
+        style: if on { style } else { writing::Style::Formal },
+    };
+    (options, on)
+}
+
+fn corpus_snippets() -> Arc<Mutex<Vec<Entry>>> {
+    Arc::new(Mutex::new(vec![
+        Entry {
+            name: "signature".into(),
+            text: "Best regards,\nDaming".into(),
+        },
+        Entry {
+            name: "签名".into(),
+            text: "此致\n敬礼".into(),
+        },
+    ]))
+}
+
+fn load_cases() -> HashMap<String, serde_json::Value> {
+    let cases_path = std::env::var("VOCALCODE_VOICE_CASES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../packaging/voice-corpus/cases.json")
+        });
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&cases_path).expect("cases"))
+            .expect("cases json");
+    cases["cases"]
+        .as_array()
+        .expect("cases array")
+        .iter()
+        .map(|c| (c["id"].as_str().unwrap().to_string(), c.clone()))
+        .collect()
+}
+
 /// One complete dictation with the settings the app applies at utterance start.
 fn dictate(
     route: &mut Route,
@@ -239,15 +294,7 @@ fn dictate(
     *route.clip.samples.lock().unwrap() = samples;
     route.events.0.lock().unwrap().clear();
     let engine = &mut route.engine;
-    assert!(engine.set_trace_enabled(true));
-    assert!(engine.set_filler_removal(on, &route.language));
-    assert!(engine.set_cleanup_enabled(true));
-    assert!(engine.set_writing(options, &route.language));
-    // Double-tap locking measures the wall-clock hold; a virtual-clock
-    // utterance lasts microseconds and would be read as a tap. It has its own
-    // state-machine tests and a live speaker-to-microphone check.
-    engine.set_double_tap_lock(false);
-    assert!(engine.set_live_caption(false));
+    configure(engine, &route.language, options, on);
     let id = TriggerId::synthetic(21);
     let started = Instant::now();
     engine.handle(TriggerEvent::TalkPressed(id)).expect("press");
@@ -291,20 +338,7 @@ fn voice_corpus() {
     );
     let routes = std::env::var("VOCALCODE_VOICE_ROUTES")
         .unwrap_or_else(|_| "zh:sensevoice,en:sensevoice".into());
-    let cases_path = std::env::var("VOCALCODE_VOICE_CASES")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../packaging/voice-corpus/cases.json")
-        });
-    let cases: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(&cases_path).expect("cases"))
-            .expect("cases json");
-    let cases: HashMap<String, serde_json::Value> = cases["cases"]
-        .as_array()
-        .expect("cases array")
-        .iter()
-        .map(|c| (c["id"].as_str().unwrap().to_string(), c.clone()))
-        .collect();
+    let cases = load_cases();
     let clips: Vec<serde_json::Value> = serde_json::from_str(
         &std::fs::read_to_string(
             std::env::var("VOCALCODE_VOICE_CLIPS")
@@ -336,19 +370,7 @@ fn voice_corpus() {
             };
             let audio = read_wav(&corpus.join(clip["path"].as_str().unwrap()));
             for pass in ["all_on", "baseline"] {
-                let on = pass == "all_on";
-                let style = case["style"]
-                    .as_str()
-                    .and_then(writing::Style::parse)
-                    .unwrap_or_default();
-                let options = writing::Options {
-                    commands: on,
-                    backtrack: on,
-                    lists: on,
-                    code: on,
-                    press_enter: on,
-                    style: if on { style } else { writing::Style::Formal },
-                };
+                let (options, on) = pass_options(case, pass);
                 let (typed, send, trace, elapsed) = dictate(&mut route, audio.clone(), options, on);
                 let record = serde_json::json!({
                     "route": route.name, "path": clip["path"], "case": case_id,
@@ -378,4 +400,141 @@ fn voice_corpus() {
             route_started.elapsed().as_secs_f64()
         );
     }
+}
+
+/// Stands in for the recogniser: answers every decode with the transcript a
+/// recorded run heard.
+struct Recorded(Arc<Mutex<String>>);
+
+impl Asr for Recorded {
+    fn transcribe(&mut self, _: &[f32], _: u32) -> Result<String> {
+        Ok(self.0.lock().unwrap().clone())
+    }
+    fn model_label(&self) -> &str {
+        "recorded transcript"
+    }
+}
+
+struct ReplayRoute {
+    engine: Engine,
+    heard: Arc<Mutex<String>>,
+    clip: ClockedClip,
+    events: Collector,
+}
+
+fn replay_route(language: &str, model_id: &str) -> ReplayRoute {
+    let punct = crate::models::wants_punct(model_id, language).then(|| {
+        PathBuf::from(std::env::var("VOCALCODE_QA_MODELS").expect("VOCALCODE_QA_MODELS"))
+            .join("punct")
+            .join("model.onnx")
+    });
+    let cleaners = crate::models::build_cleaners(
+        punct,
+        crate::models::wants_cjk_space_collapse(model_id, language),
+    )
+    .expect("cleaners");
+    let heard = Arc::new(Mutex::new(String::new()));
+    let clip = ClockedClip::default();
+    *clip.samples.lock().unwrap() = vec![0.0; 16_000];
+    let events = Collector::default();
+    let mut engine = Engine::new(
+        Box::new(clip.clone()),
+        Box::new(Recorded(heard.clone())),
+        Box::new(events.clone()),
+        250,
+        16_000,
+        false,
+        Arc::new(AtomicBool::new(true)),
+        Arc::new(AtomicBool::new(false)),
+        Arc::new(Mutex::new(crate::merge_rules(&[]))),
+        cleaners,
+    );
+    engine.set_snippets(corpus_snippets());
+    ReplayRoute {
+        engine,
+        heard,
+        clip,
+        events,
+    }
+}
+
+/// Replays the recognitions recorded in earlier voice-corpus results through
+/// the current cleaner chain, dictionary, snippets and Writing rules: no models
+/// or audio needed, and the recogniser's output is held fixed. Diffing the
+/// replays of two commits shows exactly what a text-pipeline change does to
+/// every output the corpus has produced.
+///
+/// ```text
+/// VOCALCODE_VOICE_REPLAY=<results.jsonl>[,<results.jsonl>...]
+/// VOCALCODE_VOICE_RESULTS=<replayed results.jsonl to write>
+/// VOCALCODE_QA_MODELS=<only needed for a route that uses the Chinese punctuator>
+/// cargo test -p vocalcode-app voice_corpus_replay -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "needs recorded voice-corpus results; see the doc comment"]
+fn voice_corpus_replay() {
+    let inputs = std::env::var("VOCALCODE_VOICE_REPLAY").expect("VOCALCODE_VOICE_REPLAY");
+    let results =
+        PathBuf::from(std::env::var("VOCALCODE_VOICE_RESULTS").expect("VOCALCODE_VOICE_RESULTS"));
+    let cases = load_cases();
+    let mut routes: HashMap<String, ReplayRoute> = HashMap::new();
+    let mut out = std::io::BufWriter::new(std::fs::File::create(&results).expect("results"));
+    let (mut total, mut differ) = (0usize, 0usize);
+    for input in inputs.split(',') {
+        let text = std::fs::read_to_string(input.trim()).expect("recorded results");
+        for line in text.lines() {
+            // A run still being written ends with a partial line.
+            let Ok(mut record) = serde_json::from_str::<serde_json::Value>(line) else {
+                continue;
+            };
+            let Some(case) = record["case"].as_str().and_then(|id| cases.get(id)) else {
+                continue;
+            };
+            let name = record["route"].as_str().expect("route").to_string();
+            let (language, model_id) = name.split_once(':').expect("route lang:model");
+            let route = routes
+                .entry(name.clone())
+                .or_insert_with(|| replay_route(language, model_id));
+            // The trace joins decoded chunks with newlines; the engine joins
+            // the same chunks as phrases.
+            let mut heard = String::new();
+            for chunk in record["heard"].as_str().unwrap_or("").split('\n') {
+                let chunk = chunk.trim();
+                heard.push_str(vocalcode_core::segmentation::join_separator(&heard, chunk));
+                heard.push_str(chunk);
+            }
+            *route.heard.lock().unwrap() = heard;
+            route.events.0.lock().unwrap().clear();
+            let (options, on) = pass_options(case, record["pass"].as_str().unwrap_or(""));
+            configure(&mut route.engine, language, options, on);
+            let id = TriggerId::synthetic(21);
+            route
+                .engine
+                .handle(TriggerEvent::TalkPressed(id))
+                .expect("press");
+            // Capture restarts at zero on press; the whole clip has "arrived"
+            // by release, which decodes it once.
+            route.clip.cursor.store(16_000, Ordering::Release);
+            let typed = match route
+                .engine
+                .handle(TriggerEvent::TalkReleased(id))
+                .expect("release")
+            {
+                Outcome::Transcribed(text) => text,
+                Outcome::Idle => String::new(),
+                other => panic!("unexpected outcome {other:?}"),
+            };
+            let trace = route.engine.take_trace().unwrap_or_default();
+            let send = route.events.0.lock().unwrap().iter().any(|e| e == "enter");
+            total += 1;
+            differ += usize::from(record["typed"].as_str() != Some(typed.as_str()));
+            record["typed"] = typed.into();
+            record["send"] = send.into();
+            record["writing_edits"] = trace.writing_edits.into();
+            record["filler_removed"] = trace.filler_removed.into();
+            writeln!(out, "{record}").unwrap();
+        }
+    }
+    out.flush().unwrap();
+    eprintln!("replayed {total} records; {differ} typed differently from the recording");
 }

@@ -159,26 +159,146 @@ impl TextCleaner for Normalizer {
     }
 }
 
-/// Per-mark normalization: a full-width mark becomes ASCII only when it follows
-/// an ASCII letter/digit (English context); after Chinese it stays full-width.
-/// Then collapse spaces and capitalize sentence starts. Handles mixed
-/// zh/en text correctly.
+/// Words that recognisers' number formatting glues to the number after them.
+/// SenseVoice renders "see you at five" as "at5", "count to five" as "to5",
+/// "count5" or "count25"; Parakeet renders "is five hundred dollars" as
+/// "is$500". A spoken number is typically introduced by a preposition ("at 5",
+/// "by 2025", "under 18"), the copula ("is $800"), "and"/"or" or "the";
+/// "count" and "number" are the two counting nouns the voice corpus caught
+/// glued.
+///
+/// It is a closed list of whole words on purpose. Real alphanumeric tokens —
+/// utf8, mp3, h264, x86, ipv6, base64, sha256, win32, iso8601, a1, b2b, p2p,
+/// i18n — have letter stems that are not English words, so no generic
+/// "letters then digits" rule could tell them from glue. Left out despite being
+/// short function words: "a" (cell A1), "go" (go1.22), "up" (up2date), "no"
+/// (No1), "plus" (Plus500).
+const NUMBER_GLUE_WORDS: &[&str] = &[
+    "about", "above", "after", "and", "are", "around", "at", "be", "before", "below", "between",
+    "by", "count", "for", "from", "in", "into", "is", "number", "of", "on", "onto", "or", "over",
+    "per", "since", "than", "the", "till", "to", "under", "until", "via", "was", "were", "with",
+    "within",
+];
+
+/// Separates a [`NUMBER_GLUE_WORDS`] word from a digit or currency amount glued
+/// to it: "at5" → "at 5", "is$800" → "is $800". The word must stand alone on
+/// its left (so "photo5" and "retry_count5" are left alone) and be lowercase or
+/// capitalised: an all-caps stem is a part number or acronym ("AT90", "IS61").
+/// A token that goes on to become a name or an address is left alone too.
+fn unglue_numbers(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len() + 4);
+    let mut i = 0;
+    while i < chars.len() {
+        let starts_word =
+            chars[i].is_ascii_alphabetic() && i.checked_sub(1).is_none_or(|p| opens_word(chars[p]));
+        if !starts_word {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+        let end = i + chars[i..]
+            .iter()
+            .take_while(|c| c.is_ascii_alphabetic())
+            .count();
+        let word: String = chars[i..end].iter().collect();
+        out.push_str(&word);
+        let lower = word.to_ascii_lowercase();
+        let cased = word[1..] == lower[1..];
+        let amount = match chars.get(end) {
+            Some(c) if c.is_ascii_digit() => true,
+            Some('$' | '€' | '£') => chars.get(end + 1).is_some_and(char::is_ascii_digit),
+            _ => false,
+        };
+        // "in2_out", "to5@example.com": the token is a name, not glue.
+        let name = || {
+            chars[end..]
+                .iter()
+                .take_while(|c| c.is_ascii_graphic())
+                .any(|c| matches!(c, '_' | '@'))
+        };
+        if cased && amount && NUMBER_GLUE_WORDS.contains(&lower.as_str()) && !name() {
+            out.push(' ');
+        }
+        i = end;
+    }
+    out
+}
+
+/// Whether a word can start right after `prev`: after whitespace, an opening
+/// bracket or quote, or CJK text and its punctuation — never after a Latin
+/// letter, a digit, or a character that joins identifiers and paths.
+fn opens_word(prev: char) -> bool {
+    prev.is_whitespace()
+        || is_spaceless_script(prev)
+        || matches!(
+            prev,
+            '(' | '['
+                | '{'
+                | '"'
+                | '“'
+                | '‘'
+                | '（'
+                | '「'
+                | '【'
+                | '，'
+                | '。'
+                | '、'
+                | '：'
+                | '；'
+                | '！'
+                | '？'
+        )
+}
+
+/// Whether the character at `i` closes a sentence. An ASCII stop only counts
+/// before whitespace, the end, or CJK: the dots in "index.html" and "4.6" do
+/// not end anything.
+fn ends_sentence(chars: &[char], i: usize) -> bool {
+    match chars[i] {
+        '。' | '！' | '？' | '\n' => true,
+        '.' | '!' | '?' => chars
+            .get(i + 1)
+            .is_none_or(|&n| n.is_whitespace() || is_spaceless_script(n)),
+        _ => false,
+    }
+}
+
+/// For every character, whether the sentence it belongs to contains any CJK.
+/// A sentence runs up to and including its closing mark, so a comma sees the
+/// whole sentence around it and a full stop sees the sentence it closes.
+fn cjk_sentences(chars: &[char]) -> Vec<bool> {
+    let mut flags = vec![false; chars.len()];
+    let mut start = 0;
+    for i in 0..chars.len() {
+        if i + 1 == chars.len() || ends_sentence(chars, i) {
+            let cjk = chars[start..=i].iter().any(|&c| is_spaceless_script(c));
+            flags[start..=i].fill(cjk);
+            start = i + 1;
+        }
+    }
+    flags
+}
+
+/// Per-sentence normalization: a full-width mark becomes ASCII only in a
+/// sentence without any CJK in it (English context); in a Chinese or Japanese
+/// sentence it stays full-width, even right after an English word:
+/// "提交一个新的 PR。", not "PR.". (It used to look only at the character
+/// before the mark, so every Chinese sentence ending in an English term came
+/// out with an ASCII period.) Numbers glued to a preceding word are separated
+/// first. Then collapse spaces and capitalize sentence starts.
 fn normalize(s: &str) -> String {
+    let chars: Vec<char> = unglue_numbers(s).chars().collect();
+    let cjk = cjk_sentences(&chars);
     let mut mapped = String::with_capacity(s.len() + 8);
-    for c in s.chars() {
-        let prev_ascii = mapped
-            .chars()
-            .rev()
-            .find(|p| !p.is_whitespace())
-            .map(|p| p.is_ascii_alphanumeric())
-            .unwrap_or(false);
+    for (&c, &cjk) in chars.iter().zip(&cjk) {
         match c {
-            '，' | '、' if prev_ascii => mapped.push_str(", "),
-            '。' if prev_ascii => mapped.push_str(". "),
-            '！' if prev_ascii => mapped.push_str("! "),
-            '？' if prev_ascii => mapped.push_str("? "),
-            '；' if prev_ascii => mapped.push_str("; "),
-            '：' if prev_ascii => mapped.push_str(": "),
+            '，' | '、' if !cjk => mapped.push_str(", "),
+            '。' if !cjk => mapped.push_str(". "),
+            '！' if !cjk => mapped.push_str("! "),
+            '？' if !cjk => mapped.push_str("? "),
+            '；' if !cjk => mapped.push_str("; "),
+            '：' if !cjk => mapped.push_str(": "),
             _ => mapped.push(c),
         }
     }
@@ -339,14 +459,106 @@ mod tests {
         assert_eq!(acronyms("m c p"), "MCP");
     }
 
-    /// A full-width mark after English becomes ASCII with a space; after Chinese
-    /// it stays full-width. This is the whole point of doing it per-mark rather
+    /// A full-width mark in an English sentence becomes ASCII with a space; in a
+    /// sentence with any Chinese in it, it stays full-width — also right after an
+    /// English word. This is the whole point of deciding per sentence rather
     /// than with a blanket replace, and mixed-language dictation is the norm here.
     #[test]
     fn punctuation_follows_the_surrounding_language() {
         assert_eq!(normalize("hello，world"), "Hello, world");
         assert_eq!(normalize("你好，世界"), "你好，世界");
-        assert_eq!(normalize("跑 test，然后 commit"), "跑 test, 然后 commit");
+        assert_eq!(normalize("跑 test，然后 commit"), "跑 test，然后 commit");
+    }
+
+    /// From the voice corpus: every "…提交一个新的 PR。" came out ending in an
+    /// ASCII period, because the old rule only looked at the character before
+    /// the mark. A Chinese sentence keeps its full-width marks wherever the
+    /// English words fall — at the end, before a comma, or at the start.
+    #[test]
+    fn a_chinese_sentence_ending_in_english_keeps_full_width_marks() {
+        assert_eq!(
+            normalize("把这个 bug 修一下，然后提交一个新的 PR。"),
+            "把这个 bug 修一下，然后提交一个新的 PR。"
+        );
+        assert_eq!(
+            normalize("把这个bug修一下，然后提交一个新的PR。"),
+            "把这个bug修一下，然后提交一个新的PR。"
+        );
+        assert_eq!(normalize("你用的是 macOS？"), "你用的是 macOS？");
+        assert_eq!(normalize("OK，我们开始吧。"), "OK，我们开始吧。");
+        // Japanese is judged the same way.
+        assert_eq!(
+            normalize("新しい PR を作ります。"),
+            "新しい PR を作ります。"
+        );
+    }
+
+    /// The decision is per sentence: an English sentence next to a Chinese one
+    /// still gets ASCII marks, and a dot inside a file name or a version is not
+    /// a sentence end that would cut the Chinese sentence short.
+    #[test]
+    fn each_sentence_gets_its_own_punctuation() {
+        assert_eq!(normalize("Let's go。我们走吧。"), "Let's go. 我们走吧。");
+        assert_eq!(normalize("你好。hello，world。"), "你好。Hello, world.");
+        assert_eq!(
+            normalize("打开 index.html，然后改一下"),
+            "打开 index.html，然后改一下"
+        );
+        assert_eq!(normalize("升级到 v1.2，再测试"), "升级到 v1.2，再测试");
+        // An English sentence's marks are ASCII even after a non-letter.
+        assert_eq!(normalize("call foo()，then stop"), "Call foo(), then stop");
+    }
+
+    /// From the voice corpus: the recognisers' number formatting glues a
+    /// number to the word before it ("at5", "count to5", "is$800").
+    #[test]
+    fn numbers_glued_to_a_function_word_are_separated() {
+        assert_eq!(
+            normalize("sounds good see you at5."),
+            "Sounds good see you at 5."
+        );
+        assert_eq!(
+            normalize("Set snake case max retry count to5."),
+            "Set snake case max retry count to 5."
+        );
+        assert_eq!(normalize("retry count25."), "Retry count 25.");
+        assert_eq!(
+            normalize("The budget is$500. Scratch that. The budget is$800."),
+            "The budget is $500. Scratch that. The budget is $800."
+        );
+        assert_eq!(normalize("number3, bread"), "Number 3, bread");
+        assert_eq!(normalize("To5 people"), "To 5 people");
+        assert_eq!(normalize("(by2025)"), "(by 2025)");
+        assert_eq!(normalize("把它改成to5"), "把它改成to 5");
+        // Idempotent: the Paraformer chain normalizes twice.
+        assert_eq!(normalize("see you at 5."), "See you at 5.");
+    }
+
+    /// Real alphanumeric tokens have letter stems that are not function words,
+    /// so they are never split — pinned so the list is never widened into a
+    /// generic letters-then-digits rule.
+    #[test]
+    fn alphanumeric_tokens_are_not_split() {
+        for token in [
+            "utf8", "mp3", "h264", "x86", "ipv6", "base64", "sha256", "win32", "iso8601", "a1",
+            "b2b", "p2p", "4k", "i18n",
+        ] {
+            let text = format!("use {token} here");
+            assert_eq!(normalize(&text), format!("Use {token} here"), "{token}");
+        }
+        // A glue word only counts standing alone, not in all caps, and not as
+        // the start of a name or an address.
+        assert_eq!(normalize("photo5 and into3d"), "Photo5 and into 3d");
+        assert_eq!(normalize("retry_count5"), "Retry_count5");
+        assert_eq!(
+            normalize("rename in2_out and mail to5@example.com"),
+            "Rename in2_out and mail to5@example.com"
+        );
+        assert_eq!(
+            normalize("the AT90 and IS61 chips"),
+            "The AT90 and IS61 chips"
+        );
+        assert_eq!(normalize("echo is$HOME"), "Echo is$HOME");
     }
 
     /// From the first native Spanish tester report: Parakeet glued a sentence
@@ -449,7 +661,7 @@ mod tests {
     /// line, which is most lines for a bilingual user.
     #[test]
     fn english_inside_a_chinese_sentence_is_not_capitalised() {
-        assert_eq!(normalize("跑 test，然后 commit"), "跑 test, 然后 commit");
+        assert_eq!(normalize("跑 test，然后 commit"), "跑 test，然后 commit");
         assert_eq!(normalize("打开 vs code"), "打开 vs code");
         assert_eq!(normalize("用 git 提交"), "用 git 提交");
     }

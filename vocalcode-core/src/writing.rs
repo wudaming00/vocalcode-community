@@ -1127,7 +1127,9 @@ const CASE_STOP: &[&str] = &[
 ];
 const CASE_MAX_WORDS: usize = 6;
 
-/// "to5", "at10": a stop word the recogniser glued to a number.
+/// "to5", "at10": a stop word the recogniser glued to a number. The cleaner
+/// chain's normalizer separates these before Writing runs, but an app whose
+/// cleanup is off hands the recogniser's text over as it came.
 fn glued_stop_word(word: &str) -> bool {
     let lower = word.to_ascii_lowercase();
     let letters = lower.trim_end_matches(|c: char| c.is_ascii_digit());
@@ -2147,6 +2149,12 @@ mod tests {
         assert_eq!(
             en("Set Snake Case Max Retry Count to five.", all),
             "Set max_retry_count to five."
+        );
+        // SenseVoice's "to5" reaches Writing as "to 5" once the normalizer has
+        // run; raw, with an app's cleanup off, the glued word still ends the name.
+        assert_eq!(
+            en("Set snake case max retry count to 5.", all),
+            "Set max_retry_count to 5."
         );
         assert_eq!(
             en("Set snake case max retry count to5.", all),
