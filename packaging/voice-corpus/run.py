@@ -49,8 +49,9 @@ def main() -> int:
                VOCALCODE_VOICE_CASES=str(HERE / "cases.json"))
     if args.only:
         env["VOCALCODE_VOICE_ONLY"] = args.only
-    subprocess.run(["cargo", "test", "--release", "--locked", "-p", "vocalcode-app", "voice_corpus", "--",
-                    "--ignored", "--nocapture", "--test-threads=1"], cwd=ROOT, env=env, check=True)
+    # --exact: `voice_corpus_replay` (a separate, env-driven tool) must not run here.
+    subprocess.run(["cargo", "test", "--release", "--locked", "-p", "vocalcode-app", "voice_corpus::voice_corpus",
+                    "--", "--exact", "--ignored", "--nocapture", "--test-threads=1"], cwd=ROOT, env=env, check=True)
     return subprocess.run([sys.executable, str(HERE / "score.py"), str(results),
                            "--report", str(args.corpus / "report.json"), "--md", str(args.corpus / "summary.md")]).returncode
 

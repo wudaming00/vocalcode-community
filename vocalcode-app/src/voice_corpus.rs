@@ -16,7 +16,7 @@
 //! VOCALCODE_VOICE_ROUTES=zh:sensevoice,en:sensevoice,en:qwen3-asr-0.6b,en:parakeet-tdt-v3
 //! VOCALCODE_VOICE_RESULTS=<results.jsonl to write>
 //! VOCALCODE_VOICE_ONLY=<optional comma-separated case-id substrings>
-//! cargo test --release -p vocalcode-app voice_corpus -- --ignored --nocapture
+//! cargo test --release -p vocalcode-app voice_corpus::voice_corpus -- --exact --ignored --nocapture
 //! ```
 //! A route runs with the speech filter on, as the owner does; `+gate-off`
 //! (`en:sensevoice+gate-off`) runs it with the filter off, the shipped
