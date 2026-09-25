@@ -189,20 +189,38 @@ fn migrate_legacy_with(
         }
     }
 }
+/// The previous VocalCode's `workflows.json` as this installation adopts it.
+/// Its app profiles and cleanup choices carry over; encrypted diagnostics do
+/// not. Their key stayed with the other app, and turning on text recording
+/// here needs its own, visible opt-in.
+fn previous_preferences(bytes: &[u8]) -> Result<Preferences, String> {
+    let mut prefs: Preferences = serde_json::from_slice(bytes)
+        .map_err(|_| "The previous app profiles could not be read.")?;
+    prefs.diagnostics = false;
+    prefs.validate()?;
+    Ok(prefs)
+}
+
+/// Whether [`import_previous`] would adopt these bytes: they read, and this
+/// installation has never saved workflow settings of its own. Creates nothing.
+pub(crate) fn previous_importable(base: &Path, bytes: &[u8]) -> Result<bool, String> {
+    previous_preferences(bytes)?;
+    let local = base.join("personalization").join("workflows.json");
+    Ok(matches!(
+        std::fs::symlink_metadata(local),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound
+    ))
+}
+
 /// Adopt the previous VocalCode's `workflows.json` when this installation has
-/// never saved its own. Its app profiles and cleanup choices carry over;
-/// encrypted diagnostics do not. Their key stayed with the other app, and
-/// turning on text recording here needs its own, visible opt-in. Returns
-/// false, changing nothing, when a local file already exists.
+/// never saved its own. Returns false, changing nothing, when a local file
+/// already exists.
 pub(crate) fn import_previous(
     base: &Path,
     status: &crate::webui::RuntimeStatus,
     bytes: &[u8],
 ) -> Result<bool, String> {
-    let mut prefs: Preferences = serde_json::from_slice(bytes)
-        .map_err(|_| "The previous workflow settings could not be read.")?;
-    prefs.diagnostics = false;
-    prefs.validate()?;
+    let prefs = previous_preferences(bytes)?;
     let target = path(base)?;
     let _guard = crate::lock_rules_writes(&target)?;
     let bytes = serde_json::to_vec_pretty(&prefs).map_err(|e| e.to_string())?;

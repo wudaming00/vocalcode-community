@@ -11,13 +11,18 @@
 //!   in [`ALLOWED`]. Licence, trial and time-anchor files, logs, locks, the
 //!   WebView profile, `calendar/`, `diagnostic-history/`, `secure/` and any
 //!   name a later release added are never opened or copied.
-//! * Nothing overwrites. The dictionary and snippets merge through the same
-//!   preview as Settings → Import (existing entries win); meetings and model
-//!   files are published only under names this installation lacks; workflow
-//!   settings only when none were saved here; and settings go back to the
-//!   page to be applied as one ordinary, validated Settings change.
+//! * Nothing overwrites on its own. The dictionary and snippets merge through
+//!   the same preview as Settings → Import (existing entries win); meetings
+//!   and model files are published only under names this installation lacks;
+//!   app profiles only when none were saved here. Settings are the one part
+//!   that replaces values: they go back to the page to be applied as one
+//!   ordinary, validated Settings change, the page says so beside the box,
+//!   and ticks it by default only for an installation with nothing of its own.
 //! * Lifetime counts are added once. `legacy-import.json` records that, and
 //!   that the Home suggestion was answered.
+//! * What could not be read or copied is reported per part, never dropped:
+//!   errors and scan problems are `{part, message}` so the page can name the
+//!   part in its own language.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -89,11 +94,13 @@ struct Marker {
     imported_at_ms: u64,
 }
 
+const MARKER_UNREADABLE: &str = "The import record in this installation is unreadable.";
+
 fn read_marker(base: &Path) -> Result<Marker, String> {
-    match read(&base.join(MARKER), MAX_MARKER_BYTES)? {
-        Some(bytes) => serde_json::from_slice(&bytes)
-            .map_err(|_| "The import record in this installation is unreadable.".to_string()),
-        None => Ok(Marker::default()),
+    match read(&base.join(MARKER), MAX_MARKER_BYTES) {
+        Ok(Some(bytes)) => serde_json::from_slice(&bytes).map_err(|_| MARKER_UNREADABLE.into()),
+        Ok(None) => Ok(Marker::default()),
+        Err(_) => Err(MARKER_UNREADABLE.into()),
     }
 }
 
@@ -102,16 +109,25 @@ fn write_marker(base: &Path, marker: &Marker) -> Result<(), String> {
     crate::storage::atomic_write(&base.join(MARKER), bytes).map_err(|error| error.to_string())
 }
 
-/// What the person ticked. `dictionary` covers dictionary and snippets;
-/// `settings` covers settings and application profiles.
+/// What the person ticked. `dictionary` covers dictionary and snippets.
+/// `settings` replaces values here, so it is its own choice; `profiles`
+/// (application profiles) only fills an installation that has none.
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct Parts {
     settings: bool,
+    profiles: bool,
     dictionary: bool,
     meetings: bool,
     stats: bool,
     models: bool,
+}
+
+/// One part that could not be read or imported. The page names the part in
+/// its own language and translates `message` when it is one of the fixed
+/// sentences in this module; an operating-system error stays as written.
+fn problem(part: &str, message: impl Into<String>) -> Value {
+    json!({"part": part, "message": message.into()})
 }
 
 pub(crate) fn handle(
@@ -146,31 +162,39 @@ pub(crate) fn handle(
                 .map_err(|_| "Choose what to import.".to_string())?;
             import(&previous, base, status, parts, crate::totals_writable())
         }
-        "dismiss" => {
-            let mut marker = read_marker(base).unwrap_or_default();
-            marker.dismissed = true;
-            write_marker(base, &marker)?;
-            Ok(json!({"dismissed": true}))
-        }
+        "dismiss" => dismiss(base),
         _ => Err("Unknown import operation.".into()),
     }
 }
 
+/// "Not now" on the Home suggestion. An unreadable record is left as it is:
+/// rewriting it from defaults would forget that usage counts were already
+/// added, and the next import would add them a second time.
+fn dismiss(base: &Path) -> Result<Value, String> {
+    let mut marker = read_marker(base)?;
+    marker.dismissed = true;
+    write_marker(base, &marker)?;
+    Ok(json!({"dismissed": true}))
+}
+
+const SETTINGS_UNREADABLE: &str = "The previous settings file could not be read.";
+
 /// The previous settings as a page save message. They travel back to the
 /// page and are applied as one ordinary Settings change, so they meet exactly
 /// the validation, persistence and runtime apply of a click there, and a
-/// refusal is reported and rolled back the same way.
+/// refusal is reported and rolled back the same way. They replace the values
+/// here; the page says so and leaves the box unticked for anyone who already
+/// has data of their own.
 fn previous_settings(previous: &Path) -> Result<Option<Value>, String> {
     let path = allowed(previous, "vocalcode.toml");
     let Some(bytes) = read(&path, MAX_CONFIG_DOCUMENT_BYTES)? else {
         return Ok(None);
     };
-    let source = String::from_utf8(bytes)
-        .map_err(|_| "The previous settings file is not UTF-8.".to_string())?;
+    let source = String::from_utf8(bytes).map_err(|_| SETTINGS_UNREADABLE.to_string())?;
     crate::reject_future_config_version(&path, &source)?;
     // The previous edition's settings are a field subset of these: unknown
     // keys are ignored and missing ones take this build's defaults.
-    let unreadable = || "The previous settings file could not be read.".to_string();
+    let unreadable = || SETTINGS_UNREADABLE.to_string();
     let written = toml::from_str::<toml::Table>(&source).map_err(|_| unreadable())?;
     let mut config: Config = toml::from_str(&source).map_err(|_| unreadable())?;
     config.validate_bounds()?;
@@ -212,7 +236,7 @@ fn previous_rules(previous: &Path) -> Result<Option<format::RulesFile>, String> 
         return Ok(None);
     };
     let text = String::from_utf8(bytes)
-        .map_err(|_| "The previous dictionary is not UTF-8.".to_string())?;
+        .map_err(|_| "The previous dictionary could not be read.".to_string())?;
     format::parse_rules_file(&text).map(Some)
 }
 
@@ -236,6 +260,22 @@ fn previous_snippets(previous: &Path) -> Result<Option<Vec<Entry>>, String> {
     previous_personalization(previous, "snippets.json", format::MAX_IMPORT_BYTES)?
         .map(|bytes| crate::migration::snippet_document(&bytes))
         .transpose()
+}
+
+/// Application profiles: `Some("new")` when they would be adopted,
+/// `Some("kept")` when this installation already saved its own.
+fn previous_profiles(previous: &Path, base: &Path) -> Result<Option<&'static str>, String> {
+    let Some(bytes) = previous_personalization(previous, "workflows.json", MAX_WORKFLOW_BYTES)?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(
+        if crate::workflows::previous_importable(base, &bytes)? {
+            "new"
+        } else {
+            "kept"
+        },
+    ))
 }
 
 /// Merge through the same preview as Settings → Import: existing entries win,
@@ -323,7 +363,12 @@ fn plan_meetings(
             continue;
         }
         let meeting = if thorough {
-            store.load(&id).map_err(|error| error.to_string())
+            // `load` opens the record and transcript by path, which would
+            // follow a link in their place. Refuse a folder with any link in
+            // it before reading anything there; the copy would refuse it too.
+            crate::paths::validate_tree_without_reparse(&entry.path())
+                .map_err(|error| error.to_string())
+                .and_then(|()| store.load(&id).map_err(|error| error.to_string()))
         } else {
             meeting_record(&entry.path(), &id)
         };
@@ -448,39 +493,47 @@ fn import_meetings(previous: &Path, base: &Path) -> Result<Option<Value>, String
 fn previous_stats(
     previous: &Path,
 ) -> Result<(Option<crate::Totals>, Option<crate::activity::Activity>), String> {
+    let unreadable = |_| "The previous usage counts could not be read.".to_string();
     let totals = read(&allowed(previous, "totals.json"), MAX_TOTALS_DOCUMENT_BYTES)?
         .map(|bytes| serde_json::from_slice::<crate::Totals>(&bytes))
         .transpose()
-        .map_err(|_| "The previous lifetime totals could not be read.".to_string())?;
+        .map_err(unreadable)?;
     let activity = read(
         &allowed(previous, "activity.json"),
         crate::activity::MAX_FILE_BYTES,
     )?
     .map(|bytes| serde_json::from_slice::<crate::activity::Activity>(&bytes))
     .transpose()
-    .map_err(|_| "The previous daily activity could not be read.".to_string())?;
+    .map_err(unreadable)?;
     Ok((totals, activity))
 }
 
+/// Add the previous usage counts, once. Returns what landed; each part that
+/// could not be added is pushed to `failures` on its own, so a partial
+/// import is reported next to what did arrive.
 fn import_stats(
     previous: &Path,
     base: &Path,
     status: &RuntimeStatus,
     marker: &mut Result<Marker, String>,
     totals_writable: bool,
-) -> Result<Option<Value>, String> {
-    let marker = marker.as_mut().map_err(|error| {
-        format!("{error} Usage counts were not added, so they cannot be counted twice.")
-    })?;
+    failures: &mut Vec<String>,
+) -> Option<Value> {
+    let Ok(marker) = marker.as_mut() else {
+        failures.push("The import record in this installation is unreadable, so usage counts were not added: they must never be counted twice.".into());
+        return None;
+    };
     if marker.stats_imported {
-        return Ok(Some(json!({"already": true})));
+        return Some(json!({"already": true}));
     }
-    let (totals, activity) = previous_stats(previous)?;
-    if totals.is_none() && activity.is_none() {
-        return Ok(None);
-    }
+    let (totals, activity) = match previous_stats(previous) {
+        Ok(found) => found,
+        Err(error) => {
+            failures.push(error);
+            return None;
+        }
+    };
     let mut summary = json!({});
-    let mut failures = Vec::new();
     if let Some(activity) = activity {
         match status.activity.merge_imported(&activity) {
             Ok(days) => summary["days"] = json!(days),
@@ -501,13 +554,12 @@ fn import_stats(
     // be explained, a count added twice cannot be taken back.
     if summary.as_object().is_some_and(|fields| !fields.is_empty()) {
         marker.stats_imported = true;
-        write_marker(base, marker)?;
-        if !failures.is_empty() {
-            summary["warning"] = json!(failures.join(" "));
+        if let Err(error) = write_marker(base, marker) {
+            failures.push(error);
         }
-        return Ok(Some(summary));
+        return Some(summary);
     }
-    Err(failures.join(" "))
+    None
 }
 
 fn import(
@@ -523,8 +575,10 @@ fn import(
     if parts.settings {
         match previous_settings(previous) {
             Ok(settings) => result["settings"] = json!(settings),
-            Err(error) => errors.push(format!("Settings: {error}")),
+            Err(error) => errors.push(problem("settings", error)),
         }
+    }
+    if parts.profiles {
         let workflows = previous_personalization(previous, "workflows.json", MAX_WORKFLOW_BYTES)
             .and_then(|bytes| {
                 bytes
@@ -535,7 +589,7 @@ fn import(
             Ok(Some(true)) => result["workflows"] = json!("imported"),
             Ok(Some(false)) => result["workflows"] = json!("kept"),
             Ok(None) => {}
-            Err(error) => errors.push(format!("Application profiles: {error}")),
+            Err(error) => errors.push(problem("profiles", error)),
         }
     }
     if parts.dictionary {
@@ -550,7 +604,7 @@ fn import(
                 .transpose()
         }) {
             Ok(counts) => result["dictionary"] = json!(counts),
-            Err(error) => errors.push(format!("Dictionary: {error}")),
+            Err(error) => errors.push(problem("dictionary", error)),
         }
         match previous_snippets(previous).and_then(|entries| {
             entries
@@ -558,12 +612,12 @@ fn import(
                 .transpose()
         }) {
             Ok(counts) => result["snippets"] = json!(counts),
-            Err(error) => errors.push(format!("Snippets: {error}")),
+            Err(error) => errors.push(problem("dictionary", error)),
         }
         // The engine applies the merged words from the next dictation on.
         match crate::migration::publish_runtime(base, status) {
             Ok(state) => result["state"] = state,
-            Err(error) => errors.push(error),
+            Err(error) => errors.push(problem("dictionary", error)),
         }
     }
     if parts.meetings {
@@ -579,14 +633,21 @@ fn import(
                 }
                 result["meetings"] = json!(summary);
             }
-            Err(error) => errors.push(format!("Meetings: {error}")),
+            Err(error) => errors.push(problem("meetings", error)),
         }
     }
     if parts.stats {
-        match import_stats(previous, base, status, &mut marker, totals_writable) {
-            Ok(summary) => result["stats"] = json!(summary),
-            Err(error) => errors.push(format!("Usage counts: {error}")),
-        }
+        let mut failures = Vec::new();
+        let summary = import_stats(
+            previous,
+            base,
+            status,
+            &mut marker,
+            totals_writable,
+            &mut failures,
+        );
+        result["stats"] = json!(summary);
+        errors.extend(failures.into_iter().map(|error| problem("stats", error)));
     }
     if parts.models {
         let models = allowed(previous, "models");
@@ -599,14 +660,14 @@ fn import(
                     }
                     result["models"] = json!(summary);
                 }
-                Err(error) => errors.push(format!("Models: {error}")),
+                Err(error) => errors.push(problem("models", error)),
             }
         }
     }
     if let Ok(marker) = marker.as_mut() {
         marker.imported_at_ms = now_ms();
         if let Err(error) = write_marker(base, marker) {
-            errors.push(error);
+            errors.push(problem("record", error));
         }
     }
     result["errors"] = json!(errors);
@@ -646,28 +707,32 @@ fn community_has_user_data(base: &Path, status: &RuntimeStatus) -> bool {
 fn scan(previous: &Path, base: &Path, status: &RuntimeStatus) -> Value {
     let marker = read_marker(base).unwrap_or_default();
     let mut problems = Vec::new();
-    let mut note = |label: &str, error: String| problems.push(format!("{label}: {error}"));
+    let mut note = |part: &str, error: String| problems.push(problem(part, error));
     let settings = previous_settings(previous)
         .map(|settings| settings.is_some())
         .unwrap_or_else(|error| {
-            note("Settings", error);
+            note("settings", error);
             false
         });
+    let profiles = previous_profiles(previous, base).unwrap_or_else(|error| {
+        note("profiles", error);
+        None
+    });
     let rules = previous_rules(previous)
         .map(|rules| rules.map_or(0, |rules| rules.entries.len()))
         .unwrap_or_else(|error| {
-            note("Dictionary", error);
+            note("dictionary", error);
             0
         });
     let snippets = previous_snippets(previous)
         .map(|entries| entries.map_or(0, |entries| entries.len()))
         .unwrap_or_else(|error| {
-            note("Snippets", error);
+            note("dictionary", error);
             0
         });
     let meetings = plan_meetings(previous, base, false)
         .unwrap_or_else(|error| {
-            note("Meetings", error);
+            note("meetings", error);
             None
         })
         .unwrap_or_default();
@@ -679,14 +744,14 @@ fn scan(previous: &Path, base: &Path, status: &RuntimeStatus) -> Value {
             "days": activity.map_or(0, |activity| activity.days.len()),
         }),
         Err(error) => {
-            note("Usage counts", error);
+            note("stats", error);
             Value::Null
         }
     };
     let models_folder = allowed(previous, "models");
     let models = if crate::paths::is_plain_directory(&models_folder) {
         crate::models::import_previous_models(base, &models_folder, false).unwrap_or_else(|error| {
-            note("Models", error);
+            note("models", error);
             Default::default()
         })
     } else {
@@ -696,6 +761,7 @@ fn scan(previous: &Path, base: &Path, status: &RuntimeStatus) -> Value {
         "available": true,
         "path": previous.display().to_string(),
         "settings": settings,
+        "profiles": profiles,
         "rules": rules,
         "snippets": snippets,
         "meetings": meetings.importable.len(),
@@ -825,6 +891,7 @@ mod tests {
     fn all() -> Parts {
         Parts {
             settings: true,
+            profiles: true,
             dictionary: true,
             meetings: true,
             stats: true,
@@ -996,7 +1063,9 @@ mod tests {
         assert_eq!(scan["meetings"], 1);
         assert_eq!(scan["meetings_in_progress"], 1);
         assert_eq!(scan["settings"], true);
+        assert_eq!(scan["profiles"], "new");
         assert_eq!(scan["community_empty"], true);
+        assert_eq!(scan["problems"], json!([]));
         assert_eq!(scan["stats"]["dictations"], 40);
         assert_eq!(
             crate::paths::hash_migration_tree(&previous).unwrap(),
@@ -1081,6 +1150,10 @@ mod tests {
         assert_eq!(workflows["diagnostics"], false);
         assert_eq!(workflows["profiles"][0]["app_id"], "Code.exe");
         assert_eq!(result["workflows"], "imported");
+        // Now this installation has data and profiles of its own.
+        let after = super::scan(&previous, &base, &status);
+        assert_eq!(after["community_empty"], false);
+        assert_eq!(after["profiles"], "kept");
 
         assert_eq!(result["snippets"]["added"], 1);
         assert_eq!(status.snippets.lock().unwrap().len(), 1);
@@ -1224,7 +1297,15 @@ mod tests {
             ..Parts::default()
         };
         let result = import(&previous, &base, &status, parts, false).unwrap();
-        assert_eq!(result["errors"].as_array().unwrap().len(), 1, "{result}");
+        // Named by part, with the sentence itself for the page to translate.
+        assert_eq!(
+            result["errors"],
+            json!([{
+                "part": "stats",
+                "message": "This installation's usage totals could not be read, so nothing was added to them.",
+            }]),
+            "{result}"
+        );
         assert_eq!(
             std::fs::read(base.join("totals.json")).unwrap(),
             b"damaged, preserved for recovery"
@@ -1285,6 +1366,98 @@ mod tests {
             .unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, good);
+    }
+
+    /// The full check reads each transcript through the meeting store, which
+    /// opens files by path. A folder with a link anywhere in it is refused
+    /// before anything in it is read, not only later by the copy.
+    #[test]
+    fn a_meeting_folder_containing_a_link_is_refused_before_it_is_read() {
+        let scratch = Scratch::new("inner-link");
+        let (previous, base) = (scratch.previous(), scratch.community());
+        let id = meeting(
+            &previous.join("meetings"),
+            1_780_000_000_000,
+            MeetingStatus::Completed,
+        );
+        let folder = previous.join("meetings").join(id.as_str());
+        let outside = scratch.0.join("outside-audio");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("microphone-000009.wav"), b"elsewhere").unwrap();
+        std::fs::remove_dir_all(folder.join("audio")).unwrap();
+        link_directory(&folder.join("audio"), &outside);
+
+        let plan = plan_meetings(&previous, &base, true).unwrap().unwrap();
+        assert!(plan.importable.is_empty());
+        assert_eq!(plan.unreadable, 1);
+        let status = status_for(&base);
+        let parts = Parts {
+            meetings: true,
+            ..Parts::default()
+        };
+        let result = import(&previous, &base, &status, parts, true).unwrap();
+        assert_eq!(
+            (&result["meetings"]["copied"], &result["meetings"]["failed"]),
+            (&json!(0), &json!(1))
+        );
+        assert!(!base.join("meetings").join(id.as_str()).exists());
+    }
+
+    /// "Not now" over an import record this build cannot read must not
+    /// replace it with a fresh one that forgets the counts were added.
+    #[test]
+    fn not_now_leaves_an_unreadable_import_record_alone() {
+        let scratch = Scratch::new("dismiss");
+        let base = scratch.community();
+        assert_eq!(dismiss(&base).unwrap()["dismissed"], true);
+        assert!(read_marker(&base).unwrap().dismissed);
+        write(base.join(MARKER), "{ damaged");
+        assert_eq!(dismiss(&base).unwrap_err(), MARKER_UNREADABLE);
+        assert_eq!(std::fs::read(base.join(MARKER)).unwrap(), b"{ damaged");
+    }
+
+    /// Application profiles are their own part: they arrive even when the
+    /// settings file has nothing usable, and never over profiles saved here.
+    #[test]
+    fn app_profiles_import_on_their_own_and_never_over_existing_ones() {
+        let scratch = Scratch::new("profiles");
+        let (previous, base) = (scratch.previous(), scratch.community());
+        write(previous.join("vocalcode.toml"), "config_version = 3\n");
+        write(
+            previous.join("personalization/workflows.json"),
+            r#"{"schema":1,"diagnostics":true,"cleanup":"original","profiles":[{"app_id":"Code.exe","cleanup":"light","progressive":null,"paste":null}]}"#,
+        );
+        let status = status_for(&base);
+        let scanned = scan(&previous, &base, &status);
+        assert_eq!(
+            (&scanned["settings"], &scanned["profiles"]),
+            (&json!(false), &json!("new"))
+        );
+        let parts = Parts {
+            profiles: true,
+            ..Parts::default()
+        };
+        let result = import(&previous, &base, &status, parts, true).unwrap();
+        assert_eq!(result["workflows"], "imported");
+        assert!(result.get("settings").is_none(), "{result}");
+        let saved = std::fs::read(base.join("personalization/workflows.json")).unwrap();
+        write(
+            previous.join("personalization/workflows.json"),
+            r#"{"schema":1,"cleanup":"light","profiles":[]}"#,
+        );
+        assert_eq!(scan(&previous, &base, &status)["profiles"], "kept");
+        let again = import(&previous, &base, &status, parts, true).unwrap();
+        assert_eq!(again["workflows"], "kept");
+        assert_eq!(
+            std::fs::read(base.join("personalization/workflows.json")).unwrap(),
+            saved
+        );
+        write(previous.join("personalization/workflows.json"), "{ damaged");
+        let problems = scan(&previous, &base, &status)["problems"].clone();
+        assert_eq!(
+            problems,
+            json!([{"part": "profiles", "message": "The previous app profiles could not be read."}])
+        );
     }
 
     #[test]

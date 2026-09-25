@@ -628,7 +628,27 @@ fn open_without_following(path: &Path) -> std::io::Result<File> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        // O_NOFOLLOW is architecture-specific on Linux: 0o100000 on Arm and
+        // PowerPC, 0o400000 on x86 and the generic ABI (RISC-V, LoongArch).
+        #[cfg(all(
+            any(target_os = "linux", target_os = "android"),
+            any(
+                target_arch = "arm",
+                target_arch = "aarch64",
+                target_arch = "powerpc",
+                target_arch = "powerpc64"
+            )
+        ))]
+        const NOFOLLOW: i32 = 0x8000;
+        #[cfg(all(
+            any(target_os = "linux", target_os = "android"),
+            not(any(
+                target_arch = "arm",
+                target_arch = "aarch64",
+                target_arch = "powerpc",
+                target_arch = "powerpc64"
+            ))
+        ))]
         const NOFOLLOW: i32 = 0x2_0000;
         #[cfg(not(any(target_os = "linux", target_os = "android")))]
         const NOFOLLOW: i32 = 0x100;

@@ -182,20 +182,23 @@ fn rule_line(line: &str) -> Result<Option<(String, String)>, ()> {
     Ok(Some((heard.to_string(), written.to_string())))
 }
 
-/// Auto-detect a pasted or exported `replacements.txt`: every line that is not
-/// blank or a `#` comment contains `=>`, and at least one does. A CSV cell can
-/// never legitimately start a heard phrase with `#` or contain `=>` in it, so
-/// no input that previously imported as CSV changes meaning.
+/// Whether input that failed as CSV reads as a pasted `replacements.txt`:
+/// every line that is not blank or a `#` comment contains `=>`, and at least
+/// one does. Only consulted after CSV, so anything that imports as CSV keeps
+/// its meaning (`arrow,=>` is still the word "arrow" written as `=>`). A
+/// double quote before the `=>` is CSV quoting, not a heard phrase: splitting
+/// `"lambda => x",λ` there would import the quote marks as words, so that
+/// input keeps its CSV error instead.
 fn looks_like_rules(input: &str) -> bool {
     let mut rules = 0usize;
     for line in input.lines().map(str::trim) {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        if !line.contains("=>") {
-            return false;
+        match line.split_once("=>") {
+            Some((heard, _)) if !heard.contains('"') => rules += 1,
+            _ => return false,
         }
-        rules += 1;
     }
     rules > 0
 }
@@ -289,7 +292,7 @@ pub fn parse_with_layout(
                 .into(),
         );
     }
-    let mut entries = if layout == Layout::Auto && input.starts_with('{') {
+    let entries = if layout == Layout::Auto && input.starts_with('{') {
         let doc: Document = serde_json::from_str(input).map_err(|_| "Unsupported JSON object. Use a VocalCode interchange document or a name/text snippet array.")?;
         if doc.format != "vocalcode-interchange" || doc.version != 1 || doc.kind != kind {
             return Err(
@@ -322,34 +325,53 @@ pub fn parse_with_layout(
         if kind != Kind::Dictionary {
             return Err("Snippets use JSON; dictionary words use CSV or plain lines.".into());
         }
-        let layout = if layout == Layout::Auto && looks_like_rules(input) {
-            Layout::Rules
-        } else {
-            layout
-        };
-        let mut rows = match layout {
-            Layout::Auto => csv(input, ',')?,
-            Layout::Tsv => csv(input, '\t')?,
-            Layout::Rules => rules(input)?,
-            Layout::Words => input
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .map(|line| vec![line.to_string()])
-                .take(MAX_IMPORT_ROWS + 2)
-                .collect(),
-        };
-        // `#` comments already carry the header of a rules file; dropping the
-        // first rule because a CSV checkbox was left on would lose a word.
-        if csv_header && layout != Layout::Rules && !rows.is_empty() {
-            rows.remove(0);
+        if layout == Layout::Auto {
+            // CSV first, exactly as before rules existed. Only input that
+            // fails as CSV (a `=>` in a heard phrase, `#` comments, a third
+            // column) and reads as rules is imported as rules instead.
+            return match table(input, csv_header, Layout::Auto)
+                .and_then(|entries| checked(kind, entries))
+            {
+                Err(_) if looks_like_rules(input) => {
+                    checked(kind, table(input, csv_header, Layout::Rules)?)
+                }
+                result => result,
+            };
         }
-        rows.into_iter()
-            .map(|row| Entry {
-                name: row[0].trim().to_string(),
-                text: row.get(1).unwrap_or(&row[0]).trim().to_string(),
-            })
-            .collect()
+        table(input, csv_header, layout)?
     };
+    checked(kind, entries)
+}
+
+/// One dictionary table as entries, before validation.
+fn table(input: &str, csv_header: bool, layout: Layout) -> Result<Vec<Entry>, String> {
+    let mut rows = match layout {
+        Layout::Auto => csv(input, ',')?,
+        Layout::Tsv => csv(input, '\t')?,
+        Layout::Rules => rules(input)?,
+        Layout::Words => input
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| vec![line.to_string()])
+            .take(MAX_IMPORT_ROWS + 2)
+            .collect(),
+    };
+    // `#` comments already carry the header of a rules file; dropping the
+    // first rule because a CSV checkbox was left on would lose a word.
+    if csv_header && layout != Layout::Rules && !rows.is_empty() {
+        rows.remove(0);
+    }
+    Ok(rows
+        .into_iter()
+        .map(|row| Entry {
+            name: row[0].trim().to_string(),
+            text: row.get(1).unwrap_or(&row[0]).trim().to_string(),
+        })
+        .collect())
+}
+
+/// The row limits and per-entry validation every import layout shares.
+fn checked(kind: Kind, mut entries: Vec<Entry>) -> Result<Vec<Entry>, String> {
     if entries.is_empty() || entries.len() > MAX_IMPORT_ROWS {
         return Err("Import requires 1–1,000 entries.".into());
     }
@@ -573,6 +595,56 @@ mod tests {
         assert_eq!(
             parse("collie,Collie", Kind::Dictionary, false).unwrap(),
             vec![entry("collie", "Collie")]
+        );
+    }
+
+    /// Rules are only a reading for input that fails as CSV, so every row the
+    /// CSV importer accepted or refused before rules existed still is.
+    #[test]
+    fn csv_rows_mentioning_the_arrow_keep_their_csv_meaning() {
+        // The arrow as a replacement is a valid CSV row, not a broken rule.
+        assert_eq!(
+            parse("arrow,=>", Kind::Dictionary, false).unwrap(),
+            vec![entry("arrow", "=>")]
+        );
+        assert_eq!(
+            parse("lambda,\"x => y\"", Kind::Dictionary, false).unwrap(),
+            vec![entry("lambda", "x => y")]
+        );
+        // A quoted heard phrase containing the arrow was refused as CSV (a
+        // heard phrase cannot contain `=>`). It must stay refused, never be
+        // split inside the quotes into `"lambda` / `x",λ`.
+        for text in [
+            "\"lambda => x\",λ",
+            "\"a => b\"",
+            "x,\"a => b\",c",
+            "collie => Collie\n\"lambda => x\",λ",
+        ] {
+            let error = parse(text, Kind::Dictionary, false).unwrap_err();
+            assert!(!error.contains("rule"), "{text}: {error}");
+        }
+        let error = parse("\"lambda => x\",λ", Kind::Dictionary, false).unwrap_err();
+        assert!(error.contains("=> in the heard phrase"), "{error}");
+        // Input that is not valid CSV and reads as rules still becomes rules.
+        assert_eq!(
+            parse(
+                "# mine\ncollie => Collie\nfoo, bar => Foo, Bar",
+                Kind::Dictionary,
+                true
+            )
+            .unwrap(),
+            vec![entry("collie", "Collie"), entry("foo, bar", "Foo, Bar")]
+        );
+        // The explicit layout is how a rule with a quoted heard phrase goes in.
+        assert_eq!(
+            parse_with_layout(
+                "\"quoted\" => Quoted",
+                Kind::Dictionary,
+                false,
+                Layout::Rules
+            )
+            .unwrap(),
+            vec![entry("\"quoted\"", "Quoted")]
         );
     }
 
