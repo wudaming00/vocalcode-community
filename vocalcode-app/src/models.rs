@@ -269,7 +269,10 @@ pub fn recommended_threads(model_id: &str, lang: &str, profile: HardwareProfile)
 /// auto-detecting model. Comparing the raw language strings would needlessly
 /// hash and construct a second ~670 MB model when, for example, a user changes
 /// Français to Deutsch. SenseVoice also has language-dependent decoder hints
-/// and cleaners, which must participate in pipeline identity.
+/// and cleaners, which must participate in pipeline identity. Qwen3-ASR takes
+/// its piece length and the English route's check for invented Chinese script
+/// from the language, so each of its languages is its own pipeline; as with
+/// SenseVoice, switching language during its first download cancels it.
 pub fn same_model_route(
     left_model: &str,
     left_lang: &str,
