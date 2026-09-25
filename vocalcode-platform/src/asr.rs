@@ -34,8 +34,20 @@ fn decode(recognizer: &OfflineRecognizer, samples: &[f32], sample_rate: u32) -> 
     recognizer.decode(&stream);
     stream
         .get_result()
-        .map(|result| result.text)
+        .map(|result| words_or_nothing(result.text))
         .ok_or_else(|| VocalCodeError::Asr("sherpa-onnx returned no recognition result".into()))
+}
+
+/// SenseVoice answers pure noise with bare punctuation ("." or "。") when the
+/// speech filter is off (voice corpus, 2026-09-25). A result with no letter or
+/// digit in any script holds nothing anyone said, so it is no result; spoken
+/// punctuation ("question mark") arrives as words and is untouched.
+fn words_or_nothing(text: String) -> String {
+    if text.chars().any(char::is_alphanumeric) {
+        text
+    } else {
+        String::new()
+    }
 }
 
 /// Conservative no-signal guard, not a speech/music classifier. DC offset is
@@ -352,6 +364,16 @@ impl Asr for SherpaQwen3Asr {
 #[cfg(test)]
 mod short_input_tests {
     use super::*;
+
+    #[test]
+    fn punctuation_alone_is_no_result() {
+        for noise in [".", "。", " . ", "?!", "，。", ""] {
+            assert_eq!(words_or_nothing(noise.into()), "", "{noise:?}");
+        }
+        for said in ["I.", "我。", "그.", "5.", "OK", "question mark"] {
+            assert_eq!(words_or_nothing(said.into()), said);
+        }
+    }
 
     #[test]
     fn qwen3_header_after_a_stray_token_is_removed() {
