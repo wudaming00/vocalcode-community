@@ -1451,6 +1451,11 @@
       "Automatic":"自动",
       "Dedicated Mandarin Chinese + English model":"专用普通话 + 英文双语模型",
       "Shared 25-language model with automatic detection":"支持 25 种语言并自动检测的共用模型",
+      "Fastest and lightest · 229 MB":"速度最快、占用最小 · 229 MB",
+      "Best all-round English · punctuation and coding words · 640 MB":"英文综合表现最好 · 标点和编程词汇更准 · 640 MB",
+      "Most accurate for short English dictation; slow on long audio · 941 MB":"英文短句听写最准；长音频较慢 · 941 MB",
+      "Recommended":"推荐",
+      "Selected":"已选择",
       "closing the window keeps VocalCode available in the background":"关闭窗口后，VocalCode 仍会在后台可用",
       "Always on":"始终开启",
       "Compatibility paste":"兼容性粘贴",
@@ -2148,6 +2153,11 @@
       "Automatic":"Automático",
       "Dedicated Mandarin Chinese + English model":"Modelo bilingüe dedicado de mandarín e inglés",
       "Shared 25-language model with automatic detection":"Modelo compartido de 25 idiomas con detección automática",
+      "Fastest and lightest · 229 MB":"El más rápido y ligero · 229 MB",
+      "Best all-round English · punctuation and coding words · 640 MB":"El mejor en conjunto para inglés · puntuación y términos de programación · 640 MB",
+      "Most accurate for short English dictation; slow on long audio · 941 MB":"El más preciso en dictados cortos en inglés; lento con audio largo · 941 MB",
+      "Recommended":"Recomendado",
+      "Selected":"Seleccionado",
       "closing the window keeps VocalCode available in the background":"al cerrar la ventana, VocalCode sigue disponible en segundo plano",
       "Always on":"Siempre activo",
       "Compatibility paste":"Pegado de compatibilidad",
@@ -2805,6 +2815,11 @@
       "Automatic":"Automatique",
       "Dedicated Mandarin Chinese + English model":"Modèle bilingue dédié mandarin et anglais",
       "Shared 25-language model with automatic detection":"Modèle partagé de 25 langues avec détection automatique",
+      "Fastest and lightest · 229 MB":"Le plus rapide et le plus léger · 229 Mo",
+      "Best all-round English · punctuation and coding words · 640 MB":"Le plus polyvalent en anglais · ponctuation et termes de programmation · 640 Mo",
+      "Most accurate for short English dictation; slow on long audio · 941 MB":"Le plus précis pour les dictées courtes en anglais ; lent sur les longs enregistrements · 941 Mo",
+      "Recommended":"Recommandé",
+      "Selected":"Sélectionné",
       "closing the window keeps VocalCode available in the background":"fermer la fenêtre laisse VocalCode disponible en arrière-plan",
       "Always on":"Toujours actif",
       "Compatibility paste":"Collage de compatibilité",
@@ -3462,6 +3477,11 @@
       "Automatic":"Automatisch",
       "Dedicated Mandarin Chinese + English model":"Eigenes zweisprachiges Modell für Mandarin und Englisch",
       "Shared 25-language model with automatic detection":"Gemeinsames 25-Sprachen-Modell mit automatischer Erkennung",
+      "Fastest and lightest · 229 MB":"Am schnellsten und leichtesten · 229 MB",
+      "Best all-round English · punctuation and coding words · 640 MB":"Insgesamt am besten für Englisch · Satzzeichen und Programmierbegriffe · 640 MB",
+      "Most accurate for short English dictation; slow on long audio · 941 MB":"Am genauesten bei kurzen englischen Diktaten; langsam bei langen Aufnahmen · 941 MB",
+      "Recommended":"Empfohlen",
+      "Selected":"Ausgewählt",
       "closing the window keeps VocalCode available in the background":"nach dem Schließen bleibt VocalCode im Hintergrund verfügbar",
       "Always on":"Immer aktiv",
       "Compatibility paste":"Kompatibilitäts-Einfügen",
@@ -4699,9 +4719,9 @@
       {id:"qwen3-asr-0.6b",name:"Qwen3-ASR 0.6B",detail:"Tested Hindi route · 941 MB · higher CPU cost"}
     ],
     en: [
-      {id:"sensevoice",name:"SenseVoice",detail:"Fast · 229 MB · best balanced CPU result"},
-      {id:"parakeet-tdt-v3",name:"Parakeet TDT v3",detail:"Fast · 640 MB · shared with 24 European languages"},
-      {id:"qwen3-asr-0.6b",name:"Qwen3-ASR 0.6B",detail:"Most accurate tested local option · 941 MB · slower"}
+      {id:"sensevoice",name:"SenseVoice",detail:"Fastest and lightest · 229 MB"},
+      {id:"parakeet-tdt-v3",name:"Parakeet TDT v3",detail:"Best all-round English · punctuation and coding words · 640 MB"},
+      {id:"qwen3-asr-0.6b",name:"Qwen3-ASR 0.6B",detail:"Most accurate for short English dictation; slow on long audio · 941 MB"}
     ]
   };
 
@@ -4713,18 +4733,16 @@
   // The European labels are saved preferences over one auto-detecting model.
   // Clearing a legacy/manual model override makes a visible language choice
   // authoritative; comparing resolved routes avoids claiming or performing a
-  // model swap when only the preference label changed.
+  // model swap when only the preference label changed. An empty model resolves
+  // through the engine's own table (models::language_route), never a copy.
   function languageRoute(code, model){
     if(model === "paraformer-zh") return "paraformer-zh";
     if(model === "parakeet-tdt-v3") return "parakeet-tdt-v3";
     if(model === "sensevoice") return "sensevoice";
     if(model === "qwen3-asr-0.6b") return "qwen3-asr-0.6b";
     if(model) return "unknown:" + model;
-    if(code === "zh") return "sensevoice";
-    if(code === "en") return "parakeet-tdt-v3";
-    if(code === "ko" || code === "ja") return "sensevoice";
-    if(code === "hi") return "qwen3-asr-0.6b";
-    return LANGS.some(function(l){ return l[0] === code; }) ? "parakeet-tdt-v3" : "";
+    var routes=cfg.language_routes;
+    return routes && Object.prototype.hasOwnProperty.call(routes,code) && typeof routes[code]==="string" ? routes[code] : "";
   }
   function selectLanguage(code){
     var before=languageRoute(cfg.language,cfg.model);
@@ -4769,8 +4787,8 @@
     var route=languageRoute(cfg.language,cfg.model), choices=MODEL_CHOICES[cfg.language]||[];
     var selected=choices.find(function(choice){return choice.id===route;});
     if(selected){
-      name.textContent=selected.name; detail.textContent=selected.detail;
-      badge.textContent=route===recommendedModel(cfg.language)?"Recommended":"Selected";
+      name.textContent=selected.name; detail.textContent=t(selected.detail);
+      badge.textContent=t(route===recommendedModel(cfg.language)?"Recommended":"Selected");
       badge.classList.toggle("recommended",route===recommendedModel(cfg.language));
     }else if(route==="sensevoice"){
       name.textContent="SenseVoice"; detail.textContent=t("Shared Korean/Japanese + English model, auto-detected");
@@ -4791,7 +4809,7 @@
       b.setAttribute("role","radio"); b.setAttribute("aria-checked",String(selected));
       var title=document.createElement("b"); title.textContent=choice.name; b.appendChild(title);
       var copy=document.createElement("small"); copy.textContent=t(choice.detail); b.appendChild(copy);
-      if(choice.id===recommended){var flag=document.createElement("em");flag.textContent="recommended";b.appendChild(flag);}
+      if(choice.id===recommended){var flag=document.createElement("em");flag.textContent=t("Recommended");b.appendChild(flag);}
       b.onclick=function(){
         if(cfg.model===choice.id) return;
         var before=languageRoute(cfg.language,cfg.model); cfg.model=choice.id;

@@ -3831,6 +3831,13 @@ fn init_config_json(
                 "en": crate::models::recommended_model("en", hardware),
             },
         },
+        // What an empty model resolves to, per language. The page used to keep
+        // its own copy of this table; one source keeps its "which model is
+        // active" answer identical to the engine's.
+        "language_routes": crate::models::SUPPORTED_LANGUAGES
+            .iter()
+            .map(|(code, _, _)| (code.to_string(), crate::models::language_route(code).into()))
+            .collect::<serde_json::Map<String, Value>>(),
         // The page had no way to tell which machine it was on, so it rendered
         // Mac keycaps and a Finder button to Windows users. Named `os` rather
         // than parsed out of `system`, which is a human-readable summary.
@@ -4102,10 +4109,7 @@ fn system_summary(profile: vocalcode_platform::HardwareProfile) -> String {
         vocalcode_platform::PerformanceClass::Performance => "performance",
     };
     if vocalcode_platform::has_gpu() {
-        return format!(
-            "NVIDIA GPU · {} cores{memory} · {class}",
-            profile.logical_cores
-        );
+        return format!("NVIDIA GPU · {}{memory} · {class}", core_summary(profile));
     }
     // On Apple Silicon the logical count is misleading here: an M1 Max reports
     // 10, but only the 8 performance cores are given to the ASR thread pool, so
@@ -4120,7 +4124,21 @@ fn system_summary(profile: vocalcode_platform::HardwareProfile) -> String {
         format!("CPU · {total} cores{memory} · {class}")
     }
     #[cfg(not(target_os = "macos"))]
-    format!("CPU · {} cores{memory} · {class}", profile.logical_cores)
+    format!("CPU · {}{memory} · {class}", core_summary(profile))
+}
+
+/// The class is sized in physical performance cores, so the summary names
+/// them: "12 cores · compact" on a 2P+8E laptop, or "8 cores · standard" on a
+/// 4-core/8-thread one, would contradict itself.
+fn core_summary(profile: vocalcode_platform::HardwareProfile) -> String {
+    if profile.inference_cores < profile.logical_cores {
+        format!(
+            "{} performance cores · {} threads",
+            profile.inference_cores, profile.logical_cores
+        )
+    } else {
+        format!("{} cores", profile.logical_cores)
+    }
 }
 
 /// Enable/disable "launch at login" via the per-user Run registry key.
@@ -7918,6 +7936,52 @@ mod microphone_picker_contract_tests {
         assert_eq!(payload["devices"][0]["label"], devices[0].label);
         assert_eq!(payload["devices"][0]["legacy_name"], devices[0].legacy_name);
         assert_eq!(payload["input_device"], "");
+    }
+
+    #[test]
+    fn hardware_summary_names_the_cores_the_class_is_sized_by() {
+        let machine = |physical, logical| vocalcode_platform::HardwareProfile {
+            logical_cores: logical,
+            inference_cores: physical,
+            memory_mib: Some(16 * 1024),
+            fast_vector: true,
+        };
+        assert_eq!(
+            core_summary(machine(4, 8)),
+            "4 performance cores · 8 threads"
+        );
+        assert_eq!(
+            core_summary(machine(2, 12)),
+            "2 performance cores · 12 threads"
+        );
+        assert_eq!(core_summary(machine(8, 8)), "8 cores");
+    }
+
+    /// The page answers "which model is active" from the engine's own table
+    /// and hardware recommendation, not from a copy that can drift.
+    #[test]
+    fn init_payload_carries_the_engine_language_routes() {
+        let payload: Value =
+            serde_json::from_str(&init_config_json(&Config::default(), &[], None, None)).unwrap();
+        let routes = payload["language_routes"].as_object().unwrap();
+        assert_eq!(routes.len(), crate::models::SUPPORTED_LANGUAGES.len());
+        for (code, _, _) in crate::models::SUPPORTED_LANGUAGES {
+            let Some(crate::models::Route::Single(model)) = crate::models::route_for("", code)
+            else {
+                panic!("{code} has no route");
+            };
+            assert_eq!(routes[*code], model, "{code}");
+        }
+        assert_eq!(routes["en"], "parakeet-tdt-v3");
+        let hardware = vocalcode_platform::HardwareProfile::detect();
+        assert_eq!(
+            payload["hardware"]["recommendations"]["en"],
+            crate::models::recommended_model("en", hardware).unwrap()
+        );
+        assert_eq!(
+            payload["hardware"]["inference_cores"],
+            hardware.inference_cores
+        );
     }
 
     #[test]

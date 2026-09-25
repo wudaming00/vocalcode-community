@@ -4,9 +4,10 @@
 //! a spoken-language preference, the registry resolves it to one approved model
 //! route, and the app downloads just that route. The release registry is
 //! intentionally limited to models whose redistribution and product quality
-//! have both been approved: Parakeet for its documented European languages,
-//! Paraformer/SenseVoice/Qwen3-ASR choices for Mandarin Chinese, SenseVoice for
-//! English, Japanese and Korean, and Qwen3-ASR for Hindi.
+//! have both been approved: Parakeet for its documented European languages
+//! (English included), Paraformer/SenseVoice/Qwen3-ASR choices for Mandarin
+//! Chinese, SenseVoice for Japanese and Korean and for English on compact
+//! hardware, and Qwen3-ASR for Hindi.
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
@@ -216,30 +217,41 @@ pub fn route_for(model_id: &str, lang: &str) -> Option<Route> {
     if !model_id.is_empty() {
         return spec_of(model_id).map(|spec| Route::Single(spec.id));
     }
-    if let Some((_, _, id)) = SUPPORTED_LANGUAGES
+    language_route(lang).map(Route::Single)
+}
+
+/// The model a language resolves to when no model id is stored: the single
+/// source for both an empty-model config and the picker's recommendation.
+pub fn language_route(lang: &str) -> Option<&'static str> {
+    SUPPORTED_LANGUAGES
         .iter()
         .find(|(code, _, _)| *code == lang)
-    {
-        return Some(Route::Single(id));
-    }
-    None
+        .map(|(_, _, model)| *model)
 }
 
 /// One-time recommendation for a language picker. The persisted explicit
 /// model remains authoritative afterwards; hardware changes and future model
 /// releases never silently replace what the user chose.
+///
+/// This is `language_route` with one hardware exception. English is Parakeet
+/// (voice corpus run 5: 98% of features and 97% of coding words on clean
+/// voices, against SenseVoice's 91% and 69%), except on a Compact machine,
+/// where Parakeet's latency (2-3.5x SenseVoice's on the same two cores),
+/// 640 MB download and ~800 MiB resident set are not affordable. Qwen3-ASR is
+/// never an automatic English default: it is slow and its 512-token context
+/// breaks long audio.
+///
+/// An empty English model deliberately keeps resolving to Parakeet even on a
+/// Compact machine. `route_for` runs on every load, hot-switch comparison and
+/// save validation and has no hardware profile — nor should it, or a changed
+/// RAM or core probe would swap a stored config's model. The page stores this
+/// recommendation explicitly whenever English is picked, so a fresh Compact
+/// install persists "sensevoice"; an empty English model only survives from
+/// configs written before that, and those already run Parakeet.
 pub fn recommended_model(lang: &str, profile: HardwareProfile) -> Option<&'static str> {
-    match lang {
-        "zh" => Some("sensevoice"),
-        "hi" => Some("qwen3-asr-0.6b"),
-        "en" => Some(match performance_class(profile) {
-            PerformanceClass::Compact | PerformanceClass::Standard => "sensevoice",
-            PerformanceClass::Performance => "qwen3-asr-0.6b",
-        }),
-        _ => SUPPORTED_LANGUAGES
-            .iter()
-            .find(|(code, _, _)| *code == lang)
-            .map(|(_, _, model)| *model),
+    match (lang, performance_class(profile)) {
+        ("en", PerformanceClass::Compact) => Some("sensevoice"),
+        _ => language_route(lang),
     }
 }
 
@@ -2435,12 +2447,20 @@ mod tests {
             Some("sensevoice")
         );
         assert_eq!(
+            recommended_model("en", profile(2, 16, true)),
+            Some("sensevoice")
+        );
+        assert_eq!(
+            recommended_model("en", profile(4, 16, true)),
+            Some("parakeet-tdt-v3")
+        );
+        assert_eq!(
             recommended_model("en", profile(12, 32, true)),
-            Some("qwen3-asr-0.6b")
+            Some("parakeet-tdt-v3")
         );
         assert_eq!(
             recommended_threads("qwen3-asr-0.6b", "hi", profile(12, 32, true)),
-            8
+            6
         );
         assert_eq!(
             recommended_threads("sensevoice", "zh", profile(12, 32, true)),
@@ -2450,6 +2470,90 @@ mod tests {
             recommended_threads("qwen3-asr-0.6b", "hi", profile(4, 8, true)),
             4
         );
+    }
+
+    fn profile_of_class(class: PerformanceClass) -> HardwareProfile {
+        let (cores, memory_gib) = match class {
+            PerformanceClass::Compact => (2, 8),
+            PerformanceClass::Standard => (4, 16),
+            PerformanceClass::Performance => (16, 64),
+        };
+        let profile = HardwareProfile {
+            logical_cores: cores * 2,
+            inference_cores: cores,
+            memory_mib: Some(memory_gib * 1024),
+            fast_vector: true,
+        };
+        assert_eq!(performance_class(profile), class);
+        profile
+    }
+
+    const CLASSES: [PerformanceClass; 3] = [
+        PerformanceClass::Compact,
+        PerformanceClass::Standard,
+        PerformanceClass::Performance,
+    ];
+
+    /// Qwen3-ASR is a manual choice for English on every machine: its 512-token
+    /// context breaks long audio and it is the slowest route.
+    #[test]
+    fn english_defaults_to_parakeet_wherever_the_hardware_affords_it() {
+        for class in CLASSES {
+            let expected = match class {
+                PerformanceClass::Compact => "sensevoice",
+                PerformanceClass::Standard | PerformanceClass::Performance => "parakeet-tdt-v3",
+            };
+            let recommended = recommended_model("en", profile_of_class(class));
+            assert_eq!(recommended, Some(expected), "{class:?}");
+            assert!(selectable_models("en").contains(&expected));
+        }
+        // The laptop Windows used to count as eight cores.
+        let laptop = HardwareProfile {
+            logical_cores: 8,
+            inference_cores: 4,
+            memory_mib: Some(16 * 1024),
+            fast_vector: true,
+        };
+        assert_eq!(recommended_model("en", laptop), Some("parakeet-tdt-v3"));
+        assert_eq!(recommended_threads("qwen3-asr-0.6b", "en", laptop), 4);
+        assert_eq!(recommended_threads("parakeet-tdt-v3", "en", laptop), 4);
+    }
+
+    /// An empty model and the picker's recommendation come from one table.
+    /// The single exception is English on a Compact machine, and it is
+    /// deliberate (see `recommended_model`): the page stores "sensevoice"
+    /// explicitly there, while an empty English model predates that and has
+    /// always meant Parakeet, so re-resolving it by hardware would switch an
+    /// existing user's model without asking.
+    #[test]
+    fn empty_model_routing_agrees_with_the_recommendation() {
+        for class in CLASSES {
+            let profile = profile_of_class(class);
+            for (code, _, _) in SUPPORTED_LANGUAGES {
+                let recommended = recommended_model(code, profile).map(Route::Single);
+                if *code == "en" && class == PerformanceClass::Compact {
+                    assert_eq!(route_for("", code), Some(Route::Single("parakeet-tdt-v3")));
+                    assert_eq!(recommended, Some(Route::Single("sensevoice")));
+                    continue;
+                }
+                assert_eq!(route_for("", code), recommended, "{code} on {class:?}");
+            }
+        }
+    }
+
+    /// Changing the recommendation must not move anyone who already stored a
+    /// model: an explicit id resolves to itself on every class of machine.
+    #[test]
+    fn a_stored_english_model_survives_the_new_default() {
+        for class in CLASSES {
+            let profile = profile_of_class(class);
+            for &stored in selectable_models("en") {
+                assert_eq!(route_for(stored, "en"), Some(Route::Single(stored)));
+                assert!(!needs_language_pick(stored, "en"));
+                assert!(same_model_route(stored, "en", stored, "en"));
+            }
+            assert_ne!(recommended_model("en", profile), Some("qwen3-asr-0.6b"));
+        }
     }
 
     #[test]
