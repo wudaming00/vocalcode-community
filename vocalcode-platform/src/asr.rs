@@ -379,12 +379,13 @@ fn transcribe_in_pieces(
 /// Decode one piece. A suspect answer is decoded again as two halves split at
 /// a pause (then quarters); the halves replace it unless they recover fewer
 /// words than a merely short or cut-off answer already had. A piece that
-/// cannot be split again keeps its own answer unless that is only a header or
-/// nothing (`Suspect::salvage`).
+/// cannot be split again keeps its own answer unless that is only a header,
+/// nothing, or script invented for no speech (`Suspect::salvage`).
 ///
-/// Halves that still hear mostly Chinese confirm a wrong-script answer rather
-/// than replace it: the piece's own answer is kept, since splicing theirs cuts
-/// its words in two ("好的。" became "好的。的。" and "这件事。事情。").
+/// A wrong-script answer is replaced only by something its halves heard
+/// instead (`heard_instead`). Halves that hear nothing, or the same Chinese
+/// again, confirm it: the piece's own answer is kept, since splicing theirs
+/// cuts its words in two ("好的。" became "好的。的。" and "这件事。事情。").
 ///
 /// sherpa's per-stream language hint also cures "提纲", but it turns noise
 /// into "The system." (all 24 noise and hum probes, 2026-09-24), while the
@@ -416,7 +417,7 @@ fn decode_checked(
     let mut halves = decode_checked(decode, &samples[..cut], rate, english, retries - 1)?;
     let second = decode_checked(decode, &samples[cut..], rate, english, retries - 1)?;
     append_piece(&mut halves, &second);
-    if problem == Suspect::WrongScript && mostly_cjk(&halves) {
+    if problem == Suspect::WrongScript && !heard_instead(&text, &halves) {
         return Ok(text);
     }
     let kept = problem.salvage(text, false);
@@ -425,6 +426,17 @@ fn decode_checked(
     } else {
         kept
     })
+}
+
+/// Whether the halves of a wrong-script answer heard something it did not:
+/// words in another script ("Sounds good." for "提纲"), or more than twice its
+/// Chinese. Each half can at most hear the whole reply again, so more than that
+/// is what the piece missed ("方案" whose halves hear "Call the function" and
+/// "这个方案有两个问题"; a reply cut off after its first words). English
+/// words beside mostly Chinese halves are not counted: the one time the real
+/// model's halves added some, it had invented them after its end-of-text token.
+fn heard_instead(text: &str, halves: &str) -> bool {
+    text_units(halves) > 0 && (!mostly_cjk(halves) || cjk_chars(halves) > 2 * cjk_chars(text))
 }
 
 /// The exported decoder's fixed context: prompt, audio and answer together.
@@ -463,11 +475,15 @@ const QWEN3_MIN_UNITS_PER_SPEECH_S: f64 = 0.5;
 /// English clips' (1.6 words a second), leaving the least for the Chinese.
 const QWEN3_MIN_CJK_PER_SPEECH_S: f64 = 2.5;
 const QWEN3_SPACED_WORD_S: f64 = 0.6;
-/// Any Chinese script for less speech than this is invented: "提到了system,"
-/// came for mains hum that measures 0.00 s, while the 66 shortest real replies
-/// cut from the voice corpus ("好的。", "这件事情。") hold 0.23-0.93 s. Above it
-/// only the rate above judges; "好的。" passes it up to 0.8 s of speech.
-const QWEN3_NO_SPEECH_S: f64 = 0.2;
+/// Audio without one loud run a syllable long holds no speech, and any Chinese
+/// script for it is invented ("提到了system," for mains hum; every noise, hum
+/// and no-speech probe measures 0.00 s). One syllable is speech: one-syllable
+/// replies ("不。", "嗯。") hold 0.09-0.49 s, and with 0.2 s here some were cut
+/// in two and lost or spliced ("要。系统。"). Above it only the rate above
+/// judges, which "好的。" passes up to 0.8 s of speech. Noise with a cough or
+/// a slammed door in it can hold 0.2-0.6 s; the model heard nothing in any of
+/// 60 such probes.
+const QWEN3_NO_SPEECH_S: f64 = QWEN3_SYLLABLE_FRAMES as f64 / 100.0;
 
 fn qwen3_chunk_ms(language: &str) -> u32 {
     if matches!(language, "en" | "zh") {
@@ -484,8 +500,11 @@ enum Suspect {
     Header,
     /// The answer used all the room the decoder had left, so it was cut off.
     Truncated,
-    /// Chinese script on the English route that nobody said ("提纲" for
-    /// "Sounds good."; see `misheard_script`).
+    /// Chinese script on the English route for audio without speech
+    /// ("提到了system," for mains hum; see `misheard_script`).
+    Invented,
+    /// Chinese script on the English route that nobody said: too little of it
+    /// for the speech ("提纲" for "Sounds good."; see `misheard_script`).
     WrongScript,
     /// Nothing, for audio that holds speech.
     Empty,
@@ -496,12 +515,13 @@ enum Suspect {
 impl Suspect {
     /// What is worth keeping when no retry does better. While the halves are
     /// still to come, only a short or cut-off answer can outrank them. On the
-    /// `last` try only a header or nothing is dropped: Chinese script the model
-    /// still hears in a piece it cannot split again is kept, since Chinese or
-    /// mixed speech on the English route must never vanish without notice.
+    /// `last` try only a header, nothing, or script for no speech is dropped:
+    /// Chinese script the model still hears in speech it cannot split again is
+    /// kept, since Chinese or mixed speech on the English route must never
+    /// vanish without notice.
     fn salvage(self, text: String, last: bool) -> String {
         match self {
-            Self::Header | Self::Empty => String::new(),
+            Self::Header | Self::Empty | Self::Invented => String::new(),
             Self::WrongScript if !last => String::new(),
             Self::WrongScript | Self::Truncated | Self::Sparse => text,
         }
@@ -521,8 +541,10 @@ fn suspect(
     if tokens + QWEN3_HEADER_TOKENS + 1 >= answer_room(samples.len(), rate) {
         return Some(Suspect::Truncated);
     }
-    if english && misheard_script(text, samples, rate) {
-        return Some(Suspect::WrongScript);
+    if english {
+        if let Some(problem) = misheard_script(text, samples, rate) {
+            return Some(problem);
+        }
     }
     let units = text_units(text);
     let seconds = samples.len() as f64 / rate.max(1) as f64;
@@ -558,27 +580,34 @@ fn is_bare_header(text: &str) -> bool {
 }
 
 /// Chinese, Japanese or Korean script on the English route that looks invented
-/// rather than heard: mostly CJK, and too little of it for the speech its
-/// other words leave over ("提纲" for two seconds of "Sounds good. See you
-/// tomorrow.") or for next to no speech at all ("提到了system," for mains
-/// hum). Chinese speech, however short ("好的。"), and English mixed with
-/// Chinese are accepted as heard.
-fn misheard_script(text: &str, samples: &[f32], rate: u32) -> bool {
+/// rather than heard: mostly CJK, and for no speech at all ("提到了system,"
+/// for mains hum) or too little of it for the speech its other words leave
+/// over ("提纲" for two seconds of "Sounds good. See you tomorrow."). Chinese
+/// speech, however short ("不。"), and English mixed with Chinese are accepted
+/// as heard.
+fn misheard_script(text: &str, samples: &[f32], rate: u32) -> Option<Suspect> {
     if !mostly_cjk(text) {
-        return false;
+        return None;
     }
-    let cjk = text.chars().filter(|&c| is_cjk(c)).count();
-    let words = text_units(text) - cjk;
     let speech = speech_seconds(samples, rate);
+    if speech < QWEN3_NO_SPEECH_S {
+        return Some(Suspect::Invented);
+    }
+    let cjk = cjk_chars(text);
+    let words = text_units(text) - cjk;
     let left_over = speech - words as f64 * QWEN3_SPACED_WORD_S;
-    speech < QWEN3_NO_SPEECH_S || (cjk as f64) < left_over * QWEN3_MIN_CJK_PER_SPEECH_S
+    ((cjk as f64) < left_over * QWEN3_MIN_CJK_PER_SPEECH_S).then_some(Suspect::WrongScript)
 }
 
 /// Some Chinese, Japanese or Korean characters, and at least as many of them
 /// as other words.
 fn mostly_cjk(text: &str) -> bool {
-    let cjk = text.chars().filter(|&c| is_cjk(c)).count();
+    let cjk = cjk_chars(text);
     cjk > 0 && cjk >= text_units(text) - cjk
+}
+
+fn cjk_chars(text: &str) -> usize {
+    text.chars().filter(|&c| is_cjk(c)).count()
 }
 
 /// Answer tokens the decoder has room for after the prompt and this audio.
@@ -760,13 +789,28 @@ fn strip_qwen3_header(text: String) -> String {
     }
 }
 
+/// The answer without its header, and without what follows an end-of-text
+/// token. sherpa-onnx stops at the model's end token, `<|im_end|>`, but
+/// decodes `<|endoftext|>` (its padding token) as text, and after it the model
+/// writes on unprompted: half of a short reply once came back
+/// "这。<|endoftext|>Humanity is a living thing.".
+fn qwen3_answer(text: String) -> String {
+    const END_OF_TEXT: &str = "<|endoftext|>";
+    let mut text = strip_qwen3_header(text);
+    if let Some(at) = text.find(END_OF_TEXT) {
+        let after = text[at + END_OF_TEXT.len()..].chars().count();
+        log::info!("Qwen3-ASR: dropped an end-of-text token and {after} characters after it");
+        text.truncate(text[..at].trim_end().len());
+    }
+    text
+}
+
 impl Asr for SherpaQwen3Asr {
     fn transcribe(&mut self, samples: &[f32], sample_rate: u32) -> Result<String> {
         let recognizer = &self.recognizer;
         let mut decode = |piece: &[f32]| {
-            recognize(recognizer, piece, sample_rate).map(|result| {
-                result.map(|result| (strip_qwen3_header(result.text), result.tokens.len()))
-            })
+            recognize(recognizer, piece, sample_rate)
+                .map(|result| result.map(|result| (qwen3_answer(result.text), result.tokens.len())))
         };
         transcribe_in_pieces(
             &mut decode,
@@ -795,6 +839,20 @@ mod short_input_tests {
             "Is the cache warm? Question mark"
         );
         assert_eq!(strip_qwen3_header("Plain text".into()), "Plain text");
+    }
+
+    #[test]
+    fn qwen3_text_after_an_end_of_text_token_is_dropped() {
+        assert_eq!(
+            qwen3_answer("这。<|endoftext|>Humanity is a living thing.".into()),
+            "这。"
+        );
+        assert_eq!(
+            qwen3_answer("language English<asr_text>Ship it. <|endoftext|>".into()),
+            "Ship it."
+        );
+        assert_eq!(qwen3_answer("<|endoftext|>Invented.".into()), "");
+        assert_eq!(qwen3_answer("好的。".into()), "好的。");
     }
 
     #[test]
@@ -1046,10 +1104,14 @@ mod qwen3_long_audio_tests {
         );
         assert_eq!(
             suspect("提到了system,", 4, &hum(RATE, 5_000), RATE, true),
-            Some(Suspect::WrongScript),
+            Some(Suspect::Invented),
             "any Chinese for no speech at all"
         );
         assert_eq!(suspect("提纲", 2, &audio, RATE, false), None);
+        assert_eq!(
+            suspect("提到了system,", 4, &hum(RATE, 5_000), RATE, false),
+            None
+        );
         assert_eq!(suspect("Sounds good.", 3, &audio, RATE, true), None);
     }
 
@@ -1139,18 +1201,25 @@ mod qwen3_long_audio_tests {
 
     #[test]
     fn a_suspect_answer_is_kept_only_where_its_halves_cannot_do_better() {
-        for garbage in [Suspect::Header, Suspect::WrongScript, Suspect::Empty] {
+        for garbage in [
+            Suspect::Header,
+            Suspect::Invented,
+            Suspect::WrongScript,
+            Suspect::Empty,
+        ] {
             assert_eq!(garbage.salvage("提纲".into(), false), "");
         }
         for partial in [Suspect::Truncated, Suspect::Sparse] {
             assert_eq!(partial.salvage("Okay.".into(), false), "Okay.");
         }
-        // No retry left: only a bare header or nothing is dropped.
+        // No retry left: only a bare header, nothing, or script for no speech
+        // is dropped.
         for garbage in [Suspect::Header, Suspect::Empty] {
             assert_eq!(garbage.salvage("language".into(), true), "");
         }
+        assert_eq!(Suspect::Invented.salvage("系统。".into(), true), "");
         for kept in [Suspect::WrongScript, Suspect::Truncated, Suspect::Sparse] {
-            assert_eq!(kept.salvage("提到了system,".into(), true), "提到了system,");
+            assert_eq!(kept.salvage("提纲".into(), true), "提纲");
         }
     }
 
@@ -1230,25 +1299,62 @@ mod qwen3_long_audio_tests {
 
     #[test]
     fn a_short_chinese_reply_on_the_english_route_is_decoded_once_and_kept() {
-        // Push-to-talk "好的。": 0.6 s of room, two syllables, 0.8 s of room.
-        let mut audio = syllables(RATE, 1_800);
-        quiet(&mut audio, RATE, 0, 600, 0.003);
-        quiet(&mut audio, RATE, 1_000, 800, 0.003);
-        let speech = speech_seconds(&audio, RATE);
-        assert!((0.3..=0.5).contains(&speech), "{speech}");
-        let mut calls = 0;
-        let mut decode = |_: &[f32]| -> Result<Option<(String, usize)>> {
-            calls += 1;
-            Ok(Some(("好的。".into(), 3)))
-        };
-        let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
-        assert_eq!(text, "好的。");
-        assert_eq!(calls, 1, "not retried");
-        // The same answer for no speech at all is still invented.
+        // Push-to-talk "好的。": 0.6 s of room, two syllables, 0.8 s of room;
+        // and "不。": one 120 ms syllable in 1.6 s.
+        let mut two = syllables(RATE, 1_800);
+        quiet(&mut two, RATE, 0, 600, 0.003);
+        quiet(&mut two, RATE, 1_000, 800, 0.003);
+        let mut one = syllables(RATE, 1_600);
+        quiet(&mut one, RATE, 0, 600, 0.003);
+        quiet(&mut one, RATE, 720, 880, 0.003);
+        for (audio, reply, speech) in [(&two, "好的。", 0.3..=0.5), (&one, "不。", 0.1..=0.15)]
+        {
+            let measured = speech_seconds(audio, RATE);
+            assert!(speech.contains(&measured), "{reply:?}: {measured}");
+            let mut calls = 0;
+            let mut decode = |_: &[f32]| -> Result<Option<(String, usize)>> {
+                calls += 1;
+                Ok(Some((reply.into(), 2)))
+            };
+            let text = transcribe_in_pieces(&mut decode, audio, RATE, 20_000, true).unwrap();
+            assert_eq!(text, reply);
+            assert_eq!(calls, 1, "{reply:?} is not retried");
+            // The same answer for no speech at all is invented.
+            assert_eq!(
+                suspect(reply, 2, &hum(RATE, 1_800), RATE, true),
+                Some(Suspect::Invented)
+            );
+        }
+    }
+
+    #[test]
+    fn a_wrong_script_answer_stands_when_its_halves_hear_nothing_else() {
+        // A drawn-out "好。": 0.75 s of speech is too much for one character,
+        // so it is decoded again in halves. The first half holds the syllable,
+        // the second only room noise.
+        let mut audio = syllables(RATE, 1_600);
+        quiet(&mut audio, RATE, 750, 850, 0.003);
         assert_eq!(
-            suspect("好的。", 3, &hum(RATE, 1_800), RATE, true),
+            suspect("好。", 2, &audio, RATE, true),
             Some(Suspect::WrongScript)
         );
+        for (first, second) in [("", ""), ("好。", "系统。")] {
+            let mut calls = 0;
+            let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
+                calls += 1;
+                let heard = if piece.len() == audio.len() {
+                    "好。"
+                } else if piece.as_ptr() == audio.as_ptr() {
+                    first
+                } else {
+                    second
+                };
+                Ok(Some((heard.into(), 2)))
+            };
+            let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
+            assert_eq!(text, "好。", "halves {first:?} + {second:?}");
+            assert_eq!(calls, 3);
+        }
     }
 
     #[test]
@@ -1271,10 +1377,15 @@ mod qwen3_long_audio_tests {
     fn a_chinese_answer_stands_when_its_halves_hear_chinese_too() {
         // Halves the real model returned for short Chinese replies: cut inside
         // a word, and once with its end-of-text token and invented English.
+        // Raw text goes through `qwen3_answer` as in `transcribe`, so the last
+        // splice is "这。一件事情。": 5 characters, no English words (left in,
+        // it would be 5 words against 5 characters, mostly CJK only by a tie).
         let audio = syllables(RATE, 2_800);
         for (whole, first, second) in [
             ("好的。", "好的。", "的。"),
+            ("好的。", "好的。", "好的。"),
             ("这件事情。", "这件事。", "事情。"),
+            ("这件事情。", "这件。", "一件事情。"),
             (
                 "这件事情。",
                 "这。<|endoftext|>Humanity is a living thing.",
@@ -1289,6 +1400,48 @@ mod qwen3_long_audio_tests {
             let mut calls = 0;
             let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
                 calls += 1;
+                let heard = qwen3_answer(
+                    if piece.len() == audio.len() {
+                        whole
+                    } else if piece.as_ptr() == audio.as_ptr() {
+                        first
+                    } else {
+                        second
+                    }
+                    .into(),
+                );
+                Ok(Some((heard.clone(), text_units(&heard))))
+            };
+            let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
+            assert_eq!(text, whole, "halves {first:?} + {second:?}");
+            assert_eq!(calls, 3);
+        }
+    }
+
+    #[test]
+    fn chinese_halves_that_hear_more_than_the_piece_replace_it() {
+        // Mixed speech whose piece heard only "方案", and a Chinese reply the
+        // piece stopped after its first words: the halves hear more than twice
+        // its characters, so they are not a splice of it.
+        let mixed = syllables(RATE, 2_800);
+        let reply = syllables(RATE, 10_000);
+        for (audio, whole, first, second) in [
+            (&mixed, "方案", "Call the function", "这个方案有两个问题"),
+            (
+                &reply,
+                "好的，我们今天",
+                "好的，我们今天先把这个版本的安装包打出来，然后发给测试。",
+                "测试没问题的话，明天上午就正式发布，下午再来看一下反馈。",
+            ),
+        ] {
+            assert_eq!(
+                suspect(whole, 4, audio, RATE, true),
+                Some(Suspect::WrongScript),
+                "{whole:?}"
+            );
+            let mut calls = 0;
+            let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
+                calls += 1;
                 let heard = if piece.len() == audio.len() {
                     whole
                 } else if piece.as_ptr() == audio.as_ptr() {
@@ -1298,8 +1451,10 @@ mod qwen3_long_audio_tests {
                 };
                 Ok(Some((heard.into(), text_units(heard))))
             };
-            let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
-            assert_eq!(text, whole, "halves {first:?} + {second:?}");
+            let text = transcribe_in_pieces(&mut decode, audio, RATE, 20_000, true).unwrap();
+            let mut halves = first.to_string();
+            append_piece(&mut halves, second);
+            assert_eq!(text, halves);
             assert_eq!(calls, 3);
         }
     }
