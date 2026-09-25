@@ -1,13 +1,15 @@
 """One command for the voice-corpus release test.
 
-    python packaging/voice-corpus/run.py [--corpus DIR] [--models DIR] [--routes R] [--skip-generate]
+    python packaging/voice-corpus/run.py [--corpus DIR] [--models DIR] [--routes R] [--only IDS] [--skip-generate]
 
 1. generate.py renders any missing clips (cached by voice + sentence hash);
 2. runs the app's ignored `voice_corpus` test: every clip through the
    production pipeline (models::build_asr, the route's cleaner chain, the
    inference worker with the speech gate, the built-in dictionary, snippets,
    the Engine's per-utterance settings), twice (all rules on / all rules off),
-   on every route in --routes;
+   on every route in --routes. A route runs with the speech filter on;
+   `lang:model+gate-off` runs it off, the shipped default. No-speech clips
+   are replayed in both gate states on every route regardless;
 3. score.py checks every expectation and the release gates.
 
 Exit status is score.py's: 0 only when all gates hold. Reports land next to
@@ -33,15 +35,20 @@ def main() -> int:
                         required=not os.environ.get("VOCALCODE_QA_MODELS"),
                         help="directory with one sub-directory per model id (sha256-verified copies, "
                              "see packaging/models.json)")
-    parser.add_argument("--routes", default=ROUTES)
+    parser.add_argument("--routes", default=ROUTES, help="comma-separated lang:model[+gate-off]")
+    parser.add_argument("--only", default="", help="comma-separated case-id substrings (a debugging run: "
+                        "the release gates count cases that were not replayed as failures)")
     parser.add_argument("--skip-generate", action="store_true")
     args = parser.parse_args()
     if not args.skip_generate:
-        subprocess.run([sys.executable, str(HERE / "generate.py"), "--out", str(args.corpus)], check=True)
+        subprocess.run([sys.executable, str(HERE / "generate.py"), "--out", str(args.corpus), f"--only={args.only}"],
+                       check=True)
     results = args.corpus / "results.jsonl"
     env = dict(os.environ, VOCALCODE_QA_MODELS=str(args.models), VOCALCODE_VOICE_CORPUS=str(args.corpus),
                VOCALCODE_VOICE_RESULTS=str(results), VOCALCODE_VOICE_ROUTES=args.routes,
                VOCALCODE_VOICE_CASES=str(HERE / "cases.json"))
+    if args.only:
+        env["VOCALCODE_VOICE_ONLY"] = args.only
     subprocess.run(["cargo", "test", "--release", "--locked", "-p", "vocalcode-app", "voice_corpus", "--",
                     "--ignored", "--nocapture", "--test-threads=1"], cwd=ROOT, env=env, check=True)
     return subprocess.run([sys.executable, str(HERE / "score.py"), str(results),

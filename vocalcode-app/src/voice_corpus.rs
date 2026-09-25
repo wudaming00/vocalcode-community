@@ -15,8 +15,13 @@
 //! VOCALCODE_VOICE_CORPUS=<generate.py output, containing clips.json>
 //! VOCALCODE_VOICE_ROUTES=zh:sensevoice,en:sensevoice,en:qwen3-asr-0.6b,en:parakeet-tdt-v3
 //! VOCALCODE_VOICE_RESULTS=<results.jsonl to write>
+//! VOCALCODE_VOICE_ONLY=<optional comma-separated case-id substrings>
 //! cargo test --release -p vocalcode-app voice_corpus -- --ignored --nocapture
 //! ```
+//! A route runs with the speech filter on, as the owner does; `+gate-off`
+//! (`en:sensevoice+gate-off`) runs it with the filter off, the shipped
+//! default. No-speech clips are replayed in both gate states on every route,
+//! so "nothing is typed" never rests on an opt-in filter.
 //! Scoring: packaging/voice-corpus/score.py.
 
 use std::collections::HashMap;
@@ -111,6 +116,7 @@ impl TextInjector for Collector {
 struct Route {
     name: String,
     language: String,
+    gate_on: bool,
     engine: Engine,
     clip: ClockedClip,
     busy: Arc<AtomicUsize>,
@@ -120,7 +126,63 @@ struct Route {
     _gate_base: PathBuf,
 }
 
-fn build_route(models: &Path, language: &str, model_id: &str, index: usize) -> Route {
+/// One `VOCALCODE_VOICE_ROUTES` entry: `lang:model`, optionally `+gate-off`.
+#[derive(Debug, PartialEq)]
+struct RouteSpec<'a> {
+    language: &'a str,
+    model: &'a str,
+    gate: bool,
+}
+
+fn parse_route(spec: &str) -> RouteSpec<'_> {
+    let spec = spec.trim();
+    let (spec, gate) = match spec.strip_suffix("+gate-off") {
+        Some(rest) => (rest, false),
+        None => (spec, true),
+    };
+    let (language, model) = spec.split_once(':').expect("route lang:model[+gate-off]");
+    RouteSpec {
+        language,
+        model,
+        gate,
+    }
+}
+
+/// Does a route in `language` replay this clip? No-speech clips are recorded
+/// with language "any" and belong to every route. `only` narrows the run to
+/// case ids containing any of its comma-separated parts; with no parts, it
+/// narrows nothing.
+fn replays(clip: &serde_json::Value, language: &str, only: Option<&str>) -> bool {
+    let case = clip["case"].as_str().unwrap_or("");
+    (clip["language"] == language || clip["language"] == "any")
+        && only.is_none_or(|only| {
+            let mut parts = only.split(',').filter(|part| !part.is_empty()).peekable();
+            parts.peek().is_none() || parts.any(|part| case.contains(part))
+        })
+}
+
+/// The replays of one clip: (pass name, writing rules on, speech gate on).
+/// Every clip runs all rules on and all rules off with the route's gate; a
+/// no-speech clip also runs both with the gate flipped, named for that state.
+fn passes(no_speech: bool, route_gate: bool) -> Vec<(String, bool, bool)> {
+    let mut passes = vec![
+        ("all_on".to_string(), true, route_gate),
+        ("baseline".to_string(), false, route_gate),
+    ];
+    if no_speech {
+        let flipped = if route_gate { "gate-off" } else { "gate-on" };
+        passes.push((format!("all_on+{flipped}"), true, !route_gate));
+        passes.push((format!("baseline+{flipped}"), false, !route_gate));
+    }
+    passes
+}
+
+fn build_route(models: &Path, spec: &RouteSpec, index: usize) -> Route {
+    let RouteSpec {
+        language,
+        model: model_id,
+        gate: gate_on,
+    } = *spec;
     let spec = crate::models::MODELS
         .iter()
         .find(|m| m.id == model_id)
@@ -145,7 +207,7 @@ fn build_route(models: &Path, language: &str, model_id: &str, index: usize) -> R
     )
     .expect("cleaners");
     let gate = Arc::new(crate::noise_filter::Control::default());
-    gate.set_enabled(true); // the owner runs with the speech filter on
+    gate.set_enabled(gate_on); // the owner runs with the speech filter on
     gate.set_progressive(false);
     let gate_base = std::env::temp_dir().join(format!(
         "vocalcode-voice-corpus-gate-{}-{index}",
@@ -186,8 +248,12 @@ fn build_route(models: &Path, language: &str, model_id: &str, index: usize) -> R
         },
     ])));
     Route {
-        name: format!("{language}:{model_id}"),
+        name: format!(
+            "{language}:{model_id}{}",
+            if gate_on { "" } else { "+gate-off" }
+        ),
         language: language.to_string(),
+        gate_on,
         engine,
         clip,
         busy,
@@ -234,10 +300,12 @@ fn dictate(
     samples: Vec<f32>,
     options: writing::Options,
     on: bool,
+    gate: bool,
 ) -> (String, bool, vocalcode_core::engine::DictationTrace, u64) {
     let len = samples.len();
     *route.clip.samples.lock().unwrap() = samples;
     route.events.0.lock().unwrap().clear();
+    route.gate.set_enabled(gate);
     let engine = &mut route.engine;
     assert!(engine.set_trace_enabled(true));
     assert!(engine.set_filler_removal(on, &route.language));
@@ -317,15 +385,11 @@ fn voice_corpus() {
     let only = std::env::var("VOCALCODE_VOICE_ONLY").ok();
     let mut out = std::io::BufWriter::new(std::fs::File::create(&results).expect("results"));
     for (index, spec) in routes.split(',').enumerate() {
-        let (language, model_id) = spec.trim().split_once(':').expect("route lang:model");
-        let mut route = build_route(&models, language, model_id, index);
+        let spec = parse_route(spec);
+        let mut route = build_route(&models, &spec, index);
         let mine: Vec<&serde_json::Value> = clips
             .iter()
-            .filter(|c| c["language"] == language)
-            .filter(|c| {
-                only.as_deref()
-                    .is_none_or(|o| c["case"].as_str().unwrap_or("").contains(o))
-            })
+            .filter(|c| replays(c, spec.language, only.as_deref()))
             .collect();
         eprintln!("route {}: {} clips", route.name, mine.len());
         let route_started = Instant::now();
@@ -335,8 +399,8 @@ fn voice_corpus() {
                 continue;
             };
             let audio = read_wav(&corpus.join(clip["path"].as_str().unwrap()));
-            for pass in ["all_on", "baseline"] {
-                let on = pass == "all_on";
+            let no_speech = case["feature"] == "no_speech";
+            for (pass, on, gate) in passes(no_speech, route.gate_on) {
                 let style = case["style"]
                     .as_str()
                     .and_then(writing::Style::parse)
@@ -349,14 +413,16 @@ fn voice_corpus() {
                     press_enter: on,
                     style: if on { style } else { writing::Style::Formal },
                 };
-                let (typed, send, trace, elapsed) = dictate(&mut route, audio.clone(), options, on);
+                let (typed, send, trace, elapsed) =
+                    dictate(&mut route, audio.clone(), options, on, gate);
                 let record = serde_json::json!({
                     "route": route.name, "path": clip["path"], "case": case_id,
-                    "language": language, "voice": clip["voice"], "provider": clip["provider"],
+                    "language": spec.language, "voice": clip["voice"], "provider": clip["provider"],
                     "variant": clip["variant"], "pass": pass, "heard": trace.raw_text,
                     "typed": typed, "send": send, "writing_edits": trace.writing_edits,
                     "filler_removed": trace.filler_removed, "asr_chunks": trace.asr_chunks,
                     "elapsed_ms": elapsed, "audio_seconds": clip["seconds"],
+                    "speech_gate": if gate { "on" } else { "off" },
                     "gate": route.gate.snapshot().state,
                 });
                 writeln!(out, "{record}").unwrap();
@@ -378,4 +444,64 @@ fn voice_corpus() {
             route_started.elapsed().as_secs_f64()
         );
     }
+}
+
+#[test]
+fn route_specs_clip_selection_and_gate_passes() {
+    assert_eq!(
+        parse_route(" en:sensevoice "),
+        RouteSpec {
+            language: "en",
+            model: "sensevoice",
+            gate: true
+        }
+    );
+    assert_eq!(
+        parse_route("zh:sensevoice+gate-off"),
+        RouteSpec {
+            language: "zh",
+            model: "sensevoice",
+            gate: false
+        }
+    );
+
+    let clip = |case: &str, language: &str| serde_json::json!({"case": case, "language": language});
+    assert!(replays(&clip("zh-cs-api", "zh"), "zh", None));
+    assert!(!replays(&clip("zh-cs-api", "zh"), "en", None));
+    // No-speech clips belong to every route, whatever its language.
+    assert!(replays(&clip("ns-fan-far", "any"), "en", None));
+    assert!(replays(&clip("ns-fan-far", "any"), "zh", None));
+    assert!(replays(&clip("ns-fan-far", "any"), "zh", Some("-cs-,ns-")));
+    assert!(replays(&clip("zh-cs-api", "zh"), "zh", Some("-cs-,ns-")));
+    assert!(!replays(&clip("zh-long-90", "zh"), "zh", Some("-cs-,ns-")));
+    assert!(replays(&clip("zh-long-90", "zh"), "zh", Some("")));
+    assert!(replays(&clip("zh-long-90", "zh"), "zh", Some(",")));
+
+    let names = |list: Vec<(String, bool, bool)>| {
+        list.into_iter()
+            .map(|(name, rules, gate)| format!("{name}:{rules}:{gate}"))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(passes(false, true)),
+        ["all_on:true:true", "baseline:false:true"]
+    );
+    assert_eq!(
+        names(passes(true, true)),
+        [
+            "all_on:true:true",
+            "baseline:false:true",
+            "all_on+gate-off:true:false",
+            "baseline+gate-off:false:false"
+        ]
+    );
+    assert_eq!(
+        names(passes(true, false)),
+        [
+            "all_on:true:false",
+            "baseline:false:false",
+            "all_on+gate-on:true:true",
+            "baseline+gate-on:false:true"
+        ]
+    );
 }
