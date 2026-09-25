@@ -517,7 +517,6 @@ struct Artifact {
 
 type ArtifactManifest = HashMap<String, HashMap<String, Artifact>>;
 static ARTIFACT_MANIFEST: OnceLock<Result<ArtifactManifest, String>> = OnceLock::new();
-#[cfg(test)]
 static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 const MODEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const MODEL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
