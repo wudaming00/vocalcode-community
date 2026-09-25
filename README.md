@@ -63,11 +63,14 @@ This is a desktop tool, not a meeting bot or a cloud transcription subscription.
 | --- | --- | --- |
 | Mouse Back button (X1) sends Enter | Off. First run offers it as an unticked box, **Use the mouse Back button as Enter**. | Shortcuts → Tap to send |
 | Filter non-speech noise | On. Without it, fan, keyboard or pink noise can be typed as "I.", "그." or "我。". | Settings → Dictation |
-| Keep history | 7 days: up to 50 recent dictations, encrypted with your Windows account or a Keychain key, then deleted. Off deletes what was kept. | History |
+| Keep history | 7 days: up to 50 recent dictations, encrypted with your Windows account or a Keychain key, then deleted. Off deletes what was kept. Uninstalling does not; **Remove…** under Settings → System does. | History |
 
 Updating does not change these for an existing install. Settings written by
 1.4.0 or earlier keep the Back button as Enter if they had it, keep the noise
 filter off and keep History to the current session, until you change them.
+Settings saved by this version use a newer settings format that 1.4.0 and
+earlier will not start with, so going back to an older release is not
+supported.
 
 The current **development tree** also includes an opt-in Windows desktop control
 bar and a manual rewrite scratchpad. The bar is off by default and uses the
@@ -122,7 +125,9 @@ Dictionary/snippet import is explicit; back up data before any manual migration.
 - Recording, clipboard history, exports, kept History and optional diagnostic
   persistence can contain sensitive information. Kept History is encrypted and
   expires, and **Remove…** under Settings → System deletes it with the rest of
-  the app data. Review your OS sync and backup settings.
+  the app data; uninstalling does not. Text that could not be typed, including
+  text refused by a password field and copied to the clipboard instead, is
+  kept like any other dictation. Review your OS sync and backup settings.
 
 ## Languages and performance
 

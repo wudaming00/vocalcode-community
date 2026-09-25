@@ -398,6 +398,7 @@
   .hist-row .t{font-family:var(--mono);font-size:10.5px;color:var(--faint);flex:0 0 auto;padding-top:3px;white-space:pre-line}
   .hist-row .x{flex:1 1 auto;min-width:0;font-size:13.5px;line-height:1.5;word-break:break-word;white-space:pre-line}
   .hist-original{margin-top:7px;font-size:12px;color:var(--mut)}
+  #keepHistoryCard[hidden]{display:none}
   .hist-original summary{cursor:pointer}.hist-original p{white-space:pre-wrap;overflow-wrap:anywhere}
   .hist-row .cp{appearance:none;flex:0 0 auto;border:0;background:transparent;font-family:var(--mono);font-size:11px;color:var(--mut);cursor:pointer;padding:3px 4px;min-height:24px}
   .hist-row .cp:hover{color:var(--ink)}
@@ -1030,7 +1031,7 @@
           </div>
           <div class="lbl">Downloaded data</div>
           <div class="card">
-            <div class="row"><div class="k">Models and settings<small id="dataNote">Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.</small></div>
+            <div class="row"><div class="k">Models and settings<small id="dataNote">Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.</small></div>
               <span class="action-group"><span class="muted" id="dataSize">—</span><button id="revealData">Show in Finder</button><button id="purgeData">Remove…</button></span>
             </div>
           </div>
@@ -1783,10 +1784,11 @@
       "Select the wrong word above, then click Teach":"先选中上面写错的词，再点「教它」",
       "Uninstall":"卸载",
       "Downloaded models and settings":"已下载的模型与设置",
-      "Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.":"把 VocalCode 拖进废纸篓不会删除这些。你剩余的试用天数会保留。",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.":"把 VocalCode 拖进废纸篓不会删除这些内容和保留的历史记录；点“删除…”才会删除。你剩余的试用天数会保留。",
       "Show in Finder":"在访达中显示",
       "Show in File Explorer":"在文件资源管理器中显示",
-      "Uninstalling VocalCode does not remove downloaded models or settings. Your remaining trial days are kept.":"卸载 VocalCode 不会删除已下载的模型或设置。你剩余的试用天数会保留。",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does. Your remaining trial days are kept.":"卸载 VocalCode 不会删除已下载的模型、设置或保留的历史记录；点“删除…”才会删除。你剩余的试用天数会保留。",
+      "Community models, settings and kept History are stored separately from other editions. Uninstalling does not remove them; Remove… does.":"社区版的模型、设置和保留的历史记录与其他版本分开存放。卸载不会删除它们；点“删除…”才会删除。",
       "Remove…":"删除…",
       "Remove and quit?":"删除并退出？",
       "Removing…":"正在删除…",
@@ -1840,7 +1842,7 @@
       "Keep history":"保留历史记录",
       "24 hours":"24 小时",
       "7 days":"7 天",
-      "This session only. Nothing is kept on disk, and choosing Off deletes what was.":"仅限本次运行。磁盘上不保留任何内容；选择“关闭”会删除之前保留的记录。",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"仅限本次运行。历史记录不会在磁盘上保留任何内容；选择“关闭”会删除之前保留的记录。本地诊断如已开启，会另行存储。",
       "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"在本机加密保留最近最多 50 条听写，24 小时后删除。",
       "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"在本机加密保留最近最多 50 条听写，7 天后删除。",
       "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"没能输入出去的文字会一直留在这个列表里，直到 VocalCode 退出，不受“保留历史记录”设置影响。开启本地诊断时，也会带回最新的诊断记录。不会上传任何内容。复制、导出或粘贴文字，可能让剪贴板历史、同步工具或其他程序读到听写内容。",
@@ -2413,10 +2415,11 @@
       "Select the wrong word above, then click Teach":"Selecciona arriba la palabra incorrecta y pulsa Enseñar",
       "Uninstall":"Desinstalar",
       "Downloaded models and settings":"Modelos y ajustes descargados",
-      "Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.":"Mover VocalCode a la Papelera no elimina esto. Tus días de prueba restantes se conservan.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.":"Mover VocalCode a la Papelera no elimina esto ni el historial conservado; «Eliminar…» sí. Tus días de prueba restantes se conservan.",
       "Show in Finder":"Mostrar en el Finder",
       "Show in File Explorer":"Mostrar en el Explorador de archivos",
-      "Uninstalling VocalCode does not remove downloaded models or settings. Your remaining trial days are kept.":"Desinstalar VocalCode no elimina los modelos descargados ni los ajustes. Se conservan los días de prueba restantes.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does. Your remaining trial days are kept.":"Desinstalar VocalCode no elimina los modelos descargados, los ajustes ni el historial conservado; «Eliminar…» sí. Se conservan los días de prueba restantes.",
+      "Community models, settings and kept History are stored separately from other editions. Uninstalling does not remove them; Remove… does.":"Los modelos, los ajustes y el historial conservado de Community se guardan aparte de otras ediciones. Desinstalar no los elimina; «Eliminar…» sí.",
       "Remove…":"Eliminar…",
       "Remove and quit?":"¿Eliminar y salir?",
       "Removing…":"Eliminando…",
@@ -2470,7 +2473,7 @@
       "Keep history":"Conservar historial",
       "24 hours":"24 horas",
       "7 days":"7 días",
-      "This session only. Nothing is kept on disk, and choosing Off deletes what was.":"Solo esta sesión. No se guarda nada en el disco, y elegir Desactivado elimina lo que se había guardado.",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Solo esta sesión. El historial no guarda nada en el disco, y elegir Desactivado elimina lo que había guardado. Los diagnósticos locales, si están activados, se guardan aparte.",
       "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Se conservan hasta 50 dictados recientes, cifrados en este dispositivo, durante 24 horas; después se eliminan.",
       "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Se conservan hasta 50 dictados recientes, cifrados en este dispositivo, durante 7 días; después se eliminan.",
       "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"El texto que no se pudo escribir se queda en esta lista hasta que se cierra VocalCode, sea cual sea el valor de Conservar historial. Los diagnósticos locales, si están activados, también recuperan sus registros más recientes. No se sube nada. Copiar, exportar o pegar texto puede exponer las transcripciones al historial del portapapeles, a herramientas de sincronización o a otros lectores.",
@@ -3079,10 +3082,11 @@
       "Select the wrong word above, then click Teach":"Sélectionnez le mot erroné ci-dessus, puis cliquez sur Apprendre",
       "Uninstall":"Désinstaller",
       "Downloaded models and settings":"Modèles et réglages téléchargés",
-      "Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.":"Mettre VocalCode à la corbeille ne les supprime pas. Vos jours d'essai restants sont conservés.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.":"Mettre VocalCode à la corbeille ne supprime ni ces données ni l'historique conservé ; « Supprimer… », si. Vos jours d'essai restants sont conservés.",
       "Show in Finder":"Afficher dans le Finder",
       "Show in File Explorer":"Afficher dans l’Explorateur de fichiers",
-      "Uninstalling VocalCode does not remove downloaded models or settings. Your remaining trial days are kept.":"Désinstaller VocalCode ne supprime ni les modèles téléchargés ni les réglages. Vos jours d’essai restants sont conservés.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does. Your remaining trial days are kept.":"Désinstaller VocalCode ne supprime ni les modèles téléchargés, ni les réglages, ni l'historique conservé ; « Supprimer… », si. Vos jours d’essai restants sont conservés.",
+      "Community models, settings and kept History are stored separately from other editions. Uninstalling does not remove them; Remove… does.":"Les modèles, les réglages et l'historique conservé de Community sont stockés à part des autres éditions. La désinstallation ne les supprime pas ; « Supprimer… », si.",
       "Remove…":"Supprimer…",
       "Remove and quit?":"Supprimer et quitter ?",
       "Removing…":"Suppression…",
@@ -3136,7 +3140,7 @@
       "Keep history":"Conserver l'historique",
       "24 hours":"24 heures",
       "7 days":"7 jours",
-      "This session only. Nothing is kept on disk, and choosing Off deletes what was.":"Cette session uniquement. Rien n'est conservé sur le disque, et choisir Désactivé supprime ce qui l'était.",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Cette session uniquement. L'historique ne conserve rien sur le disque, et choisir Désactivé supprime ce qu'il avait conservé. Les diagnostics locaux, s'ils sont activés, sont stockés à part.",
       "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Jusqu'à 50 dictées récentes sont conservées chiffrées sur cet appareil pendant 24 heures, puis supprimées.",
       "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Jusqu'à 50 dictées récentes sont conservées chiffrées sur cet appareil pendant 7 jours, puis supprimées.",
       "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"Le texte qui n'a pas pu être saisi reste dans cette liste jusqu'à la fermeture de VocalCode, quel que soit le réglage Conserver l'historique. Les diagnostics locaux, s'ils sont activés, font aussi revenir leurs derniers enregistrements. Rien n'est envoyé en ligne. Copier, exporter ou coller du texte peut exposer les transcriptions à l'historique du presse-papiers, aux outils de synchronisation ou à d'autres lecteurs.",
@@ -3459,7 +3463,7 @@
       "First setup · Spoken language":"Ersteinrichtung · Gesprochene Sprache",
       "Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.":"Wähle direkt unten aus. Anschließend zeigt eine kurze Führung die wichtigsten Bereiche von VocalCode.",
       "Use the mouse Back button as Enter":"Zurück-Taste der Maus als Eingabetaste verwenden",
-      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"Tippe darauf, um das Diktierte zu senden. Apps erhalten sie dann nicht mehr als Zurück. Du kannst das jederzeit unter Kurzbefehle ändern.",
+      "Tap it to send what you dictated. Apps then stop receiving it as Back. You can change this any time in Shortcuts.":"Drücke sie, um das Diktierte zu senden. Apps erhalten sie dann nicht mehr als Zurück. Du kannst das jederzeit unter Kurzbefehle ändern.",
       "Mandarin Chinese + English":"Mandarin-Chinesisch + Englisch",
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Europäische Einstellungen teilen Parakeet. Für Chinesisch und Englisch gibt es gemessene CPU-Optionen; Hindi nutzt die getestete Qwen3-ASR-Route. Empfehlungen können geändert werden.",
       "Take the tour":"Führung starten",
@@ -3745,10 +3749,11 @@
       "Select the wrong word above, then click Teach":"Markiere oben das falsche Wort und klicke auf Beibringen",
       "Uninstall":"Deinstallieren",
       "Downloaded models and settings":"Geladene Modelle und Einstellungen",
-      "Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.":"VocalCode in den Papierkorb zu ziehen entfernt diese nicht. Deine verbleibenden Testtage bleiben erhalten.",
+      "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.":"VocalCode in den Papierkorb zu ziehen entfernt weder diese Daten noch den behaltenen Verlauf; „Entfernen…“ schon. Deine verbleibenden Testtage bleiben erhalten.",
       "Show in Finder":"Im Finder zeigen",
       "Show in File Explorer":"Im Datei-Explorer anzeigen",
-      "Uninstalling VocalCode does not remove downloaded models or settings. Your remaining trial days are kept.":"Die Deinstallation von VocalCode entfernt weder heruntergeladene Modelle noch Einstellungen. Deine verbleibenden Testtage bleiben erhalten.",
+      "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does. Your remaining trial days are kept.":"Die Deinstallation von VocalCode entfernt weder heruntergeladene Modelle noch Einstellungen oder den behaltenen Verlauf; „Entfernen…“ schon. Deine verbleibenden Testtage bleiben erhalten.",
+      "Community models, settings and kept History are stored separately from other editions. Uninstalling does not remove them; Remove… does.":"Modelle, Einstellungen und der behaltene Verlauf von Community werden getrennt von anderen Editionen gespeichert. Die Deinstallation entfernt sie nicht; „Entfernen…“ schon.",
       "Remove…":"Entfernen…",
       "Remove and quit?":"Entfernen und beenden?",
       "Removing…":"Wird entfernt…",
@@ -3802,7 +3807,7 @@
       "Keep history":"Verlauf behalten",
       "24 hours":"24 Stunden",
       "7 days":"7 Tage",
-      "This session only. Nothing is kept on disk, and choosing Off deletes what was.":"Nur diese Sitzung. Auf dem Datenträger bleibt nichts, und „Aus“ löscht, was behalten wurde.",
+      "This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.":"Nur diese Sitzung. Der Verlauf behält nichts auf dem Datenträger, und „Aus“ löscht, was er behalten hatte. Lokale Diagnosen werden, falls aktiv, separat gespeichert.",
       "Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.":"Bis zu 50 aktuelle Diktate werden 24 Stunden lang verschlüsselt auf diesem Gerät behalten und dann gelöscht.",
       "Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted.":"Bis zu 50 aktuelle Diktate werden 7 Tage lang verschlüsselt auf diesem Gerät behalten und dann gelöscht.",
       "Text that could not be typed stays in this list until VocalCode quits, whatever Keep history is set to. Local diagnostics, when on, also bring back their newest records. Nothing is uploaded. Copying, exporting or Paste text can expose transcripts to clipboard history, sync tools or other readers.":"Text, der nicht eingegeben werden konnte, bleibt bis zum Beenden von VocalCode in dieser Liste – unabhängig von „Verlauf behalten“. Sind lokale Diagnosen aktiv, kehren auch deren neueste Einträge zurück. Nichts wird hochgeladen. Kopieren, Exportieren oder Einfügen von Text kann Transkripte für den Zwischenablageverlauf, Synchronisierungstools oder andere Programme sichtbar machen.",
@@ -3998,8 +4003,8 @@
     var reveal=document.getElementById("revealData"), note=document.getElementById("dataNote");
     if(reveal) reveal.textContent=t(OS==="windows" ? "Show in File Explorer" : "Show in Finder");
     if(note) note.textContent=t(OS==="windows"
-      ? "Uninstalling VocalCode does not remove downloaded models or settings. Your remaining trial days are kept."
-      : "Dragging VocalCode to the Bin does not remove these. Your remaining trial days are kept.");
+      ? "Uninstalling VocalCode does not remove downloaded models, settings or kept History; Remove… does. Your remaining trial days are kept."
+      : "Dragging VocalCode to the Bin does not remove these or kept History; Remove… does. Your remaining trial days are kept.");
   }
   function setLang(pref){
     LANG = (pref==="auto"||!pref) ? detectLang() : pref;
@@ -4664,7 +4669,7 @@
   // The host deletes what the new choice no longer covers as soon as it is
   // applied; Off deletes everything that was kept.
   var KEEP_HISTORY_NOTES={
-    "off":"This session only. Nothing is kept on disk, and choosing Off deletes what was.",
+    "off":"This session only. History keeps nothing on disk, and choosing Off deletes what it kept. Local diagnostics, when on, are stored separately.",
     "24h":"Up to 50 recent dictations are kept encrypted on this device for 24 hours, then deleted.",
     "7d":"Up to 50 recent dictations are kept encrypted on this device for 7 days, then deleted."
   };
@@ -4672,7 +4677,10 @@
     return Object.prototype.hasOwnProperty.call(KEEP_HISTORY_NOTES,cfg.keep_history) ? cfg.keep_history : "off";
   }
   function renderKeepHistory(){
-    var value=keepHistoryValue(), select=document.getElementById("keepHistory"), note=document.getElementById("keepHistoryNote");
+    var value=keepHistoryValue(), select=document.getElementById("keepHistory"), note=document.getElementById("keepHistoryNote"), card=document.getElementById("keepHistoryCard");
+    // Kept History needs the encrypted storage Windows and macOS provide.
+    // Elsewhere nothing is kept whatever is chosen, so nothing is offered.
+    if(card) card.hidden=cfg.keep_history_available===false;
     if(select) select.value=value;
     if(note) note.textContent=t(KEEP_HISTORY_NOTES[value]);
   }
@@ -5331,8 +5339,12 @@
         sub.textContent  = t("After the download, speech recognition can run without a network connection.");
       }else if(saved >= 1){
         line.innerHTML = t("About")+" <em>"+fmtMinutes(saved)+"</em> "+t("of typing at 200 characters per minute");
+        // Rows added since this launch, from the host. The list itself also
+        // holds what Keep history restored from earlier sessions, so its
+        // length would say "37 this session" before anything was said.
+        var thisSession = Math.max(0, Number(s.history_this_session) || 0);
         sub.textContent = T.dictations + " " + t("dictations so far") + " · "
-                        + s.history.length + " " + t("this session");
+                        + thisSession + " " + t("this session");
       }else{
         line.textContent = t("VocalCode is ready");
         sub.textContent = t("Works with most supported desktop text fields");
@@ -5429,7 +5441,7 @@
       document.getElementById("updBtn").disabled = false;
       if(community && !s.update_check) document.getElementById("updNote").textContent = t("Community updates are verified before installation.");
       document.querySelectorAll?.("[data-pro-badge]").forEach(node=>{node.style.display=community?"none":"";});
-      if(community) document.getElementById("dataNote").textContent=t("Community models and settings are stored separately from other editions.");
+      if(community) document.getElementById("dataNote").textContent=t("Community models, settings and kept History are stored separately from other editions. Uninstalling does not remove them; Remove… does.");
       var correction=document.getElementById("correctionWindow");
       if(correction){ correction.disabled=!hasPro; correction.title=hasPro?"":t("Automatic correction learning is included in Pro."); }
       renderMeetings();

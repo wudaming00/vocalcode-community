@@ -10,7 +10,7 @@
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -458,6 +458,9 @@ pub struct RuntimeStatus {
     /// memory only. Unix seconds plus text. JavaScript formats the timestamp in the user's
     /// actual local timezone; the host must not label UTC as local HH:MM.
     pub history: Mutex<Vec<HistoryEntry>>,
+    /// Rows this process added to `history`. Home's "this session" figure:
+    /// the list itself also holds rows restored from earlier sessions.
+    pub history_this_session: AtomicUsize,
     /// Lifetime dictation counts, loaded at startup and written after each
     /// utterance. Counts only — never the text; see `Totals` in main.rs.
     pub totals: Mutex<crate::Totals>,
@@ -2068,6 +2071,7 @@ fn config_snapshot_for_page(config: &Config) -> Value {
         "mute_while_dictating": config.mute_while_dictating,
         "mute_available": cfg!(windows),
         "keep_history": config.keep_history.as_str(),
+        "keep_history_available": crate::diagnostics::KEPT_SUPPORTED,
         "writing": config.writing,
     })
 }
@@ -2209,6 +2213,7 @@ fn push_status(
             "dictations": t.dictations, "words": t.words, "chars": t.chars })),
         "insights": status.activity.snapshot(),
         "history": status.history.lock().ok().map(|h| h.clone()).unwrap_or_default(),
+        "history_this_session": status.history_this_session.load(Ordering::Relaxed),
         "download": download
             .map(|(label, pct, done, total)| serde_json::json!({
                 "label": label, "pct": pct, "done": done, "total": total })),
@@ -3883,6 +3888,7 @@ fn init_config_json(
     initial["mute_while_dictating"] = serde_json::json!(c.mute_while_dictating);
     initial["mute_available"] = serde_json::json!(cfg!(windows));
     initial["keep_history"] = serde_json::json!(c.keep_history.as_str());
+    initial["keep_history_available"] = serde_json::json!(crate::diagnostics::KEPT_SUPPORTED);
     initial["writing"] = serde_json::json!(c.writing);
     initial.to_string()
 }
@@ -8576,6 +8582,23 @@ mod config_apply_contract_tests {
         assert_eq!(initial["send"], serde_json::json!([]));
         assert_eq!(initial["noise_filter"], true);
         assert_eq!(initial["keep_history"], "7d");
+        // Offered only where it can be encrypted; the page hides it elsewhere.
+        let available = cfg!(any(windows, target_os = "macos"));
+        assert_eq!(initial["keep_history_available"], available);
+        assert_eq!(
+            config_snapshot_for_page(&Config::default())["keep_history_available"],
+            available
+        );
+    }
+
+    /// Home's "this session" reads the host's count of rows added since
+    /// launch, never the list, which also holds History restored from disk.
+    #[test]
+    fn the_status_payload_counts_this_session_apart_from_the_list() {
+        let source = include_str!("webui.rs");
+        assert!(source.contains(
+            "\"history_this_session\": status.history_this_session.load(Ordering::Relaxed),"
+        ));
     }
 
     #[test]

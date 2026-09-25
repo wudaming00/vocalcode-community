@@ -614,6 +614,28 @@ fn restore_pre_v5_defaults(fields: &mut serde_json::Map<String, serde_json::Valu
 }
 
 impl Config {
+    /// What replaces a settings file too damaged to read, given the
+    /// `config_version` it recorded, if that could still be made out.
+    ///
+    /// Today's defaults — a reset, so first run asks again — except that a
+    /// file from before v5 keeps the three values every install had then (the
+    /// ones `restore_pre_v5_defaults` fills in): the Back button as Enter where
+    /// it was bound, no speech gate, and History kept for the session only. A
+    /// damaged file must not be what opts its owner into writing dictations to
+    /// disk. When the version cannot be told, the file may just as well be a
+    /// v5 one whose kept History an Off here would delete, so it gets today's.
+    pub fn recovery_defaults(written_version: Option<u64>) -> Config {
+        let mut config = Config::default();
+        if written_version.is_some_and(|version| version < NEW_INSTALL_DEFAULTS_VERSION) {
+            config.send = pre_v5_send();
+            config.noise_filter = false;
+            config.keep_history = HistoryRetention::Off;
+        }
+        config
+    }
+}
+
+impl Config {
     /// Reject pathological settings before they reach quadratic overlap checks,
     /// hot input callbacks, platform APIs, or another serialization pass.
     pub fn validate_bounds(&self) -> Result<(), String> {
@@ -1641,6 +1663,24 @@ style = "formal"
         );
         assert!(!written.contains_key("keep_history"));
         assert_eq!(config.keep_history, HistoryRetention::Off);
+    }
+
+    /// A damaged file is replaced by defaults either way; one known to be
+    /// older than v5 keeps the three values it had, everything else resets.
+    #[test]
+    fn damaged_older_files_are_replaced_without_the_new_defaults() {
+        for version in [0, 1, 4] {
+            let c = Config::recovery_defaults(Some(version));
+            assert_old_behaviour(&c, &format!("damaged v{version}"));
+            assert!(!c.onboarded, "still a reset: first run asks again");
+            assert_eq!(c.config_version, CONFIG_VERSION);
+        }
+        for version in [None, Some(5), Some(6)] {
+            let c = Config::recovery_defaults(version);
+            assert!(c.send.is_empty(), "{version:?}");
+            assert!(c.noise_filter, "{version:?}");
+            assert_eq!(c.keep_history, HistoryRetention::Week, "{version:?}");
+        }
     }
 
     #[test]

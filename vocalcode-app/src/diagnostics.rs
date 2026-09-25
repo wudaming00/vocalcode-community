@@ -345,8 +345,14 @@ pub(crate) fn export(base: &Path, destination: &Path) -> Result<usize, String> {
 const KEPT_DIR: &str = "dictation-history";
 const KEPT_SCHEMA: u32 = 1;
 /// Encrypted storage exists only where `protect` has a backend. Elsewhere the
-/// setting behaves as Off rather than failing on every dictation.
-const KEPT_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+/// setting behaves as Off rather than failing on every dictation, and the
+/// page does not offer it.
+pub(crate) const KEPT_SUPPORTED: bool = cfg!(any(windows, target_os = "macos"));
+/// How far past the current clock a kept entry's name may be. One written
+/// while the clock ran ahead would otherwise never reach its age limit and
+/// would stay among the newest [`HistoryRetention::MAX_ENTRIES`] for good,
+/// pushing real new dictations out, so beyond this it counts as expired.
+const KEPT_CLOCK_SLACK_MS: u64 = 5 * 60 * 1000;
 
 #[derive(Serialize, Deserialize)]
 struct Kept {
@@ -375,9 +381,15 @@ fn existing_kept_dir(base: &Path) -> Result<Option<PathBuf>, String> {
     }
 }
 
+/// Whether an entry saved at `saved_ms` is still inside the window that
+/// starts at `cutoff`: not past its age, and not stamped in the future.
+fn kept_in_window(saved_ms: u64, cutoff: u64, now_ms: u64) -> bool {
+    saved_ms >= cutoff && saved_ms <= now_ms.saturating_add(KEPT_CLOCK_SLACK_MS)
+}
+
 /// Delete what `retention` no longer allows: everything when it is Off,
-/// otherwise entries past their age and all but the newest
-/// [`HistoryRetention::MAX_ENTRIES`]. Returns how many were removed.
+/// otherwise entries past their age (or stamped in the future) and all but
+/// the newest [`HistoryRetention::MAX_ENTRIES`]. Returns how many were removed.
 pub(crate) fn prune_kept(
     base: &Path,
     retention: HistoryRetention,
@@ -390,11 +402,14 @@ pub(crate) fn prune_kept(
         .max_age_secs()
         .map(|secs| now_ms.saturating_sub(secs.saturating_mul(1000)));
     let mut removed = 0;
+    let mut kept = 0;
     let mut failed = false;
-    for (index, (saved_ms, path, _)) in files_in(&directory)?.into_iter().enumerate() {
-        let allowed = cutoff
-            .is_some_and(|cutoff| saved_ms >= cutoff && index < HistoryRetention::MAX_ENTRIES);
+    for (saved_ms, path, _) in files_in(&directory)? {
+        let allowed = cutoff.is_some_and(|cutoff| {
+            kept < HistoryRetention::MAX_ENTRIES && kept_in_window(saved_ms, cutoff, now_ms)
+        });
         if allowed {
+            kept += 1;
             continue;
         }
         match std::fs::remove_file(&path) {
@@ -445,8 +460,8 @@ pub(crate) fn recent_kept(
     let cutoff = now_ms.saturating_sub(max_age.saturating_mul(1000));
     Ok(files_in(&directory)?
         .into_iter()
+        .filter(|(saved_ms, _, _)| kept_in_window(*saved_ms, cutoff, now_ms))
         .take(HistoryRetention::MAX_ENTRIES)
-        .filter(|(saved_ms, _, _)| *saved_ms >= cutoff)
         .filter_map(|(_, path, _)| read_kept(&path).ok())
         .collect())
 }
@@ -761,6 +776,34 @@ mod tests {
         let left = files_in(&base.join(KEPT_DIR)).unwrap();
         assert_eq!(left.len(), HistoryRetention::MAX_ENTRIES);
         assert_eq!(left[0].0, now, "the newest are the ones kept");
+        std::fs::remove_dir_all(base).unwrap();
+    }
+
+    /// Entries written while the clock ran ahead neither outlive their period
+    /// nor take the places of real new dictations under the count cap.
+    #[test]
+    fn kept_history_stamped_in_the_future_counts_as_expired() {
+        let base = scratch("future");
+        let now = 100 * DAY_MS;
+        let future: Vec<u64> = (0..HistoryRetention::MAX_ENTRIES as u64)
+            .map(|index| now + DAY_MS + index)
+            .collect();
+        fake_kept(&base, &future);
+        // A clock a little behind the one that wrote an entry is not "ahead".
+        fake_kept(&base, &[now + 60_000, now - 1000, now - 2 * DAY_MS]);
+
+        assert_eq!(
+            prune_kept(&base, HistoryRetention::Week, now).unwrap(),
+            HistoryRetention::MAX_ENTRIES
+        );
+        let left: Vec<u64> = files_in(&base.join(KEPT_DIR))
+            .unwrap()
+            .into_iter()
+            .map(|(saved, _, _)| saved)
+            .collect();
+        assert_eq!(left, [now + 60_000, now - 1000, now - 2 * DAY_MS]);
+        assert!(!kept_in_window(now + DAY_MS, 0, now));
+        assert!(kept_in_window(now + KEPT_CLOCK_SLACK_MS, 0, now));
         std::fs::remove_dir_all(base).unwrap();
     }
 
