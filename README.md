@@ -91,24 +91,28 @@ Dictionary/snippet import is explicit; back up data before any manual migration.
 
 ## Privacy and network access
 
-- Speech recognition and meeting audio processing run on the device after
-  the selected model is downloaded. Recognition audio and transcripts are
-  not uploaded by these pipelines.
-- First-time model and native-runtime downloads use the network. Sources,
-  sizes, and hashes are pinned where supported by the manifest/build system.
-- Community mode does not provision a trial, refresh a paid licence, or open
-  checkout. It checks GitHub Releases for community updates, never the paid
-  release channel; installation verifies size, SHA-256, publisher and edition.
-- External calendar URLs and other explicitly configured integrations have
-  their own network behavior. Do not confuse local ASR with an air-gapped app.
-- The development [rewrite scratchpad](docs/SMART-REWRITE.md) defaults to local
-  Ollama. Optionally choosing Claude Code passes the manually supplied
-  source to that CLI, with fresh consent per preview. Its configured service,
-  account policies, and logging remain separate trust boundaries.
-  Installing a CLI locally does not make its inference local. Codex is
-  detected only, not used for generation.
+Speech recognition and meeting audio processing run on the device after the
+selected model is downloaded. There is no account, telemetry, analytics,
+licence check or checkout. Microphone audio, transcripts, history, your
+dictionary and meeting notes are not uploaded. These are the only network
+connections the app makes:
+
+| When | Connects to | What is sent |
+| --- | --- | --- |
+| A speech model (or its punctuation model) is first needed | `models.vocalcode.app` | Requests for pinned model files. Each file's size and SHA-256 are checked before use. |
+| At startup, every 6 hours, and when you press **Check now** | GitHub Releases of this repository | A request for `latest.json`. An installer is downloaded from GitHub only after you choose **Update**, and its size, SHA-256, publisher and edition are verified before it runs. |
+| Only if you connect **Upcoming calendar meetings** (Beta) | Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) | Your Google sign-in and read-only requests for upcoming event metadata, directly between this device and Google. Audio and notes are never sent. |
+| Only if you use the [rewrite scratchpad](docs/SMART-REWRITE.md) with **Ollama** | `127.0.0.1:11434` on this computer | The text you put in the scratchpad, to your own local Ollama. It does not leave the device. |
+| Only if you choose **Claude Code** in the scratchpad and consent for that request | Whatever service your Claude Code CLI is configured for | The source text of that one request, through the separately installed CLI. Its service, account policies and logging are a separate trust boundary; a locally installed CLI is not local inference. Codex is detected only, not used. |
+| Only when you click a link in **About & help** | `github.com`, in your browser | Nothing from VocalCode; your browser opens the page. |
+
+- **Copy diagnostics** (About & help) puts the version, OS, hardware
+  summary, model, microphone name and the last 200 lines of `vocalcode.log`
+  on your clipboard. Nothing is sent; you decide where to paste it. The log
+  never contains transcripts, and your home-folder path is shortened to `~`.
 - Recording, clipboard history, exports, and optional diagnostic persistence
   can contain sensitive information. Review your OS sync and backup settings.
+  Local speech recognition is not the same as an air-gapped app.
 
 ## Languages and performance
 

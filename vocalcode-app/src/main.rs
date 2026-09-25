@@ -26,6 +26,7 @@ mod paths;
 mod rewrite;
 mod rewrite_cli;
 mod storage;
+mod support;
 #[cfg(test)]
 mod voice_corpus;
 mod webui;
@@ -1538,8 +1539,8 @@ impl LogFileSink {
     fn new(dir: &Path, max_bytes: u64) -> Self {
         let lock = dir.join(".vocalcode-log-write.lock");
         Self {
-            active: dir.join("vocalcode.log"),
-            backup: dir.join("vocalcode.log.1"),
+            active: dir.join(support::LOG_FILE_NAME),
+            backup: dir.join(support::LOG_BACKUP_NAME),
             process_lock: process_log_write_lock(&lock),
             lock,
             max_bytes,
@@ -1605,12 +1606,12 @@ impl std::io::Write for LogTee {
 
 /// Log to a bounded file as well as stderr. Deliberately not a transcript log:
 /// recognised text must never be written here.
-fn init_logging() {
+fn init_logging() -> PathBuf {
     let dir = app_dir();
     if let Err(error) = std::fs::create_dir_all(&dir) {
         eprintln!("could not create log directory {}: {error}", dir.display());
     }
-    let path = dir.join("vocalcode.log");
+    let path = dir.join(support::LOG_FILE_NAME);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .target(env_logger::Target::Pipe(Box::new(LogTee(
             LogFileSink::new(&dir, LOG_MAX_BYTES),
@@ -1621,6 +1622,7 @@ fn init_logging() {
         env!("CARGO_PKG_VERSION"),
         path.display()
     );
+    path
 }
 
 fn now_unix() -> u64 {
@@ -3381,6 +3383,9 @@ mod instance_platform {
     }
 }
 
+/// A GUI launch has no console: a startup error that is only printed or
+/// returned from `main` looks like an app that never opened. Every platform
+/// that ships a GUI therefore shows it in a native dialog.
 fn show_startup_error(message: &str) {
     #[cfg(windows)]
     {
@@ -3405,7 +3410,45 @@ fn show_startup_error(message: &str) {
     }
     #[cfg(not(windows))]
     eprintln!("VocalCode could not start: {message}");
+    // `main` runs on the AppKit main thread, which is where rfd requires a
+    // modal alert to be run when no event loop exists yet (or any longer).
+    #[cfg(target_os = "macos")]
+    let _ = rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Error)
+        .set_title("VocalCode could not start")
+        .set_description(message)
+        .set_buttons(rfd::MessageButtons::Ok)
+        .show();
 }
+
+/// Log a fatal GUI startup error, show it, and hand it back for `main` to
+/// return. `log_file` is named once logging has started, so the dialog tells
+/// the person where the details are.
+fn startup_failure(
+    context: &str,
+    error: impl std::fmt::Display,
+    log_file: Option<&Path>,
+) -> anyhow::Error {
+    let message = startup_failure_message(context, &error.to_string(), log_file);
+    log::error!("{message}");
+    show_startup_error(&message);
+    anyhow::Error::msg(message)
+}
+
+fn startup_failure_message(context: &str, detail: &str, log_file: Option<&Path>) -> String {
+    match log_file {
+        Some(path) => format!("{context}: {detail}\n\nDetails are in {}.", path.display()),
+        None => format!("{context}: {detail}"),
+    }
+}
+
+/// The Settings window is a WebView. On Windows that is the Edge WebView2
+/// Runtime, which a damaged or stripped system can lack even on Windows 11.
+const WINDOW_STARTUP_FAILURE: &str = if cfg!(windows) {
+    "VocalCode could not open its window. If the Microsoft Edge WebView2 Runtime is missing or damaged, install or repair it, then open VocalCode again"
+} else {
+    "VocalCode could not open its window"
+};
 
 struct BackgroundRuntime {
     events: TriggerEventSender,
@@ -5456,6 +5499,9 @@ where
 }
 
 fn main() -> anyhow::Result<()> {
+    // Before anything that can panic. It stays inert (the standard stderr
+    // report only) until logging names the data directory below.
+    support::install_panic_hook();
     let args: Vec<String> = std::env::args().collect();
     // Packaging can validate the real executable and native linkage without
     // opening devices, downloading models, or creating a user-data directory.
@@ -5531,8 +5577,17 @@ fn main() -> anyhow::Result<()> {
     // Protect all writable state (including migration and model installation)
     // from an uninstall/purge in another process. This guard is intentionally
     // acquired before logging and retained through every join below.
-    let data_lifecycle = paths::enter_data_lifecycle()
-        .map_err(|error| anyhow::anyhow!("could not lock VocalCode app data: {error}"))?;
+    let data_lifecycle = match paths::enter_data_lifecycle() {
+        Ok(guard) => guard,
+        Err(error) if is_cli => anyhow::bail!("could not lock VocalCode app data: {error}"),
+        Err(error) => {
+            return Err(startup_failure(
+                "VocalCode could not lock its app data",
+                error,
+                None,
+            ))
+        }
+    };
     // Acquire before opening/rotating the shared log or touching update files.
     // CLI diagnostics do not own hooks and remain safe to run alongside the UI.
     let (show_existing, _instance_guard) = if is_cli {
@@ -5547,13 +5602,21 @@ fn main() -> anyhow::Result<()> {
             }
         }
     };
-    init_logging();
+    let log_file = init_logging();
+    support::enable_crash_records(&app_dir(), !is_cli);
+    let previous_crash = if is_cli {
+        None
+    } else {
+        support::take_crash_notice(&app_dir())
+    };
     // If we are here after a self-update, the bundle the old version ran from is
     // still on disk — it could not delete itself. This is the first moment it
     // can go, and reaching this line is the proof the update took.
     // A diagnostic CLI never proves that a newly installed GUI bundle started
     // successfully and must not clean an updater transaction in its name.
-    if !is_cli && !community::ENABLED {
+    // Every edition: the community updater swaps bundles the same way, and a
+    // leftover `-old.app` or transaction makes the next update refuse to run.
+    if !is_cli {
         webui::clear_update_leftovers();
     }
 
@@ -5616,9 +5679,14 @@ fn main() -> anyhow::Result<()> {
 
     let show_existing = show_existing.expect("GUI launch owns the instance receiver");
 
+    // A newer settings version (after a downgrade) or an unreadable file used
+    // to end the launch with only a log line: no window, no tray, no reason.
     let mut config = load_config().map_err(|error| {
-        log::error!("startup settings: {error}");
-        anyhow::anyhow!(error)
+        startup_failure(
+            "VocalCode could not read its settings",
+            error,
+            Some(&log_file),
+        )
     })?;
     // The OS is the source of truth.  Older installers created a Startup
     // shortcut while Settings managed a Run value, so trusting TOML could show
@@ -5654,6 +5722,10 @@ fn main() -> anyhow::Result<()> {
     if let Some(message) = update_failure {
         *status.update_result.lock().unwrap() = Some((false, message));
     }
+    *status
+        .crash_notice
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = previous_crash;
 
     // Right-click → Services → "Add to VocalCode dictionary", from inside any
     // app. The selection is parked on `status.teach`; the UI loop raises the
@@ -5753,8 +5825,13 @@ fn main() -> anyhow::Result<()> {
         level_tx,
         meeting_asr_rx,
     );
-    let update_maintenance = start_update_maintenance(status.clone())
-        .map_err(|error| anyhow::anyhow!("could not start update maintenance: {error}"))?;
+    let update_maintenance = start_update_maintenance(status.clone()).map_err(|error| {
+        startup_failure(
+            "VocalCode could not start update maintenance",
+            error,
+            Some(&log_file),
+        )
+    })?;
 
     // Permissions can be granted while the app is running, so keep checking and
     // let the banner clear itself rather than making the user guess. Cheap
@@ -5860,7 +5937,15 @@ fn main() -> anyhow::Result<()> {
         webui::purge_user_data_after_shutdown,
         spawn_detached_purge_helper,
     );
-    ui_result?;
+    // Shown only after the engine and hooks are stopped, so the modal dialog
+    // never waits while a global input hook is still installed.
+    if let Err(error) = ui_result {
+        return Err(startup_failure(
+            WINDOW_STARTUP_FAILURE,
+            format!("{error:#}"),
+            Some(&log_file),
+        ));
+    }
     if let Err(error) = cleanup_result {
         show_startup_error(&format!("Could not remove VocalCode data: {error}"));
         return Err(anyhow::anyhow!("could not remove VocalCode data: {error}"));
@@ -6807,6 +6892,90 @@ mod tests {
             .find("webui::purge_user_data_after_shutdown")
             .unwrap();
         assert!(migrate < purge);
+    }
+
+    fn main_function_source() -> &'static str {
+        let source = include_str!("main.rs");
+        let start = source.find("fn main() -> anyhow::Result<()>").unwrap();
+        let end = source.find("\n#[cfg(test)]\nmod tests {").unwrap();
+        &source[start..end]
+    }
+
+    #[test]
+    fn update_leftovers_are_cleared_for_every_gui_edition() {
+        // The community updater swaps macOS bundles exactly like the legacy
+        // one. Gating this cleanup on the edition left `-old.app` and the
+        // transaction file behind, so the next in-app update refused to run.
+        let main = main_function_source();
+        assert_eq!(main.matches("webui::clear_update_leftovers()").count(), 1);
+        let call = main.find("webui::clear_update_leftovers()").unwrap();
+        let guard = &main[main[..call].rfind("if ").unwrap()..call];
+        assert_eq!(guard.trim_end(), "if !is_cli {");
+        assert!(!guard.contains("community") && !guard.contains("ENABLED"));
+        assert!(main.find("init_logging()").unwrap() < call);
+    }
+
+    #[test]
+    fn gui_startup_failures_are_shown_not_only_returned() {
+        // A GUI launch has no console. Unreadable settings (for example a
+        // newer version after a downgrade) and a window that could not be
+        // created used to end the launch with nothing on screen.
+        let main = main_function_source();
+        let after = |needle: &str, len: usize| {
+            let at = main.find(needle).unwrap_or_else(|| panic!("{needle}"));
+            &main[at..(at + len).min(main.len())]
+        };
+        assert!(after("paths::enter_data_lifecycle()", 400).contains("startup_failure("));
+        assert!(after("load_config()", 300).contains("startup_failure("));
+        assert!(after("start_update_maintenance(", 300).contains("startup_failure("));
+        let ui = after("if let Err(error) = ui_result {", 200);
+        assert!(ui.contains("startup_failure(") && ui.contains("WINDOW_STARTUP_FAILURE"));
+        assert!(!main.contains("ui_result?"));
+        // The dialog comes after shutdown, never while a global hook waits.
+        assert!(
+            main.find("background.shutdown(&status)").unwrap()
+                < main.find("if let Err(error) = ui_result {").unwrap()
+        );
+
+        let source = include_str!("main.rs");
+        let helper = &source[source.find("fn startup_failure(").unwrap()..];
+        assert!(helper[..helper.find("\n}\n").unwrap()].contains("show_startup_error(&message)"));
+        let dialog = &source[source.find("fn show_startup_error(").unwrap()
+            ..source.find("fn startup_failure(").unwrap()];
+        assert!(dialog.contains("MessageBoxW"));
+        assert!(dialog.contains("rfd::MessageDialog::new()"));
+    }
+
+    #[test]
+    fn startup_failure_messages_name_the_log_file() {
+        let log = Path::new("data").join("vocalcode.log");
+        assert_eq!(
+            startup_failure_message(
+                "VocalCode could not read its settings",
+                "too new",
+                Some(&log)
+            ),
+            format!(
+                "VocalCode could not read its settings: too new\n\nDetails are in {}.",
+                log.display()
+            )
+        );
+        assert_eq!(startup_failure_message("a", "b", None), "a: b");
+        assert_eq!(WINDOW_STARTUP_FAILURE.contains("WebView2"), cfg!(windows));
+    }
+
+    #[test]
+    fn panic_hook_is_installed_before_any_startup_work_and_armed_after_logging() {
+        let main = main_function_source();
+        let hook = main.find("support::install_panic_hook();").unwrap();
+        assert!(hook < main.find("std::env::args()").unwrap());
+        let logging = main.find("init_logging()").unwrap();
+        let armed = main
+            .find("support::enable_crash_records(&app_dir(), !is_cli)")
+            .unwrap();
+        let notice = main.find("support::take_crash_notice(&app_dir())").unwrap();
+        assert!(logging < armed && armed < notice);
+        assert!(main.contains("= previous_crash;"));
     }
 
     #[test]

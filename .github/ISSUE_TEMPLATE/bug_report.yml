@@ -1,0 +1,81 @@
+name: Bug report
+description: Something in VocalCode Community does not work as expected.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Issues are public.
+        **Never paste private dictation, meeting transcripts, recordings, or credentials here.**
+        If the problem depends on what was said, describe it or use a made-up sentence instead.
+
+        Security vulnerabilities belong in a [private vulnerability report](https://github.com/wudaming00/vocalcode-community/security/advisories/new), not in an issue.
+  - type: input
+    id: version
+    attributes:
+      label: VocalCode version
+      description: Shown in **About & help** (for example v1.4.0).
+      placeholder: v1.4.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (Apple silicon)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: os-version
+    attributes:
+      label: OS version
+      placeholder: Windows 11 24H2 / macOS 15.5
+  - type: input
+    id: model
+    attributes:
+      label: Spoken language and model
+      description: From **Language & model**, for example "Chinese · SenseVoice".
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open …
+        2. Hold the talk shortcut and say a made-up sentence …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >-
+        In **About & help**, press **Copy diagnostics** and paste the result here.
+        It contains the version, system, model, microphone name and recent log lines,
+        never transcripts. Read it before posting.
+      render: text
+  - type: markdown
+    attributes:
+      value: |
+        **Please attach `vocalcode.log`:** in **About & help**, press **Open log folder**,
+        then drag `vocalcode.log` (and `vocalcode.log.1`, if it exists) into this issue.
+        The log is not a transcript log, but read it before attaching.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: This report contains no private dictation, meeting transcripts, recordings, or credentials.
+          required: true

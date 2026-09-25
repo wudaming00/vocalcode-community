@@ -57,6 +57,9 @@ fn main() -> anyhow::Result<()> {
         (700., 480., "meetings", true),
         (540., 360., "meetings", true),
         (900., 600., "dictionary", false),
+        (900., 600., "about", false),
+        (700., 480., "about", false),
+        (540., 360., "about", false),
     ];
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let started = Instant::now();
@@ -75,7 +78,7 @@ fn main() -> anyhow::Result<()> {
             failed|=before!=unsafe{GetForegroundWindow()}||window.is_visible()||value["horizontal_overflow"]!=false
                 ||value["nested_overflow"].as_array().is_none_or(|v|!v.is_empty())
                 ||value["clipped_controls"].as_array().is_none_or(|v|!v.is_empty())||value["language"]!=language
-                ||value["stop_reachable"]!=true;
+                ||value["stop_reachable"]!=true||value["commerce_ui"]!=false||value["crash_notice_shown"]!=true;
             count+=1;
         }
         if !awaiting&&count<cases.len()&&Instant::now()>=next{
@@ -85,8 +88,10 @@ fn main() -> anyhow::Result<()> {
                 "talk":["mouse_x2","key_right_ctrl"],"send":[],"teach":[],"language":"zh","model":"sensevoice","talk_mode":"hold",
                 "live_caption":false,"noise_filter":true,"overlay_style":"classic","correction_window_ms":4000,"devices":[],"dict":[],
                 "dict_revision":"fixture","desktop_control":true,"desktop_control_edge":"bottom","desktop_control_available":true});
-            let status=json!({"ready":true,"pro":true,"onboarded":true,"permissions_ok":true,"listening":false,"meeting_active":false,
-                "meeting_transcribing":false,"model":"QA simulation","license":"Community","license_kind":"community",
+            // No plan or licence fields: the page has no commerce UI to feed.
+            // A synthetic crash notice exercises the banner at every size.
+            let status=json!({"ready":true,"onboarded":true,"permissions_ok":true,"listening":false,"meeting_active":false,
+                "meeting_transcribing":false,"model":"QA simulation","crash_notice":{"at":1758600000,"version":"QA simulation"},
                 "history":[{"at":1758600000,"text":"Synthetic QA: do not deploy Collie yet. Keep the budget at 1200 USD.",
                     "recognition":"Um, synthetic QA: do not deploy Collie yet. Keep the budget at 1200 USD.","filler_removed":1}],
                 "totals":{"dictations":0,"words":0,"chars":0}});
@@ -129,7 +134,9 @@ fn main() -> anyhow::Result<()> {
                     stopReachable=stop.height>0&&stop.top>=view.top-2&&stop.bottom<=view.bottom+2;
                     content.scrollTop=0;
                 }}
-                return JSON.stringify({{ready:true,panel:panel.dataset.panel,language:document.documentElement.lang,
+                const commerce=!!document.querySelector('#planBadge,#licBuy,[data-pro-badge],[data-panel="license"]');
+                const crashShown=!document.getElementById('crashNotice').hidden;
+                return JSON.stringify({{ready:true,panel:panel.dataset.panel,language:document.documentElement.lang,commerce_ui:commerce,crash_notice_shown:crashShown,
                     viewport:[visualViewport.width,visualViewport.height],dpr:devicePixelRatio,
                     horizontal_overflow:content.scrollWidth>content.clientWidth+2,nested_overflow:nested,clipped_controls:clipped,stop_reachable:stopReachable}});
             }})()"#);
