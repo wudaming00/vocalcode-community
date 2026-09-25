@@ -18,10 +18,12 @@ Exit status 0 only when every release gate holds on every route:
                  clips (cases with English `terms`) are reported beside it, not
                  in it: whether a recogniser hears "npm" in Chinese speech is a
                  model limit, and our part of those clips is gated by G3
-  G5 no-speech   fan hum, keyboard clicks, babble, pink noise and room tone
-                 type nothing and press nothing, with the speech gate on AND
-                 off (the shipped default), on every route; every no-speech
-                 case must have been replayed in both gate states
+  G5 no-speech   fan hum, keyboard clicks, pink noise and room tone type
+                 nothing and press nothing with the speech gate on (the
+                 default since 1.4.1), on every route; every no-speech case
+                 must have been replayed in both gate states. Gate-off
+                 replays and babble (voices the speech detector rightly calls
+                 speech) are reported beside the gate, not in it
   G6 long-form   30/60/90 s dictations with no pause the app can cut at (and
                  with a -46 dBFS pink-noise floor) come back whole: non-empty,
                  WER/CER against the joined script within the case's bound,
@@ -270,8 +272,11 @@ def score(rows: list[dict], manifest: dict) -> dict:
                     problems = check(expect, row, language)
                     if problems:
                         silent = False
+                        # Gated: the shipped default on non-speech noise.
+                        blocking = gate == "on" and case.get("noise", {}).get("kind") != "babble"
                         no_speech_failures.append({"route": route, "case": case["id"], "pass": row["pass"],
                                                    "speech_gate": gate, "decision": row.get("gate"),
+                                                   "blocking": blocking,
                                                    "problems": problems, "heard": row["heard"],
                                                    "typed": row["typed"], "path": path})
                 stats["no_speech"][gate][0] += silent
@@ -374,7 +379,8 @@ def score(rows: list[dict], manifest: dict) -> dict:
         # Missing evidence fails a gate: a case nobody replayed did not pass.
         for case_id in sorted(no_speech_ids - stats["no_speech_cases"]):
             no_speech_failures.append({"route": route, "case": case_id, "problem": "not replayed"})
-        gates[f"G5 no-speech {route}"] = not any(f["route"] == route for f in no_speech_failures)
+        gates[f"G5 no-speech {route}"] = not any(
+            f["route"] == route and f.get("blocking", True) for f in no_speech_failures)
         long_ids = {c["id"] for c in cases.values() if c["feature"] == "long_form" and c["language"] == language}
         for case_id in sorted(long_ids - stats["long_form_cases"]):
             long_form_failures.append({"route": route, "case": case_id, "problems": ["not replayed"]})

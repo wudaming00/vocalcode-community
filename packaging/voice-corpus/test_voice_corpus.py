@@ -43,9 +43,9 @@ def row(route, path, case, pass_, typed, heard=None, gate="on", provider="edge",
             "gate": "rejected" if gate == "on" else "off", "elapsed_ms": 1000, "asr_chunks": 1, "audio_seconds": 30.0}
 
 
-def no_speech_rows(route, case, typed_off=""):
+def no_speech_rows(route, case, typed_off="", typed_on=""):
     path = f"audio/_no-speech/{case}.wav"
-    return [row(route, path, case, "all_on", ""), row(route, path, case, "baseline", ""),
+    return [row(route, path, case, "all_on", typed_on), row(route, path, case, "baseline", typed_on),
             row(route, path, case, "all_on+gate-off", typed_off, gate="off"),
             row(route, path, case, "baseline+gate-off", typed_off, gate="off")]
 
@@ -98,18 +98,37 @@ class Gates(unittest.TestCase):
     def gates(self, rows):
         return score.score(rows, MANIFEST)
 
-    def test_no_speech_must_be_silent_in_both_gate_states(self):
+    def test_no_speech_must_be_silent_with_the_default_gate(self):
         route = "en:sensevoice"
         report = self.gates(no_speech_rows(route, "ns-fan") + no_speech_rows(route, "ns-keys") + long_rows(route))
         self.assertTrue(report["gates"][f"G5 no-speech {route}"])
         self.assertTrue(report["gates"][f"G6 long-form {route}"])
         self.assertEqual(report["routes"][route]["no_speech"]["silent_by_gate"], {"gate off": "2/2 (100%)", "gate on": "2/2 (100%)"})
 
+        # Gate off (a user's opt-out since 1.4.1): reported, not gated.
         report = self.gates(no_speech_rows(route, "ns-fan") + no_speech_rows(route, "ns-keys", typed_off="Yeah.") + long_rows(route))
-        self.assertFalse(report["gates"][f"G5 no-speech {route}"])
+        self.assertTrue(report["gates"][f"G5 no-speech {route}"])
         failure = report["no_speech_failures"][0]
-        self.assertEqual((failure["case"], failure["speech_gate"], failure["typed"]), ("ns-keys", "off", "Yeah."))
+        self.assertEqual((failure["case"], failure["speech_gate"], failure["typed"], failure["blocking"]),
+                         ("ns-keys", "off", "Yeah.", False))
         self.assertEqual(report["routes"][route]["no_speech"]["silent_by_gate"]["gate off"], "1/2 (50%)")
+
+        # Gate on, the default: anything typed for noise fails the gate.
+        report = self.gates(no_speech_rows(route, "ns-fan") + no_speech_rows(route, "ns-keys", typed_on="Yeah.") + long_rows(route))
+        self.assertFalse(report["gates"][f"G5 no-speech {route}"])
+        self.assertTrue(all(f["blocking"] for f in report["no_speech_failures"]))
+
+    def test_babble_the_speech_gate_passes_is_reported_not_gated(self):
+        route = "en:sensevoice"
+        manifest = json.loads(json.dumps(MANIFEST))
+        manifest["cases"].append({"id": "ns-babble", "language": "any", "feature": "no_speech",
+                                  "noise": {"kind": "babble", "seconds": 3.0, "rms_dbfs": -40, "seed": 3},
+                                  "expect": {"equals": "", "send": False}})
+        rows = (no_speech_rows(route, "ns-fan") + no_speech_rows(route, "ns-keys")
+                + no_speech_rows(route, "ns-babble", typed_on="Because also.") + long_rows(route))
+        report = score.score(rows, manifest)
+        self.assertTrue(report["gates"][f"G5 no-speech {route}"])
+        self.assertEqual({(f["case"], f["blocking"]) for f in report["no_speech_failures"]}, {("ns-babble", False)})
 
     def test_missing_gate_state_or_case_is_not_a_pass(self):
         route = "en:sensevoice"
