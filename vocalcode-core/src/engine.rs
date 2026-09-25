@@ -68,6 +68,8 @@ pub struct Engine {
     /// uninterrupted speech would be copied and rescanned from zero every tick.
     scanned_samples: usize,
     scan_rate: u32,
+    /// The room's noise level, learned from this utterance's own scans.
+    noise_floor: crate::segmentation::NoiseFloor,
     /// Text appended so far this utterance (for the return value + spacing).
     utterance: String,
     /// A transcript that ASR completed but the injector could not deliver.
@@ -220,6 +222,7 @@ impl Engine {
             predecode_disabled: false,
             scanned_samples: 0,
             scan_rate: 0,
+            noise_floor: Default::default(),
             utterance: String::new(),
             recoverable_text: None,
             rules,
@@ -530,6 +533,7 @@ impl Engine {
         self.predecode_disabled = false;
         self.scanned_samples = 0;
         self.scan_rate = 0;
+        self.noise_floor = Default::default();
         self.utterance.clear();
         true
     }
@@ -851,6 +855,7 @@ impl Engine {
                 self.predecode_disabled = false;
                 self.scanned_samples = 0;
                 self.scan_rate = 0;
+                self.noise_floor = Default::default();
                 self.utterance.clear();
                 self.recoverable_text = None;
                 // Consumed by any start, so a stale tap never latches a later,
@@ -1020,6 +1025,13 @@ impl Engine {
             }
     }
 
+    /// After a pause was already prepared, the rest of a noisy room's pause is
+    /// not decoded on its own: it held no words, only material for a
+    /// recognizer to hallucinate from.
+    fn room_only_tail(&self, tail: &[f32], rate: u32) -> bool {
+        self.seg_start > 0 && crate::segmentation::only_room(tail, rate, &self.noise_floor)
+    }
+
     /// Stop capturing, transcribe, clean, insert. Reached by releasing the key
     /// in hold mode, and by the second press in latched mode.
     fn finish(&mut self) -> Result<Outcome> {
@@ -1062,7 +1074,10 @@ impl Engine {
                 // still part of a valid utterance. A whole utterance shorter
                 // than the configured minimum, however, remains a tap.
                 let utterance_long_enough = self.seg_start > 0 || rec.samples.len() >= min_samples;
-                if !tail.is_empty() && utterance_long_enough {
+                if !tail.is_empty()
+                    && utterance_long_enough
+                    && !self.room_only_tail(tail, rec.sample_rate)
+                {
                     let text = self.decode_dictation(tail, rec.sample_rate)?;
                     self.append_segment(text.trim())?;
                 }
@@ -1072,7 +1087,10 @@ impl Engine {
                 // tail. Whole-utterance cleanup/dictionary/snippets stay here.
                 let mut raw = self.prepared_text.clone();
                 let tail = &rec.samples[self.seg_start.min(rec.samples.len())..];
-                if !tail.is_empty() && rec.samples.len() >= min_samples {
+                if !tail.is_empty()
+                    && rec.samples.len() >= min_samples
+                    && !self.room_only_tail(tail, rec.sample_rate)
+                {
                     let text = self.decode_dictation(tail, rec.sample_rate)?;
                     push_phrase(&mut raw, text.trim());
                 }
@@ -1201,6 +1219,7 @@ impl Engine {
         self.predecode_disabled = false;
         self.scanned_samples = 0;
         self.scan_rate = 0;
+        self.noise_floor = Default::default();
         self.utterance.clear();
         self.injector.end_utterance();
     }
@@ -1270,9 +1289,12 @@ impl Engine {
             .unwrap_or(if self.live { 300 } else { 8_000 });
         let minimum_end = self.seg_start + rec.sample_rate as usize * minimum_ms as usize / 1000;
         let remaining_ms = minimum_end.saturating_sub(scan_start) * 1000 / rec.sample_rate as usize;
-        let Some(end) =
-            crate::segmentation::pause_boundary(&rec.samples, rec.sample_rate, remaining_ms as u32)
-        else {
+        let Some(end) = crate::segmentation::pause_boundary(
+            &rec.samples,
+            rec.sample_rate,
+            remaining_ms as u32,
+            &mut self.noise_floor,
+        ) else {
             return Ok(());
         };
         let end = scan_start + end - self.seg_start;

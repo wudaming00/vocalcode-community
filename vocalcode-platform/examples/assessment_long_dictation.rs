@@ -4,7 +4,7 @@
 //! 400 ms silence. Measures decode work, NOT live end-to-end product latency.
 use std::{env, fs, path::Path, time::Instant};
 use vocalcode_core::{
-    segmentation::{join_separator, pause_boundary},
+    segmentation::{join_separator, pause_boundary, NoiseFloor},
     Asr,
 };
 use vocalcode_platform::SherpaSenseVoiceAsr;
@@ -116,6 +116,7 @@ fn main() -> anyhow::Result<()> {
         let mut output = String::new();
         let mut segments = Vec::new();
         let mut scanned: usize = 0;
+        let mut floor = NoiseFloor::default();
         // Supply samples at the desktop's 80 ms poll cadence. This is a
         // deterministic boundary replay, not wall-clock capture scheduling.
         for available in (1280..audio.len()).step_by(1280) {
@@ -123,9 +124,12 @@ fn main() -> anyhow::Result<()> {
             let minimum_end = cursor + min_ms as usize * 16;
             let remaining_ms = minimum_end.saturating_sub(scan_start) / 16;
             scanned = available;
-            if let Some(end) =
-                pause_boundary(&audio[scan_start..available], 16000, remaining_ms as u32)
-            {
+            if let Some(end) = pause_boundary(
+                &audio[scan_start..available],
+                16000,
+                remaining_ms as u32,
+                &mut floor,
+            ) {
                 let end = scan_start + end - cursor;
                 let begin = Instant::now();
                 let text = asr.transcribe(&audio[cursor..cursor + end], 16000)?;
