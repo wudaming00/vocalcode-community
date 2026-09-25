@@ -416,11 +416,18 @@ pub struct RuntimeStatus {
     pub settings_apply_pending: AtomicBool,
     /// `(request_id, ok, detail)` for History -> Copy.
     pub clipboard_result: Mutex<Option<(String, bool, String)>>,
-    /// A one-shot operational error from the audio/input/ASR loop.  Logging is
-    /// not enough for failures such as a wireless microphone disappearing: the
-    /// person holding the key needs to know why no text arrived and that the
-    /// app has returned to idle instead of remaining silently wedged.
-    pub runtime_error: Mutex<Option<String>>,
+    /// Operational errors from the audio/input/ASR loop and workers.  Logging
+    /// is not enough for failures such as a wireless microphone disappearing:
+    /// the person holding the key needs to know why no text arrived and that
+    /// the app has returned to idle instead of remaining silently wedged.
+    pub runtime_errors: RuntimeErrors,
+    /// Short one-line notices for the passive indicator. See `notice.rs`.
+    pub notices: crate::notice::Board,
+    /// The selected microphone could not be opened or stopped responding.
+    /// Published by the engine for the tray and the not-ready notice; the
+    /// default (false) means "no failure seen", so startup never flashes an
+    /// error before the engine has opened the device.
+    pub microphone_failed: AtomicBool,
     /// Generation, pending desired snapshot, and active model-preparation
     /// cancellation token. The FIFO save worker holds this mutex across
     /// persistence and publication; the engine holds it across its final
@@ -499,6 +506,41 @@ impl RuntimeStatus {
             meetings,
             ..Self::default()
         }
+    }
+}
+
+/// Errors waiting for the settings page, oldest first.
+///
+/// This was a single slot, drained once per UI tick. Two failures inside one
+/// tick — a microphone vanishing and the recording that then could not finish
+/// — kept only the second, and the first was usually the cause. A short queue
+/// keeps both; the page shows them in turn.
+#[derive(Default)]
+pub struct RuntimeErrors(Mutex<VecDeque<String>>);
+
+impl RuntimeErrors {
+    /// Room for a burst. A loop repeating one failure never fills it, because
+    /// a message already waiting is not queued twice.
+    pub const CAPACITY: usize = 8;
+
+    pub fn push(&self, message: String) {
+        let mut queue = self.0.lock().unwrap_or_else(|p| p.into_inner());
+        if queue.contains(&message) {
+            return;
+        }
+        if queue.len() == Self::CAPACITY {
+            // Keep the newest: they describe the state the user is in now.
+            queue.pop_front();
+        }
+        queue.push_back(message);
+    }
+
+    pub fn drain(&self) -> Vec<String> {
+        self.0
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .drain(..)
+            .collect()
     }
 }
 
@@ -1460,6 +1502,13 @@ pub fn run(
     #[cfg(windows)]
     let mut desktop_control_attempted = false;
     let demo_overlay = std::env::var("VOCALCODE_OVERLAY_DEMO").as_deref() == Ok("1");
+    // Notices and the tray tooltip follow the interface language. The last
+    // value read is kept, so a contended config lock never blanks the copy.
+    let mut ui_lang = String::new();
+    let mut notice_lang = crate::notice::LangCache::default();
+    let mut not_ready_presses =
+        crate::notice::PressWatch::new(vocalcode_platform::hotkey::talk_presses_while_not_ready());
+    let mut last_tooltip = String::new();
     let started = Instant::now();
     // Last status handed to the page; see `push_status`.
     let mut last_status = String::new();
@@ -1725,8 +1774,7 @@ pub fn run(
                     }))
                     .map_err(|error| {
                         log::warn!("desktop controls unavailable: {error}");
-                        *status.runtime_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(
-                            "Desktop controls could not open. Your shortcut and recording indicator are still available. Restart VocalCode to retry.".into());
+                        status.runtime_errors.push("Desktop controls could not open. Your shortcut and recording indicator are still available. Restart VocalCode to retry.".to_string());
                     }).ok();
             }
             if let Some(bar) = &mut desktop_control {
@@ -1738,6 +1786,36 @@ pub fn run(
                 }, &status.dictation_control);
                 if let (Some(deadline), ControlFlow::WaitUntil(existing)) = (bar.next_wake(Instant::now()), &mut *control_flow) {
                     *existing = (*existing).min(deadline);
+                }
+            }
+        }
+
+        if let Ok(config) = tick_cfg.try_lock() {
+            if config.ui_lang != ui_lang {
+                ui_lang.clone_from(&config.ui_lang);
+            }
+        }
+        let lang = notice_lang.get(&ui_lang);
+        let readiness = notice_readiness(&status, overlay_state.snapshot().phase);
+        let mut notice = status.notices.take();
+        // A talk press the input hook passed through because the engine was
+        // not ready. The key still reached the foreground app as before; this
+        // only says why nothing started. It is the newest thing the person
+        // did, so it replaces anything else waiting.
+        if not_ready_presses.saw_press(vocalcode_platform::hotkey::talk_presses_while_not_ready()) {
+            if let Some(reason) = crate::notice::not_ready_reason(&readiness) {
+                notice = Some(crate::notice::Notice::NotReady(reason));
+            }
+        }
+        if !readiness.shutdown {
+            if let Some(tray) = &tray {
+                let tooltip =
+                    crate::notice::tray_tooltip(crate::notice::tray_state(&readiness), lang);
+                if tooltip != last_tooltip {
+                    if let Err(error) = tray.set_tooltip(Some(&tooltip)) {
+                        log::warn!("tray tooltip update failed: {error}");
+                    }
+                    last_tooltip = tooltip;
                 }
             }
         }
@@ -1766,7 +1844,7 @@ pub fn run(
             } else {
                 audio_level.get()
             };
-            o.tick(&overlay_state, level);
+            o.tick(&overlay_state, level, notice.map(|notice| notice.text(lang)));
         }
 
         let reminder_now = Instant::now();
@@ -1800,10 +1878,7 @@ pub fn run(
                                     &calendar_base,
                                     &worker_status,
                                 ) {
-                                    *worker_status
-                                        .runtime_error
-                                        .lock()
-                                        .unwrap_or_else(|p| p.into_inner()) = Some(error);
+                                    worker_status.runtime_errors.push(error);
                                 }
                             },
                         );
@@ -2326,9 +2401,35 @@ fn push_status(
             payload["id"], payload["ok"], payload["msg"]
         ));
     }
-    if let Some(msg) = status.runtime_error.lock().ok().and_then(|mut e| e.take()) {
+    for msg in status.runtime_errors.drain() {
         let payload = serde_json::json!(msg);
         let _ = webview.evaluate_script(&format!("window.vocalcodeRuntimeError({payload})"));
+    }
+}
+
+/// What the UI thread can see of readiness, for the not-ready notice and the
+/// tray tooltip. Read fresh each tick; none of it waits on the engine.
+fn notice_readiness(
+    status: &RuntimeStatus,
+    phase: crate::overlay::Phase,
+) -> crate::notice::Readiness {
+    crate::notice::Readiness {
+        shutdown: status.shutdown.load(Ordering::Acquire),
+        onboarded: status.onboarded.load(Ordering::Acquire),
+        permissions_ok: status.permissions_ok.load(Ordering::Acquire),
+        download: status
+            .model_download
+            .lock()
+            .ok()
+            .and_then(|download| download.as_ref().map(|(_, percent, _, _)| *percent)),
+        model_available: status.model_available.load(Ordering::Acquire),
+        model_failed: status
+            .model_label
+            .lock()
+            .is_ok_and(|label| label.starts_with(crate::MODEL_ERROR_LABEL)),
+        microphone_failed: status.microphone_failed.load(Ordering::Acquire),
+        ready: status.ready.load(Ordering::Acquire),
+        phase,
     }
 }
 
@@ -2431,10 +2532,7 @@ fn handle_ipc(
             "ipc: rejected oversized message ({} bytes; limit {MAX_SETTINGS_IPC_BYTES})",
             body.len()
         );
-        *status
-            .runtime_error
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(
+        status.runtime_errors.push(
             "A Settings request was too large and was refused. Reduce the entry and try again."
                 .to_string(),
         );
@@ -2903,8 +3001,9 @@ fn handle_ipc(
                 .map(str::trim)
                 .unwrap_or_default();
             if requested_title.len() > 512 {
-                *status.runtime_error.lock().unwrap() =
-                    Some("Meeting title is too long.".to_string());
+                status
+                    .runtime_errors
+                    .push("Meeting title is too long.".to_string());
                 return;
             }
             let title = if requested_title.is_empty() {
@@ -2923,20 +3022,20 @@ fn handle_ipc(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             if !status.pro_gate.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() = Some(
-                    "Meetings are included in Pro. Start the Pro trial or activate a licence to record one."
-                        .to_string(),
-                );
+                status.runtime_errors.push("Meetings are included in Pro. Start the Pro trial or activate a licence to record one."
+                        .to_string());
                 return;
             }
             if !status.model_available.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() =
-                    Some("Wait for the local speech model to finish loading.".to_string());
+                status
+                    .runtime_errors
+                    .push("Wait for the local speech model to finish loading.".to_string());
                 return;
             }
             if status.listening.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() =
-                    Some("Finish the current dictation before starting a meeting.".to_string());
+                status
+                    .runtime_errors
+                    .push("Finish the current dictation before starting a meeting.".to_string());
                 return;
             }
             let config = cfg.lock().unwrap_or_else(|value| value.into_inner());
@@ -2952,14 +3051,14 @@ fn handle_ipc(
                     .filter(|value| matches!(value, 0 | 5 | 10 | 15))
                     .unwrap_or(5),
             ) {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             } else {
                 status.ready.store(false, Ordering::Release);
             }
         }
         Some("meeting_stop") => {
             if let Err(error) = status.meetings.stop() {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_auto_end_continue") => {
@@ -2971,20 +3070,20 @@ fn handle_ipc(
         }
         Some("meeting_import") => {
             if !status.pro_gate.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() = Some(
-                    "Meeting import is included in Pro. Start the Pro trial or activate a licence to use it."
-                        .to_string(),
-                );
+                status.runtime_errors.push("Meeting import is included in Pro. Start the Pro trial or activate a licence to use it."
+                        .to_string());
                 return;
             }
             if !status.model_available.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() =
-                    Some("Wait for the local speech model to finish loading.".to_string());
+                status
+                    .runtime_errors
+                    .push("Wait for the local speech model to finish loading.".to_string());
                 return;
             }
             if status.listening.load(Ordering::Acquire) {
-                *status.runtime_error.lock().unwrap() =
-                    Some("Finish the current dictation before importing a meeting.".to_string());
+                status
+                    .runtime_errors
+                    .push("Finish the current dictation before importing a meeting.".to_string());
                 return;
             }
             let Some(path) = rfd::FileDialog::new()
@@ -3021,7 +3120,7 @@ fn handle_ipc(
                 .language
                 .clone();
             if let Err(error) = status.meetings.import(path, title, language) {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             } else {
                 status.ready.store(false, Ordering::Release);
             }
@@ -3036,7 +3135,7 @@ fn handle_ipc(
                 })
                 .and_then(|id| status.meetings.select(id));
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_search") => {
@@ -3048,7 +3147,7 @@ fn handle_ipc(
                 .take(256)
                 .collect();
             if let Err(error) = status.meetings.search(query) {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_rename") => {
@@ -3067,7 +3166,7 @@ fn handle_ipc(
                 status.meetings.rename(id, title)
             })();
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_rename_speaker") => {
@@ -3092,7 +3191,7 @@ fn handle_ipc(
                 status.meetings.rename_speaker(id, speaker_id, label)
             })();
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_bookmark") => {
@@ -3112,7 +3211,7 @@ fn handle_ipc(
                 status.meetings.bookmark(id, at_ms, label)
             })();
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_delete") => {
@@ -3122,7 +3221,7 @@ fn handle_ipc(
             .map_err(|error| error.to_string())
             .and_then(|id| status.meetings.delete(id));
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("meeting_export") => {
@@ -3148,7 +3247,7 @@ fn handle_ipc(
                 status.meetings.export(id, kind, path)
             })();
             if let Err(error) = result {
-                *status.runtime_error.lock().unwrap() = Some(error);
+                status.runtime_errors.push(error);
             }
         }
         Some("copy") => {
@@ -9639,6 +9738,69 @@ mod updater_contract_tests {
                 "{path}"
             );
         }
+    }
+
+    /// Two failures inside one UI tick used to share one slot, and the first —
+    /// usually the cause — was overwritten before the page ever saw it.
+    #[test]
+    fn runtime_errors_queue_in_order_instead_of_overwriting() {
+        let errors = RuntimeErrors::default();
+        errors.push("Microphone stopped responding: device removed".into());
+        errors.push("Could not finish the recording".into());
+        assert_eq!(
+            errors.drain(),
+            [
+                "Microphone stopped responding: device removed",
+                "Could not finish the recording"
+            ]
+        );
+        assert!(errors.drain().is_empty(), "delivery is once");
+    }
+
+    #[test]
+    fn runtime_errors_are_bounded_newest_kept_and_never_duplicated() {
+        let errors = RuntimeErrors::default();
+        for _ in 0..50 {
+            errors.push("Diagnostic event queue full".into());
+        }
+        assert_eq!(errors.drain(), ["Diagnostic event queue full"]);
+        for i in 0..20 {
+            errors.push(format!("error {i}"));
+        }
+        let pending = errors.drain();
+        assert_eq!(pending.len(), RuntimeErrors::CAPACITY);
+        assert_eq!(pending.first().map(String::as_str), Some("error 12"));
+        assert_eq!(pending.last().map(String::as_str), Some("error 19"));
+    }
+
+    #[test]
+    fn notice_readiness_reads_the_model_error_label_and_download() {
+        use crate::overlay::Phase;
+        let status = RuntimeStatus::default();
+        status.onboarded.store(true, Ordering::Release);
+        status.permissions_ok.store(true, Ordering::Release);
+        *status.model_label.lock().unwrap() = format!("{}offline", crate::MODEL_ERROR_LABEL);
+        let readiness = notice_readiness(&status, Phase::Idle);
+        assert!(readiness.model_failed && !readiness.model_available);
+        assert_eq!(
+            crate::notice::tray_state(&readiness),
+            crate::notice::TrayState::Error(crate::notice::TrayError::Model)
+        );
+        *status.model_label.lock().unwrap() = "Preparing…".into();
+        *status.model_download.lock().unwrap() = Some(("Parakeet".into(), 37.9, 190.0, 500.0));
+        let readiness = notice_readiness(&status, Phase::Idle);
+        assert!(!readiness.model_failed);
+        assert_eq!(
+            crate::notice::not_ready_reason(&readiness),
+            Some(crate::notice::NotReady::Downloading(37))
+        );
+        status.microphone_failed.store(true, Ordering::Release);
+        *status.model_download.lock().unwrap() = None;
+        status.model_available.store(true, Ordering::Release);
+        assert_eq!(
+            crate::notice::not_ready_reason(&notice_readiness(&status, Phase::Idle)),
+            Some(crate::notice::NotReady::Microphone)
+        );
     }
 
     #[test]

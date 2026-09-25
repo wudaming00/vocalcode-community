@@ -22,22 +22,34 @@
 //!
 //! It also has to float above the menu bar and appear on every Space including
 //! over full-screen apps, since dictation happens wherever the user already is.
+//!
+//! # Notices
+//!
+//! Between utterances the same capsule can carry one short line — "No text
+//! field — copied to clipboard", "Model downloading — 45%" — for about three
+//! seconds. Errors otherwise reached only the settings window, which is closed
+//! while someone dictates. The notice is a display phase layered here, not an
+//! engine phase in [`OverlayState`]: that phase also gates the desktop
+//! controls, and a notice there would refuse a Start for three seconds.
 
 #[cfg(windows)]
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tao::event_loop::EventLoopWindowTarget;
 use tao::window::{Window, WindowBuilder};
 use wry::WebView;
 
 /// Window size in logical pixels. On macOS the window is transparent and larger
-/// than the capsule, leaving room for the drop shadow. On Windows WebView2 does
-/// not composite a transparent window (it paints white), so there the window is
-/// sized to *hug* an opaque dark capsule instead — see the `solid` mode below.
+/// than the capsule, leaving room for the drop shadow — and wide enough for the
+/// longest notice, since the page centres a capsule sized to its content. On
+/// Windows WebView2 does not composite a transparent window (it paints white),
+/// so there the window is sized to *hug* an opaque dark capsule instead — see
+/// the `solid` mode below — and is resized for each notice.
 #[cfg(not(windows))]
-const WINDOW_W: f64 = 260.0;
+const WINDOW_W: f64 = 480.0;
 #[cfg(not(windows))]
 const WINDOW_H: f64 = 64.0;
 #[cfg(windows)]
@@ -50,6 +62,19 @@ const MINI_WINDOW_W: f64 = 64.0;
 const MINI_WINDOW_H: f64 = 22.0;
 /// Gap between the capsule and the bottom of the work area.
 const BOTTOM_MARGIN: f64 = 8.0;
+/// How long a notice stays up: one short line, read comfortably once.
+const NOTICE_DURATION: Duration = Duration::from_secs(3);
+/// Notice capsule bounds on Windows, where the window hugs the capsule.
+#[cfg(any(windows, test))]
+const NOTICE_MIN_W: f64 = 140.0;
+#[cfg(any(windows, test))]
+const NOTICE_MAX_W: f64 = 460.0;
+/// Horizontal padding, the mark and its gap, and the border.
+#[cfg(any(windows, test))]
+const NOTICE_CHROME_W: f64 = 2.0 * 15.0 + 18.0 + 8.0 + 2.0;
+/// Headroom on top of the estimated text width; see [`notice_width`].
+#[cfg(any(windows, test))]
+const NOTICE_WIDTH_SLACK: f64 = 8.0;
 
 /// What the indicator is currently showing.
 ///
@@ -170,6 +195,127 @@ impl MeterUpdates {
     }
 }
 
+/// The notice on screen, if any, and until when.
+///
+/// A notice explains what just happened, so it yields to what is happening
+/// now: a new recording clears it, and one arriving mid-recording is dropped,
+/// so an old "didn't hear anything" can never reappear after the next
+/// utterance. It does cover the transcribing spinner — "still working, try
+/// again" is the more urgent thing to tell someone whose press was just
+/// ignored — and the learning mark, both of which return when it ends.
+#[derive(Default)]
+struct NoticeSlot(Option<(String, Instant)>);
+
+impl NoticeSlot {
+    fn update(&mut self, phase: Phase, incoming: Option<String>, now: Instant) -> Option<&str> {
+        if phase == Phase::Recording {
+            self.0 = None;
+            return None;
+        }
+        if let Some(text) = incoming.filter(|text| !text.trim().is_empty()) {
+            self.0 = Some((text, now + NOTICE_DURATION));
+        }
+        if self.0.as_ref().is_some_and(|(_, until)| now >= *until) {
+            self.0 = None;
+        }
+        self.0.as_ref().map(|(text, _)| text.as_str())
+    }
+}
+
+/// What the page is drawing: the engine's phase, or a notice layered over it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Display {
+    Phase(Phase),
+    Notice(String),
+}
+
+impl Display {
+    fn of(phase: Phase, notice: Option<&str>) -> Self {
+        match notice {
+            Some(text) => Self::Notice(text.to_string()),
+            None => Self::Phase(phase),
+        }
+    }
+
+    /// A notice is rare and explains a failure, so it shows even when the
+    /// recording indicator is turned off or has yielded to the desktop
+    /// capsule — silence is exactly the problem it exists to fix.
+    fn wants_window(&self, style: Style) -> bool {
+        match self {
+            Self::Phase(Phase::Idle) => false,
+            Self::Phase(_) => style != Style::Off,
+            Self::Notice(_) => true,
+        }
+    }
+
+    /// The page call that draws this. Notice text is encoded as a JS string
+    /// literal: it is plain copy today, but the page must never evaluate it.
+    fn script(&self) -> String {
+        match self {
+            Self::Phase(phase) => format!("window.vcPhase && vcPhase('{}')", phase_name(*phase)),
+            Self::Notice(text) => {
+                let text =
+                    serde_json::to_string(text).expect("serializing a Rust string cannot fail");
+                format!("window.vcNotice && (vcNotice({text}), vcPhase('notice'))")
+            }
+        }
+    }
+}
+
+fn phase_name(phase: Phase) -> &'static str {
+    match phase {
+        Phase::Idle => "idle",
+        Phase::Recording => "recording",
+        Phase::Transcribing => "transcribing",
+        Phase::Learning => "learning",
+    }
+}
+
+/// Whether a character renders at full CJK width in the capsule's font.
+#[cfg(any(windows, test))]
+fn is_wide(c: char) -> bool {
+    matches!(u32::from(c),
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6)
+        || matches!(c, '—' | '…' | '⌘')
+}
+
+/// Logical width of a notice capsule on Windows, where the window must hug it.
+///
+/// Estimated from the text rather than measured by the page, so the window is
+/// the right size before it is first shown instead of visibly resizing after.
+/// The per-character widths were fitted to every shipped notice rendered in
+/// WebView2 at 12px (`examples/indicator_hidden_smoke.rs` reports both), then
+/// rounded up: each notice gets 8–30px of slack, never less. The page
+/// ellipsizes rather than overflow if a font ever runs wider than this.
+#[cfg(any(windows, test))]
+fn notice_width(text: &str) -> f64 {
+    let text_width: f64 = text
+        .chars()
+        .map(|c| match c {
+            c if is_wide(c) => 12.5,
+            'A'..='Z' | '0'..='9' | '%' | '+' => 8.2,
+            ' ' | '\u{a0}' => 3.6,
+            'i' | 'j' | 'l' | 'r' | 't' | 'f' | '\'' | '’' | '.' | ',' | ':' | ';' | '!' | '('
+            | ')' | '|' | '/' => 4.4,
+            _ => 7.0,
+        })
+        .sum();
+    (text_width + NOTICE_WIDTH_SLACK + NOTICE_CHROME_W)
+        .ceil()
+        .clamp(NOTICE_MIN_W, NOTICE_MAX_W)
+}
+
+/// The logical window size for what is being drawn on Windows. Elsewhere the
+/// transparent window is one size that fits every capsule and notice.
+#[cfg(windows)]
+fn frame_size(style: Style, display: &Display) -> (f64, f64) {
+    match display {
+        Display::Notice(text) => (notice_width(text), WINDOW_H),
+        Display::Phase(_) => window_logical_size(style),
+    }
+}
+
 #[cfg(windows)]
 fn window_logical_size(style: Style) -> (f64, f64) {
     if style == Style::Mini {
@@ -194,7 +340,10 @@ pub struct Overlay {
     window: Window,
     _web_context: wry::WebContext,
     shown: bool,
-    last_phase: Phase,
+    last_display: Display,
+    notice: NoticeSlot,
+    /// Logical size the native window was last given.
+    frame: (f64, f64),
     meter_updates: MeterUpdates,
     style: Style,
     /// The style changed and the page has not been told yet.
@@ -227,7 +376,7 @@ impl Overlay {
             .with_inner_size(tao::dpi::LogicalSize::new(WINDOW_W, WINDOW_H))
             .build(target)?;
 
-        position_bottom_centre(&window, Style::Classic);
+        position_bottom_centre(&window, window_logical_size(Style::Classic));
         #[cfg(windows)]
         {
             use tao::platform::windows::WindowExtWindows;
@@ -311,7 +460,9 @@ impl Overlay {
             window,
             _web_context: web_context,
             shown: false,
-            last_phase: Phase::Idle,
+            last_display: Display::Phase(Phase::Idle),
+            notice: NoticeSlot::default(),
+            frame: window_logical_size(Style::Classic),
             meter_updates: MeterUpdates::default(),
             style: Style::Classic,
             style_pending: false,
@@ -335,11 +486,10 @@ impl Overlay {
         self.style = style;
         #[cfg(windows)]
         if style != Style::Off {
-            self.resize_windows_frame();
             // A live switch between Classic and Mini does not cross the
             // hidden/visible boundary below, so reposition at the same time as
             // the native resize instead of leaving the smaller capsule offset.
-            position_bottom_centre(&self.window, style);
+            self.apply_frame(frame_size(style, &self.last_display));
         }
         // Deferred rather than pushed here. At startup this runs a few
         // milliseconds after the webview is built, and `vcStyle` does not exist
@@ -349,8 +499,9 @@ impl Overlay {
         // costs one script call per style change and cannot race.
         self.style_pending = true;
         // Switching to Off while the indicator is up must take it down now,
-        // not at the end of the current utterance.
-        if style == Style::Off && self.shown {
+        // not at the end of the current utterance. A notice stays: it shows
+        // whatever the style (see `Display::wants_window`).
+        if style == Style::Off && self.shown && !self.last_display.wants_window(style) {
             #[cfg(not(target_os = "macos"))]
             self.window.set_visible(false);
             #[cfg(target_os = "macos")]
@@ -374,12 +525,14 @@ impl Overlay {
     }
 
     /// Hidden, synthetic-only native layout inspection; absent from releases.
+    /// With `notice`, the page draws that line in the notice phase instead.
     #[cfg(all(windows, debug_assertions))]
     #[allow(dead_code)]
     pub fn inspect_hidden_layout(
         &mut self,
         mini: bool,
         phase: &str,
+        notice: Option<&str>,
         language: &str,
         on_result: impl Fn(String) + Send + 'static,
     ) -> anyhow::Result<()> {
@@ -391,7 +544,15 @@ impl Overlay {
             "probe must remain hidden"
         );
         self.sync_windows_scale();
+        // Recorded first, so a style change sizes the window for this case in
+        // one resize; two in a row can be measured before WebView2 applies
+        // the second.
+        self.last_display = match notice {
+            Some(text) => Display::Notice(text.to_string()),
+            None => Display::Phase(Phase::Recording),
+        };
         self.set_style(if mini { Style::Mini } else { Style::Classic });
+        self.apply_frame(frame_size(self.style, &self.last_display));
         let exstyle = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
         let rounded = unsafe {
             use windows_sys::Win32::Graphics::Gdi::*;
@@ -405,41 +566,50 @@ impl Overlay {
             }
         };
         let native = serde_json::json!({"visible":false,"rounded":rounded,"no_activate":exstyle&WS_EX_NOACTIVATE!=0,"click_through":exstyle&WS_EX_TRANSPARENT!=0,"not_in_taskbar":exstyle&WS_EX_APPWINDOW==0&&exstyle&WS_EX_TOOLWINDOW!=0});
+        let draw = match notice {
+            Some(text) => format!("vcNotice({});vcPhase('notice')", serde_json::json!(text)),
+            None => format!("vcPhase({})", serde_json::json!(phase)),
+        };
         // visualViewport reports fractional CSS bounds at accessibility scale;
         // innerWidth rounds down and can falsely flag a fitting border as overflow.
-        let script=format!("(()=>{{if(!window.vcPhase)return JSON.stringify({{ready:false}});vcStyle({});vcLang({});vcPhase({});const pill=document.getElementById('pill').getBoundingClientRect();return JSON.stringify({{ready:true,native:{native},width:visualViewport.width,height:visualViewport.height,dpr:devicePixelRatio,solid:document.documentElement.classList.contains('solid'),pill:{{x:pill.x,y:pill.y,right:pill.right,bottom:pill.bottom}},content:Array.from(document.querySelectorAll('#pill>span')).filter(el=>getComputedStyle(el).display!=='none').map(el=>{{const r=el.getBoundingClientRect();return{{id:el.id,x:r.x,y:r.y,right:r.right,bottom:r.bottom}};}})}});}})()",serde_json::json!(if mini {"mini"}else{"classic"}),serde_json::json!(language),serde_json::json!(phase));
+        // `clipped` catches a notice whose estimated window is narrower than
+        // the rendered sentence, which the page would otherwise ellipsize.
+        let script=format!("(()=>{{if(!window.vcPhase)return JSON.stringify({{ready:false}});vcStyle({});vcLang({});{draw};const pill=document.getElementById('pill').getBoundingClientRect();const note=document.getElementById('notice');return JSON.stringify({{ready:true,native:{native},width:visualViewport.width,height:visualViewport.height,dpr:devicePixelRatio,solid:document.documentElement.classList.contains('solid'),pill:{{x:pill.x,y:pill.y,right:pill.right,bottom:pill.bottom}},notice_text_width:note.scrollWidth,clipped:getComputedStyle(note).display!=='none'&&note.scrollWidth>note.clientWidth,content:Array.from(document.querySelectorAll('#pill>span')).filter(el=>getComputedStyle(el).display!=='none').map(el=>{{const r=el.getBoundingClientRect();return{{id:el.id,x:r.x,y:r.y,right:r.right,bottom:r.bottom}};}})}});}})()",serde_json::json!(if mini {"mini"}else{"classic"}),serde_json::json!(language));
         self.webview
             .evaluate_script_with_callback(&script, on_result)?;
         Ok(())
     }
 
-    /// Push the current phase and microphone level into the page.
+    /// Push the current phase, notice and microphone level into the page.
     ///
     /// Called from the UI event loop's tick. The level is only a target: the
     /// page animates continuously on its own, so a coarse update rate here
-    /// still yields a smooth meter.
-    pub fn tick(&mut self, state: &OverlayState, level: f32) {
+    /// still yields a smooth meter. `notice` is a newly posted, already
+    /// translated line; the indicator keeps it up for [`NOTICE_DURATION`].
+    pub fn tick(&mut self, state: &OverlayState, level: f32, notice: Option<String>) {
         #[cfg(windows)]
         self.sync_windows_scale();
         let phase = state.get();
+        let display = Display::of(phase, self.notice.update(phase, notice, Instant::now()));
 
-        if phase != self.last_phase {
-            let name = match phase {
-                Phase::Idle => "idle",
-                Phase::Recording => "recording",
-                Phase::Transcribing => "transcribing",
-                Phase::Learning => "learning",
-            };
-            let _ = self
-                .webview
-                .evaluate_script(&format!("window.vcPhase && vcPhase('{name}')"));
-            self.last_phase = phase;
+        if display != self.last_display {
+            // Resize before drawing: on Windows the window hugs the capsule,
+            // and a notice is a different width from the meter.
+            #[cfg(windows)]
+            {
+                let frame = frame_size(self.style, &display);
+                if frame != self.frame {
+                    self.apply_frame(frame);
+                }
+            }
+            let _ = self.webview.evaluate_script(&display.script());
+            self.last_display = display.clone();
         }
 
         // Hidden while idle rather than left on screen as a resting sliver.
         // A permanent mark is a real cost on a small laptop display, and this
         // indicator has no hover affordance that would justify one.
-        let want = phase != Phase::Idle && self.style != Style::Off;
+        let want = display.wants_window(self.style);
         if want != self.shown {
             if want {
                 if self.lang_pending {
@@ -461,7 +631,7 @@ impl Overlay {
                         .evaluate_script(&format!("window.vcStyle && vcStyle('{name}')"));
                     self.style_pending = false;
                 }
-                position_bottom_centre(&self.window, self.style);
+                position_bottom_centre(&self.window, self.frame);
                 #[cfg(target_os = "macos")]
                 self.panel.sync_frame_from(&self.window);
             }
@@ -480,15 +650,7 @@ impl Overlay {
                 // window in the transparent idle state. Re-apply the phase
                 // after ordering the native window, when WebKit is visible and
                 // must render it.
-                let name = match phase {
-                    Phase::Recording => "recording",
-                    Phase::Transcribing => "transcribing",
-                    Phase::Learning => "learning",
-                    Phase::Idle => "idle",
-                };
-                let _ = self
-                    .webview
-                    .evaluate_script(&format!("window.vcPhase && vcPhase('{name}')"));
+                let _ = self.webview.evaluate_script(&display.script());
             }
             self.shown = want;
         }
@@ -514,15 +676,23 @@ impl Overlay {
         };
         self.text_scale = windows_text_scale(ratio, dpi);
         self.last_page_ratio = ratio;
+        self.apply_frame(self.frame);
+    }
+
+    /// Size the native window for `frame` and re-centre it, so a narrower or
+    /// wider capsule is never left off-centre.
+    #[cfg(windows)]
+    fn apply_frame(&mut self, frame: (f64, f64)) {
+        self.frame = frame;
         self.resize_windows_frame();
-        position_bottom_centre(&self.window, self.style);
+        position_bottom_centre(&self.window, frame);
     }
 
     #[cfg(windows)]
     fn resize_windows_frame(&self) {
         use tao::platform::windows::WindowExtWindows;
         use windows_sys::Win32::{Foundation::*, Graphics::Gdi::*, UI::WindowsAndMessaging::*};
-        let (width, height) = window_logical_size(self.style);
+        let (width, height) = self.frame;
         self.window.set_inner_size(tao::dpi::LogicalSize::new(
             width * self.text_scale,
             height * self.text_scale,
@@ -601,14 +771,14 @@ fn overlay_language_script(lang: &str) -> String {
 /// creation and stayed there for the life of the process, which on a
 /// multi-monitor desk means the only signal that a recording is live sits on a
 /// screen the user is not looking at.
-fn position_bottom_centre(window: &Window, style: Style) {
+fn position_bottom_centre(window: &Window, frame: (f64, f64)) {
     #[cfg(target_os = "macos")]
     if position_on_focused_screen(window) {
         return;
     }
 
     #[cfg(target_os = "windows")]
-    if position_on_windows_work_area(window, style) {
+    if position_on_windows_work_area(window, frame) {
         return;
     }
 
@@ -627,7 +797,7 @@ fn position_bottom_centre(window: &Window, style: Style) {
     // by accident and is refined per-platform when those are supported.
     let bottom_inset = bottom_inset_of_current_screen(window);
 
-    let (window_width, window_height) = window_logical_size(style);
+    let (window_width, window_height) = frame;
     window.set_outer_position(tao::dpi::LogicalPosition::new(
         pos.x + (size.width - window_width) / 2.0,
         pos.y + size.height - bottom_inset - window_height - BOTTOM_MARGIN,
@@ -923,7 +1093,7 @@ fn make_inert_and_floating(panel: &MacPanel) {
 /// desktop coordinates.  Keep the whole calculation in those coordinates so
 /// mixed-DPI displays do not combine logical sizes with physical offsets.
 #[cfg(target_os = "windows")]
-fn position_on_windows_work_area(window: &Window, style: Style) -> bool {
+fn position_on_windows_work_area(window: &Window, size: (f64, f64)) -> bool {
     use std::mem::size_of;
 
     use tao::platform::windows::WindowExtWindows as _;
@@ -969,7 +1139,7 @@ fn position_on_windows_work_area(window: &Window, style: Style) -> bool {
     // target-monitor DPI estimate protects the first move between monitors
     // whose scales differ.
     let measured = window.outer_size();
-    let (window_width, window_height) = window_logical_size(style);
+    let (window_width, window_height) = size;
     let width = ((window_width * scale).round().max(1.0) as i32)
         .max(i32::try_from(measured.width).unwrap_or(i32::MAX));
     let height = ((window_height * scale).round().max(1.0) as i32)
@@ -1150,6 +1320,124 @@ mod tests {
         assert!(html.contains("phase === \"learning\""));
         assert!(html.contains("class=\"learnmark hide\""));
         assert!(html.contains("Learning…"));
+    }
+
+    #[test]
+    fn a_notice_waits_for_no_recording_and_lasts_three_seconds() {
+        let start = Instant::now();
+        let mut slot = NoticeSlot::default();
+        assert_eq!(slot.update(Phase::Idle, None, start), None);
+        assert_eq!(
+            slot.update(Phase::Idle, Some("Model not ready yet".into()), start),
+            Some("Model not ready yet")
+        );
+        let almost = start + NOTICE_DURATION - Duration::from_millis(1);
+        assert_eq!(
+            slot.update(Phase::Idle, None, almost),
+            Some("Model not ready yet")
+        );
+        assert_eq!(
+            slot.update(Phase::Idle, None, start + NOTICE_DURATION),
+            None
+        );
+        // Blank text is not a notice.
+        assert_eq!(slot.update(Phase::Idle, Some("  ".into()), start), None);
+    }
+
+    #[test]
+    fn a_new_recording_clears_a_notice_and_drops_one_that_arrives_during_it() {
+        let start = Instant::now();
+        let mut slot = NoticeSlot::default();
+        slot.update(Phase::Idle, Some("Didn't hear anything".into()), start);
+        assert_eq!(slot.update(Phase::Recording, None, start), None);
+        // The old notice must not reappear once that short utterance ends.
+        let soon = start + Duration::from_millis(500);
+        assert_eq!(slot.update(Phase::Transcribing, None, soon), None);
+        assert_eq!(slot.update(Phase::Idle, None, soon), None);
+        assert_eq!(
+            slot.update(Phase::Recording, Some("stale".into()), soon),
+            None
+        );
+        assert_eq!(slot.update(Phase::Idle, None, soon), None);
+    }
+
+    #[test]
+    fn a_notice_covers_transcribing_and_learning_which_return_after_it() {
+        let start = Instant::now();
+        let mut slot = NoticeSlot::default();
+        let busy = "Still working — try again in a moment";
+        let shown = slot.update(Phase::Transcribing, Some(busy.into()), start);
+        assert_eq!(
+            Display::of(Phase::Transcribing, shown),
+            Display::Notice(busy.into())
+        );
+        let later = start + NOTICE_DURATION;
+        let shown = slot.update(Phase::Learning, None, later);
+        assert_eq!(
+            Display::of(Phase::Learning, shown),
+            Display::Phase(Phase::Learning)
+        );
+    }
+
+    #[test]
+    fn a_notice_shows_whatever_the_indicator_style() {
+        let notice = Display::Notice("Microphone unavailable".into());
+        for style in [Style::Classic, Style::Mini, Style::Off] {
+            assert!(notice.wants_window(style));
+            assert!(!Display::Phase(Phase::Idle).wants_window(style));
+        }
+        assert!(Display::Phase(Phase::Recording).wants_window(Style::Mini));
+        assert!(!Display::Phase(Phase::Recording).wants_window(Style::Off));
+    }
+
+    #[test]
+    fn notice_text_is_encoded_as_json_before_script_evaluation() {
+        let script = Display::Notice("x');globalThis.injected=true;//\n\\".into()).script();
+        assert_eq!(
+            script,
+            "window.vcNotice && (vcNotice(\"x');globalThis.injected=true;//\\n\\\\\"), vcPhase('notice'))"
+        );
+        assert_eq!(
+            Display::Phase(Phase::Transcribing).script(),
+            "window.vcPhase && vcPhase('transcribing')"
+        );
+        let html = include_str!("overlay.html");
+        assert!(html.contains("window.vcNotice = function (text)"));
+        assert!(html.contains("var notice = phase === \"notice\";"));
+        assert!(html.contains("textContent = String(text || \"\")"));
+        assert!(!html.contains("innerHTML"));
+    }
+
+    #[test]
+    fn every_translated_notice_fits_the_estimated_windows_capsule() {
+        use crate::notice::{Lang, NotReady, Notice};
+        for lang in [Lang::En, Lang::Zh, Lang::Es, Lang::Fr, Lang::De] {
+            for notice in [
+                Notice::CopiedToClipboard,
+                Notice::NotReady(NotReady::Downloading(100)),
+                Notice::NotReady(NotReady::Model),
+                Notice::NotReady(NotReady::Microphone),
+                Notice::NotReady(NotReady::Busy),
+                Notice::HeardNothing,
+            ] {
+                let text = notice.text(lang);
+                let width = notice_width(&text);
+                assert!(
+                    (NOTICE_MIN_W..NOTICE_MAX_W).contains(&width),
+                    "{lang:?} {notice:?} needs {width}px: {text}"
+                );
+            }
+        }
+        // Wider scripts are estimated wider, and nothing escapes the bounds.
+        assert!(notice_width("麦克风不可用") > notice_width("abcdef"));
+        assert_eq!(notice_width(""), NOTICE_MIN_W);
+        assert_eq!(notice_width(&"W".repeat(500)), NOTICE_MAX_W);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn the_transparent_window_is_wide_enough_for_the_widest_notice() {
+        const { assert!(WINDOW_W >= NOTICE_MAX_W + 20.0) };
     }
 
     #[cfg(target_os = "windows")]

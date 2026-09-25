@@ -2,6 +2,10 @@
 //! user data, global input, clipboard or visible-window operations.
 #[cfg(all(windows, not(test), debug_assertions))]
 #[allow(dead_code)]
+#[path = "../src/notice.rs"]
+mod notice;
+#[cfg(all(windows, not(test), debug_assertions))]
+#[allow(dead_code)]
 #[path = "../src/overlay.rs"]
 mod overlay;
 
@@ -24,14 +28,36 @@ fn main() -> anyhow::Result<()> {
         before == unsafe { GetForegroundWindow() },
         "creation changed focus"
     );
-    let cases = [
-        (false, "recording", "en"),
-        (false, "transcribing", "en"),
-        (false, "learning", "de"),
-        (true, "recording", "zh"),
-        (true, "transcribing", "en"),
-        (true, "learning", "zh"),
+    let mut cases: Vec<(bool, &str, Option<String>, &str)> = vec![
+        (false, "recording", None, "en"),
+        (false, "transcribing", None, "en"),
+        (false, "learning", None, "de"),
+        (true, "recording", None, "zh"),
+        (true, "transcribing", None, "en"),
+        (true, "learning", None, "zh"),
     ];
+    // Every notice in every language, in both styles: the estimated window
+    // must hold the rendered sentence without ellipsizing it.
+    use notice::{Lang, NotReady, Notice};
+    let notices = [
+        Notice::CopiedToClipboard,
+        Notice::NotReady(NotReady::Downloading(100)),
+        Notice::NotReady(NotReady::Model),
+        Notice::NotReady(NotReady::Microphone),
+        Notice::NotReady(NotReady::Busy),
+        Notice::HeardNothing,
+    ];
+    for (lang, code) in [
+        (Lang::En, "en"),
+        (Lang::Zh, "zh"),
+        (Lang::Es, "es"),
+        (Lang::Fr, "fr"),
+        (Lang::De, "de"),
+    ] {
+        for (index, notice) in notices.iter().enumerate() {
+            cases.push((index % 2 == 1, "notice", Some(notice.text(lang)), code));
+        }
+    }
     let (tx, rx) = std::sync::mpsc::channel::<String>();
     let started = Instant::now();
     let mut next = started + Duration::from_millis(300);
@@ -54,7 +80,8 @@ fn main() -> anyhow::Result<()> {
             println!("INDICATOR_HIDDEN case={count} {value}");
             failed |= before != unsafe { GetForegroundWindow() }
                 || value["solid"] != true
-                || value["native"]["visible"] != false;
+                || value["native"]["visible"] != false
+                || value["clipped"] != false;
             for key in ["no_activate", "click_through", "not_in_taskbar", "rounded"] {
                 failed |= value["native"][key] != true;
             }
@@ -75,10 +102,10 @@ fn main() -> anyhow::Result<()> {
             count += 1;
         }
         if !awaiting && count < cases.len() && Instant::now() >= next {
-            let (mini, phase, language) = cases[count];
+            let (mini, phase, notice, language) = &cases[count];
             let sender = tx.clone();
             if indicator
-                .inspect_hidden_layout(mini, phase, language, move |value| {
+                .inspect_hidden_layout(*mini, phase, notice.as_deref(), language, move |value| {
                     let _ = sender.send(value);
                 })
                 .is_err()
@@ -89,7 +116,7 @@ fn main() -> anyhow::Result<()> {
             }
             awaiting = true;
         }
-        if count == cases.len() || started.elapsed() > Duration::from_secs(20) {
+        if count == cases.len() || started.elapsed() > Duration::from_secs(60) {
             failed |= count != cases.len();
             *flow = ControlFlow::Exit;
         }

@@ -75,6 +75,9 @@ objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSPathUtilities"
 # that reliably.
 windows-sys = { version = "0.61.2", features = [
     "Win32_Foundation",
+    # GetUserDefaultUILanguage: the tray and indicator notices follow the
+    # display language when the interface language is "auto".
+    "Win32_Globalization",
     "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Security_Authorization",

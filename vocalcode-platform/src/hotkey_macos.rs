@@ -690,9 +690,6 @@ fn handle_event(state: &TapState, etype: u32, event: CGEventRef) -> bool {
     }
 
     if pressed {
-        if !state.ready.load(Ordering::Acquire) {
-            return false;
-        }
         let action = {
             let Ok(bindings) = state.triggers.lock() else {
                 return false;
@@ -716,6 +713,14 @@ fn handle_event(state: &TapState, etype: u32, event: CGEventRef) -> bool {
                 None
             }
         };
+        if !state.ready.load(Ordering::Acquire) {
+            // Passed through exactly as before. Only the count is new: it lets
+            // the app say why the press started nothing.
+            if action == Some(Action::Talk) {
+                crate::hotkey::note_talk_while_not_ready();
+            }
+            return false;
+        }
         let Some(action) = action else {
             return false;
         };
