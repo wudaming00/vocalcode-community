@@ -12,33 +12,68 @@ function setup(){
     focus(){this.focused=true;}scrollIntoView(){}
     set innerHTML(_){throw Error('Unsafe markup');}
   }
-  const nodes=new Map(),sent=[],timers=new Map();let timerId=0;
+  const nodes=new Map(),sent=[],timers=new Map(),delays=new Map(),toasts=[];let timerId=0;
   const node=id=>{if(!nodes.has(id))nodes.set(id,new Element());return nodes.get(id);};
-  const ctx={t:s=>s,confirm:()=>false,showPanel(){},utf8Bytes:s=>Buffer.byteLength(s,'utf8'),setTimeout:fn=>{timers.set(++timerId,fn);return timerId;},clearTimeout:id=>timers.delete(id),document:{getElementById:node,createElement:()=>new Element()},window:{},send:r=>{sent.push(r);return true;}};
+  const ctx={t:s=>s,confirm:()=>false,showPanel(){},showSaved(){ctx.saved++;},saved:0,toast:m=>toasts.push(m),utf8Bytes:s=>Buffer.byteLength(s,'utf8'),setTimeout:(fn,ms)=>{timers.set(++timerId,fn);delays.set(timerId,ms);return timerId;},clearTimeout:id=>{timers.delete(id);delays.delete(id);},document:{getElementById:node,createElement:()=>new Element()},window:{},send:r=>{sent.push(r);return true;}};
   vm.createContext(ctx);vm.runInContext(controller,ctx);
-  return {node,sent,ctx,timers,receive(data){ctx.window.vocalcodeWorkflowResult({id:sent.at(-1).id,ok:true,data});}};
+  return {node,sent,ctx,timers,toasts,
+    receive(data){ctx.window.vocalcodeWorkflowResult({id:sent.at(-1).id,ok:true,data});},
+    // What vocalcodeInit does once the page is up.
+    load(){ctx.workflowRequest('load');},
+    // Let the save debounce elapse; the 120 s acknowledgement watchdogs keep running.
+    settle(){for(const [id,fn] of [...timers]){if(delays.get(id)<1000){timers.delete(id);delays.delete(id);fn();}}},
+    change(id,value){const el=node(id);if(typeof value==='boolean')el.checked=value;else el.value=value;el.onchange();}};
 }
 const prefs={schema:1,diagnostics:false,max_entries:100000,max_bytes:2147483648,cleanup:'light',profiles:[]};
+// A stand-in for workflows.rs: revision-bound saves over one stored document,
+// which outlives any one page, the way the file on disk outlives a reload.
+function fakeHost(initial={...prefs,remove_fillers:false,chinese_fillers:false}){
+  let stored={preferences:structuredClone(initial),revision:'r0'},writes=0;
+  return {
+    get stored(){return stored;},
+    answer(f){
+      const r=f.sent.at(-1);
+      if(r.op==='save'){
+        if(r.revision!==stored.revision)return f.ctx.window.vocalcodeWorkflowResult({id:r.id,ok:false,message:'Workflow settings were changed elsewhere.'});
+        stored={preferences:structuredClone(r.preferences),revision:'r'+(++writes)};
+      }
+      f.ctx.window.vocalcodeWorkflowResult({id:r.id,ok:true,data:{preferences:structuredClone(stored.preferences),revision:stored.revision,saved:r.op==='save'}});
+    },
+    writeElsewhere(change){stored={preferences:{...stored.preferences,...change},revision:'r'+(++writes)};},
+  };
+}
 test('effective diagnostic switch and last saved time are visible after load',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.receive({preferences:{...prefs,diagnostics:true},revision:'migrated',diagnostic_storage:{total:362,latest_record_unix_ms:1788626248791}});
-  assert.match(f.node('workflowMessage').textContent,/Text history: ON/);assert.match(f.node('workflowMessage').textContent,/362 saved records/);
+  const f=setup();f.load();f.receive({preferences:{...prefs,diagnostics:true},revision:'migrated',diagnostic_storage:{total:362,latest_record_unix_ms:1788626248791}});
+  assert.match(f.node('workflowMessage').textContent,/Text history is on\./);assert.match(f.node('workflowMessage').textContent,/Saved records: 362/);
 });
 test('legacy correction pairs render as inert text',()=>{
   const f=setup();f.node('diagnosticLoad').onclick();f.receive({entries:[{recorded_unix_ms:1,kind:'learned_correction',result:'learned',corrections:[{from:'<script>bad</script>',to:'考虑'}]}],total:1,bytes:100,offset:0,unreadable:0});
   assert.equal(f.node('diagnosticRows').children[0].children[2].textContent,'<script>bad</script> → 考虑');
 });
-test('workflow changes need explicit revision-bound save; zero means unlimited',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.receive({preferences:structuredClone(prefs),revision:'first'});
+test('workflow changes save themselves, bound to the loaded revision; zero means unlimited',()=>{
+  const f=setup();f.load();f.receive({preferences:structuredClone(prefs),revision:'first'});
   assert.equal(f.sent.length,1);
-  f.node('workflowDiagnostics').checked=true;f.node('workflowMaxEntries').value='0';f.node('workflowMaxMiB').value='0';
-  f.node('workflowSave').onclick();assert.equal(f.sent.at(-1).revision,'first');
-  assert.equal(f.sent.at(-1).preferences.max_entries,0);
-  assert.equal(f.sent.at(-1).preferences.max_bytes,0);
+  f.change('workflowDiagnostics',true);f.change('workflowMaxEntries','0');f.change('workflowMaxMiB','0');
+  assert.equal(f.sent.length,1,'debounced, not one write per change event');
+  f.settle();assert.equal(f.sent.length,2);
+  const save=f.sent.at(-1);assert.equal(save.op,'save');assert.equal(save.revision,'first');
+  assert.equal(save.preferences.diagnostics,true);
+  assert.equal(save.preferences.max_entries,0);
+  assert.equal(save.preferences.max_bytes,0);
 });
-test('busy and stale results cannot acknowledge another save',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.node('workflowReload').onclick();assert.equal(f.sent.length,1);
-  f.ctx.window.vocalcodeWorkflowResult({id:0,ok:false});f.node('workflowReload').onclick();assert.equal(f.sent.length,1);
-  f.receive({preferences:structuredClone(prefs),revision:'new'});f.node('workflowReload').onclick();assert.equal(f.sent.length,2);
+test('an emptied or fractional limit is not saved as unlimited',()=>{
+  const f=setup();f.load();f.receive({preferences:structuredClone(prefs),revision:'first'});
+  for(const value of ['','  ','2.5','-1','1e400']){
+    f.change('workflowMaxEntries',value);f.settle();
+    assert.equal(f.sent.length,1,JSON.stringify(value));
+    assert.equal(String(f.node('workflowMaxEntries').value),'100000');
+  }
+  assert.match(f.node('workflowMessage').textContent,/whole number/);
+});
+test('busy and stale results cannot acknowledge another request',()=>{
+  const f=setup();f.load();f.load();assert.equal(f.sent.length,1);
+  f.ctx.window.vocalcodeWorkflowResult({id:0,ok:false});f.load();assert.equal(f.sent.length,1);
+  f.receive({preferences:structuredClone(prefs),revision:'new'});f.load();assert.equal(f.sent.length,2);
 });
 test('saved transcript markup is inert and copying uses the native copy contract',()=>{
   const f=setup();f.node('diagnosticLoad').onclick();
@@ -226,35 +261,119 @@ test('workflow IPC exceptions release the page without reporting an accepted req
   f.ctx.send=r=>{f.sent.push(r);return true;};f.node('rewriteModels').onclick();assert.equal(f.sent.length,1);
 });
 
-test('pause-word removal is off for old settings and needs explicit save',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.receive({preferences:structuredClone(prefs),revision:'old'});
+test('pause-word removal is off for old settings and saves as soon as it is switched',()=>{
+  const f=setup();f.load();f.receive({preferences:structuredClone(prefs),revision:'old'});
   assert.equal(f.node('workflowFillers').checked,false);
-  f.node('workflowFillers').checked=true;f.node('workflowFillers').onchange();
-  assert.equal(f.sent.length,1);assert.equal(f.node('workflowDetails').open,true);
-  f.node('workflowSave').onclick();assert.equal(f.sent.at(-1).preferences.remove_fillers,true);
+  f.change('workflowFillers',true);f.settle();
+  assert.equal(f.sent.length,2);assert.equal(f.sent.at(-1).op,'save');
+  assert.equal(f.sent.at(-1).preferences.remove_fillers,true);
   assert.equal(f.sent.at(-1).preferences.diagnostics,false);
   f.receive({preferences:{...prefs,remove_fillers:true},revision:'new',saved:true});
+  assert.equal(f.node('workflowFillers').checked,true);assert.equal(f.ctx.saved,1);
+  assert.match(f.node('workflowMessage').textContent,/Applies to the next dictation/);
+});
+test('toggling filler removal persists across reload',()=>{
+  const host=fakeHost();
+  const first=setup();first.load();host.answer(first);
+  first.change('workflowFillers',true);first.settle();host.answer(first);
+  assert.equal(host.stored.preferences.remove_fillers,true);
+  // A fresh page, as after closing and reopening Settings or restarting.
+  const reopened=setup();reopened.load();host.answer(reopened);
+  assert.equal(reopened.node('workflowFillers').checked,true);
+  reopened.change('workflowFillers',false);reopened.settle();host.answer(reopened);
+  const again=setup();again.load();host.answer(again);
+  assert.equal(again.node('workflowFillers').checked,false);
+  assert.equal(host.stored.preferences.remove_fillers,false);
+});
+test('punctuation mode and Chinese pause words save without any other step',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  f.change('workflowCleanup','original');f.change('workflowChineseFillers',true);
+  f.settle();assert.equal(f.sent.length,2,'two quick changes, one write');host.answer(f);
+  assert.equal(host.stored.preferences.cleanup,'original');assert.equal(host.stored.preferences.chinese_fillers,true);
+  const reopened=setup();reopened.load();host.answer(reopened);
+  assert.equal(reopened.node('workflowCleanup').value,'original');
+  assert.equal(reopened.node('workflowChineseFillers').checked,true);
+});
+test('a change made during another request is saved after it, on the rotated revision',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  // A rewrite preview holds the host's one workflow slot for a while.
+  f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+  f.change('workflowFillers',true);f.settle();
+  assert.equal(f.sent.at(-1).op,'rewrite_preview','nothing is sent over a busy request');
+  f.receive({source:'source',candidate:'candidate',elapsed_ms:1});
+  assert.equal(f.sent.at(-1).op,'save');assert.equal(f.sent.at(-1).revision,'r0');
+  // And an edit made while that save is in flight follows it.
+  f.change('workflowChineseFillers',true);f.settle();assert.equal(f.sent.at(-1).preferences.chinese_fillers,false);
   assert.equal(f.node('workflowFillers').checked,true);
+  host.answer(f);
+  const second=f.sent.at(-1);assert.equal(second.op,'save');assert.equal(second.revision,'r1');
+  assert.equal(second.preferences.remove_fillers,true);assert.equal(second.preferences.chinese_fillers,true);
+  host.answer(f);assert.equal(host.stored.revision,'r2');
+  assert.equal(f.node('workflowChineseFillers').checked,true);
+});
+test('a save refused over another writer reloads what is saved and says so',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  host.writeElsewhere({cleanup:'original'});
+  f.change('workflowFillers',true);f.settle();host.answer(f);
+  assert.equal(host.stored.preferences.remove_fillers,false,'the other writer is not overwritten');
+  assert.equal(f.sent.at(-1).op,'load','the page reads the saved state back by itself');
+  assert.equal(f.toasts.length,1);assert.match(f.toasts[0],/changed elsewhere.*make the change again/);
+  host.answer(f);
+  assert.equal(f.node('workflowFillers').checked,false);assert.equal(f.node('workflowCleanup').value,'original');
+  assert.match(f.node('workflowMessage').textContent,/make the change again/);
+  f.change('workflowFillers',true);f.settle();host.answer(f);
+  assert.equal(host.stored.preferences.remove_fillers,true);assert.equal(host.stored.preferences.cleanup,'original');
+});
+test('a change made before the first load is saved once it arrives',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();
+  f.change('workflowFillers',true);f.settle();assert.equal(f.sent.length,1);
+  host.answer(f);assert.equal(f.sent.at(-1).op,'save');host.answer(f);
+  assert.equal(host.stored.preferences.remove_fillers,true);
+});
+test('an unreadable settings file does not turn a change into a request loop',()=>{
+  const unreadable='Unreadable workflow settings; the file was left untouched.';
+  const f=setup();f.load();f.ctx.window.vocalcodeWorkflowResult({id:f.sent.at(-1).id,ok:false,message:unreadable});
+  f.change('workflowFillers',true);f.settle();
+  assert.equal(f.sent.at(-1).op,'load');
+  f.ctx.window.vocalcodeWorkflowResult({id:f.sent.at(-1).id,ok:false,message:unreadable});
+  assert.equal(f.sent.length,2);f.settle();assert.equal(f.sent.length,2);
+  assert.match(f.toasts.at(-1),/Unreadable/);
+});
+test('workflow hints and profile rows go through the interface language',()=>{
+  const host=fakeHost();
+  const f=setup();f.ctx.t=s=>'«'+s+'»';f.load();host.answer(f);
+  f.node('workflowApp').value='Code.exe';f.node('workflowAppCleanup').value='original';
+  for(const id of ['workflowAppLive','workflowAppPaste','workflowAppFillers','workflowAppChineseFillers'])f.node(id).value='inherit';
+  f.node('workflowAdd').onclick();f.settle();host.answer(f);
+  assert.equal(f.node('workflowMessage').textContent,'«Saved. Applies to the next dictation.»');
+  const row=f.node('workflowProfiles').children[0];
+  assert.equal(row.children[0].textContent,'Code.exe · «Original recognition» · «Progressive»: «Global setting» · «Compatibility paste»: «Global setting» · «English pause words»: «Global setting» · «Chinese pause words»: «Global setting»');
+  assert.equal(row.children[1].textContent,'«Remove»');
+  row.children[1].onclick();f.settle();assert.deepEqual(f.sent.at(-1).preferences.profiles,[]);
 });
 
 test('per-app pause-word override is separate from punctuation and progressive settings',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.receive({preferences:structuredClone(prefs),revision:'old'});
+  const f=setup();f.load();f.receive({preferences:structuredClone(prefs),revision:'old'});
   f.node('workflowApp').value='Code.exe';f.node('workflowAppCleanup').value='original';
   f.node('workflowAppLive').value='inherit';f.node('workflowAppPaste').value='inherit';f.node('workflowAppFillers').value='false';
   f.node('workflowAdd').onclick();assert.equal(f.sent.length,1);
-  f.node('workflowSave').onclick();const p=f.sent.at(-1).preferences.profiles[0];
+  f.settle();const p=f.sent.at(-1).preferences.profiles[0];
   assert.equal(p.remove_fillers,false);assert.equal(p.cleanup,'original');assert.equal(p.progressive,null);
 });
 
 test('Chinese opt-in never inherits English opt-in and supports an explicit app override',()=>{
-  const f=setup();f.node('workflowReload').onclick();f.receive({preferences:{...prefs,remove_fillers:true},revision:'old-en'});
+  const f=setup();f.load();f.receive({preferences:{...prefs,remove_fillers:true},revision:'old-en'});
   assert.equal(f.node('workflowChineseFillers').checked,false);
   f.node('workflowChineseFillers').checked=true;f.node('workflowChineseFillers').onchange();
   assert.equal(f.sent.length,1);
   f.node('workflowApp').value='Code.exe';f.node('workflowAppCleanup').value='light';
   f.node('workflowAppLive').value='inherit';f.node('workflowAppPaste').value='inherit';
   f.node('workflowAppFillers').value='inherit';f.node('workflowAppChineseFillers').value='false';
-  f.node('workflowAdd').onclick();f.node('workflowSave').onclick();
+  f.node('workflowAdd').onclick();f.settle();assert.equal(f.sent.length,2);
   const p=f.sent.at(-1).preferences;assert.equal(p.remove_fillers,true);assert.equal(p.chinese_fillers,true);
   assert.equal(p.diagnostics,false);assert.equal(p.profiles[0].remove_fillers,null);assert.equal(p.profiles[0].chinese_fillers,false);
 });

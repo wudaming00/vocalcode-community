@@ -3189,6 +3189,21 @@ fn handle_ipc(
             ),
             _ => log::warn!("capture: page sent a key with no code"),
         },
+        // The talk key held in one of this window's own text fields — first
+        // run's "Try it" box among them. The same foreground deafness as
+        // `capture_key` means the hook never hears it; the platform layer drops
+        // this copy whenever the hook did.
+        Some("page_talk") => match (
+            v.get("code").and_then(|x| x.as_str()),
+            v.get("pressed").and_then(Value::as_bool),
+        ) {
+            (Some(code), Some(pressed))
+                if !code.is_empty() && code.len() <= MAX_SERIALIZED_TRIGGER_UTF8_BYTES =>
+            {
+                capture.talk_from_page(code, pressed);
+            }
+            _ => log::warn!("talk: page sent a malformed key edge"),
+        },
         Some("captured_ack") => {
             // The page confirming it RAN vocalcodeCaptured — the last probe in
             // the delivery pipeline (queued → woken → delivered → executed).
@@ -9276,13 +9291,17 @@ mod webui_copy_contract_tests {
         assert!(!html.contains("id=\"langMoreRow\""));
         assert!(!html.contains("id=\"frMoreRow\""));
 
-        // Choosing the required model moves into a real guided tour over the
-        // actual UI instead of duplicating Home inside a second full dialog.
+        // Choosing the language moves on to the talk key and a real dictation;
+        // the short guided tour over the actual UI follows first run instead of
+        // duplicating Home inside a second full dialog.
         assert!(html.contains("id=\"frLanguageStep\""));
+        assert!(html.contains("id=\"frKeyStep\""));
+        assert!(html.contains("id=\"frTryStep\""));
         assert!(!html.contains("id=\"frGuideStep\""));
         assert!(html.contains("id=\"tourLayer\""));
         assert!(html.contains("var TOUR_STEPS=["));
-        assert!(html.contains("save(true); renderLangs(); showOnboardingStep(0); startTour()"));
+        assert!(html.contains("save(true); renderLangs(); showOnboardingStep(2)"));
+        assert!(html.contains("showOnboardingStep(0);\n    startTour();"));
         assert!(html.contains("tourReplay\").onclick=startTour"));
 
         // Clipboard insertion is a labelled compatibility escape hatch, not a
@@ -9299,6 +9318,58 @@ mod webui_copy_contract_tests {
             "Update must sit beside the footer version"
         );
         assert!(html.contains("Checked at startup and every 6 hours"));
+    }
+
+    #[test]
+    fn first_run_teaches_and_tests_the_talk_key_with_the_real_capture() {
+        let html = include_str!("webui.html");
+        let rust = include_str!("webui.rs");
+        let production_rust = rust.split("#[cfg(test)]").next().unwrap();
+
+        // The key step is a mirror of the Shortcuts row, driven by the same
+        // `data-for` capture, not a second binding UI that could disagree.
+        let key_step = html
+            .split("id=\"frKeyStep\"")
+            .nth(1)
+            .and_then(|tail| tail.split("id=\"frTryStep\"").next())
+            .expect("first run key step");
+        assert!(key_step.contains("id=\"frTalkCap\" data-cap=\"talk\""));
+        assert!(key_step.contains("class=\"setbtn\" data-for=\"talk\""));
+        assert!(key_step.contains("id=\"frTalkWarn\""));
+        assert!(html.contains("id=\"talkCap\" data-cap=\"talk\""));
+        assert!(html.contains("document.querySelectorAll('[data-cap=\"'+which+'\"]')"));
+        assert!(!html.contains("frTalkHint"));
+        assert!(!html.contains("getElementById(which+\"Cap\")"));
+
+        // Try it: a text box on this page that the talk key can dictate into
+        // even though the hook is deaf while this window is in front.
+        assert!(html.contains("id=\"frTryBox\""));
+        assert!(html.contains("send({type:\"page_talk\", code:e.code, pressed:true})"));
+        assert!(html.contains("send({type:\"page_talk\", code:code, pressed:false})"));
+        assert!(production_rust.contains("Some(\"page_talk\")"));
+        assert!(production_rust.contains("capture.talk_from_page(code, pressed)"));
+
+        // At most two tour bubbles remain.
+        let tour = html
+            .split("var TOUR_STEPS=[")
+            .nth(1)
+            .and_then(|tail| tail.split("];").next())
+            .expect("tour steps");
+        assert!(tour.matches("{selector:").count() <= 2, "{tour}");
+    }
+
+    #[test]
+    fn workflow_settings_save_themselves_and_translate_the_conflict() {
+        let html = include_str!("webui.html");
+        assert!(!html.contains("id=\"workflowSave\""));
+        assert!(!html.contains("id=\"workflowReload\""));
+        assert!(!html.contains("Save workflow settings"));
+        assert!(!html.contains("in draft"));
+        assert!(html.contains(
+            "workflowEl(\"workflowFillers\").onchange=()=>editWorkflow(\"remove_fillers\""
+        ));
+        let conflict = format!("\"{}\":", crate::workflows::REVISION_CONFLICT);
+        assert_eq!(html.matches(&conflict).count(), 4);
     }
 
     #[test]

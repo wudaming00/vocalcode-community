@@ -755,6 +755,29 @@
 @media(max-width:620px){
   .fr-language-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
+/* Steps 2 and 3 teach and then test the talk key. The key row is the same
+   capture as Shortcuts, so it keeps that row's chips and armed state. */
+.fr-keys{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:0 auto 12px}
+.fr-keys .binds{justify-content:center;flex-wrap:wrap;overflow:visible;min-height:32px}
+.fr-keys .binds .keycap{min-width:120px;justify-content:space-between}
+.fr-note{max-width:500px;margin:0 auto 12px;padding:9px 12px;border:1px solid var(--amber-dim);border-radius:10px;background:rgba(238,138,62,.08);color:var(--amber-2);font-size:12px;line-height:1.45;text-align:center}
+.fr-note[hidden],.fr-dl[hidden],.fr-heard[hidden],.fr-keys[hidden]{display:none}
+.fr-try-keys{margin-top:-6px}
+.fr-fine{margin:0 auto;text-align:center;color:var(--mut);font-size:11.5px}
+.fr-dl{max-width:500px;margin:0 auto 12px;font-size:12px;color:var(--amber-2)}
+.fr-dl .dlbar{display:block}
+.fr-try-box{display:block;width:100%;min-height:74px;resize:vertical;box-sizing:border-box;background:var(--stage);color:var(--ink);border:1px solid var(--hair-2);border-radius:10px;padding:10px 12px;font:14px/1.5 var(--sans)}
+.fr-try-box:focus{outline:none;border-color:var(--amber)}
+.fr-heard{margin:10px 0 0;color:#9fd8a9;font-size:12.5px;line-height:1.45;text-align:center;overflow-wrap:anywhere}
+.fr-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:18px}
+.fr-actions button{min-width:72px;height:32px;padding:0 13px;border:1px solid var(--hair-2);border-radius:8px;background:var(--raised);color:var(--ink);font:12px var(--sans);cursor:pointer}
+.fr-actions .fr-back{margin-right:auto;border-color:transparent;background:transparent;color:var(--mut)}
+.fr-actions .fr-back:hover{color:var(--ink)}
+.fr-actions .fr-primary{border-color:var(--amber-dim);background:linear-gradient(180deg,var(--amber-2),var(--amber));color:#1c1206;font-weight:650}
+.fr-actions .fr-primary:disabled{opacity:.45;cursor:default}
+/* Dictation errors arrive as toasts; during first run they must not hide
+   behind the dialog the person is dictating into. */
+#firstrun.show ~ .toast{z-index:201}
 .tour-layer{display:none;position:fixed;inset:0;z-index:180;background:rgba(0,0,0,.58);pointer-events:auto}
 .tour-layer.show{display:block}
 .tour-focus{position:relative!important;z-index:181!important;outline:2px solid var(--amber)!important;outline-offset:4px;box-shadow:0 0 0 8px rgba(238,138,62,.12),0 18px 48px rgba(0,0,0,.5)!important;pointer-events:none}
@@ -768,11 +791,45 @@
 <div id="firstrun" role="dialog" aria-modal="true" aria-labelledby="firstRunTitle" style="position:fixed;inset:0;z-index:200;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.74)">
   <div class="fr-shell">
     <div class="fr-step" id="frLanguageStep">
-      <div class="fr-progress">First setup · Spoken language</div>
+      <div class="fr-progress">Step 1 of 3 · Spoken language</div>
       <div class="mark" style="margin:0 auto 12px"><i></i><i></i><i></i><i></i><i></i></div>
       <h1 id="firstRunTitle" class="fr-title" tabindex="-1">What do you speak most?</h1>
-      <p class="fr-copy">Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.</p>
+      <p class="fr-copy">Choose below. Its speech model downloads while you set up your talk key.</p>
       <div class="fr-language-grid" id="frLanguageGrid" role="radiogroup" aria-label="Spoken language"></div>
+    </div>
+    <!-- Nothing used to teach the key the whole app hangs on, and the default
+         includes a Right Ctrl that many laptops do not have. -->
+    <div class="fr-step" id="frKeyStep" hidden>
+      <div class="fr-progress">Step 2 of 3 · Talk key</div>
+      <h1 id="frKeyTitle" class="fr-title" tabindex="-1">Hold the key you want to talk with</h1>
+      <p class="fr-copy">VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:</p>
+      <div class="fr-keys">
+        <div class="binds" id="frTalkCap" data-cap="talk"></div>
+        <button type="button" class="setbtn" data-for="talk">Add another key</button>
+      </div>
+      <p class="fr-note" id="frTalkWarn" hidden>Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.</p>
+      <p class="fr-fine">You can change these at any time in Shortcuts.</p>
+      <div class="fr-actions">
+        <button type="button" class="fr-back" data-fr-back>Back</button>
+        <button type="button" class="fr-primary" id="frKeyNext">Next</button>
+      </div>
+    </div>
+    <div class="fr-step" id="frTryStep" hidden>
+      <div class="fr-progress">Step 3 of 3 · Try it</div>
+      <h1 id="frTryTitle" class="fr-title" tabindex="-1">Try it</h1>
+      <p class="fr-copy" id="frTryCopy"></p>
+      <div class="fr-keys fr-try-keys" id="frTryKeys" role="group" aria-label="Your talk shortcuts" hidden></div>
+      <div class="fr-dl" id="frTryDl" hidden>
+        <div class="dlrow"><span id="frTryDlLabel"></span><span class="dlpct" id="frTryDlPct"></span></div>
+        <div class="dltrack"><div class="dlbar" id="frTryDlBar"></div></div>
+      </div>
+      <textarea id="frTryBox" class="fr-try-box" maxlength="2000" spellcheck="false" placeholder="Your words appear here" aria-label="Try dictating here" aria-describedby="frTryCopy"></textarea>
+      <p class="fr-heard" id="frTryHeard" role="status" aria-live="polite" hidden></p>
+      <div class="fr-actions">
+        <button type="button" class="fr-back" data-fr-back>Back</button>
+        <button type="button" id="frTrySkip">Skip for now</button>
+        <button type="button" class="fr-primary" id="frTryDone" disabled>Finish</button>
+      </div>
     </div>
   </div>
 </div>
@@ -902,7 +959,7 @@
             <div class="shortcut-title"><span class="shortcut-glyph" aria-hidden="true">⌘</span><span><b>Talk shortcuts</b><small>Bind several — whichever device is plugged in works</small></span></div>
             <button class="setbtn" data-for="talk">Add</button>
           </div>
-          <div class="binds shortcut-bindings" id="talkCap"></div>
+          <div class="binds shortcut-bindings" id="talkCap" data-cap="talk"></div>
           <div class="shortcut-mode">
             <div class="k">How the key behaves</div>
             <span class="seg seg-sm" id="talkModeSeg">
@@ -915,13 +972,13 @@
         <div class="card shortcut-optional">
           <div class="row">
             <div class="k">Tap to send<small>fires Enter in your target app — your keyboard's Return already does this</small></div>
-            <span class="bind"><span class="binds" id="sendCap"></span><button class="setbtn" data-for="send">Add</button></span>
+            <span class="bind"><span class="binds" id="sendCap" data-cap="send"></span><button class="setbtn" data-for="send">Add</button></span>
           </div>
           <!-- Unbound by default. It takes a shortcut away from every other app,
                which is not ours to decide for someone who may never want it. -->
           <div class="row">
             <div class="k">Teach a word<small>select a word it got wrong anywhere, press this, and the dictionary opens ready for the fix</small></div>
-            <span class="bind"><span class="binds" id="teachCap"></span><button class="setbtn" data-for="teach">Add</button></span>
+            <span class="bind"><span class="binds" id="teachCap" data-cap="teach"></span><button class="setbtn" data-for="teach">Add</button></span>
           </div>
         </div>
       </div>
@@ -998,8 +1055,8 @@
             </div>
             <div class="row"><div class="k">Minimum recording<small>ignore taps shorter than this</small></div><span class="action-group"><input type="number" id="minrec" min="100" max="2000" step="50" aria-label="Minimum recording"> <span class="muted">ms</span></span></div>
             <div class="row"><div class="k">Punctuation &amp; casing<small>Light cleanup fixes casing and spoken acronyms. Original bypasses this chain; normalization inside a speech model can still apply. Your dictionary and snippets remain active.</small></div><select id="workflowCleanup" aria-label="Default cleanup"><option value="light">Light cleanup</option><option value="original">Original recognition</option></select></div>
-            <div class="row"><div class="k"><label for="workflowFillers">Remove English pause words</label><small>Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.</small></div><input id="workflowFillers" type="checkbox"/></div>
-            <div class="row"><div class="k"><label for="workflowChineseFillers">Remove Chinese pause words</label><small>Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.</small></div><input id="workflowChineseFillers" type="checkbox"/></div>
+            <div class="row"><div class="k"><label for="workflowFillers">Remove English pause words</label><small>Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History.</small></div><input id="workflowFillers" type="checkbox"/></div>
+            <div class="row"><div class="k"><label for="workflowChineseFillers">Remove Chinese pause words</label><small>Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History.</small></div><input id="workflowChineseFillers" type="checkbox"/></div>
           </div>
           <details class="card" id="workflowDetails" style="margin-top:14px"><summary>Application profiles &amp; local diagnostics</summary>
             <p class="fine">Applied at the start of each dictation. Exact executable filename on Windows (e.g. Code.exe), bundle ID on macOS. Never matched by window title or website.</p>
@@ -1012,7 +1069,7 @@
             <p class="fine">Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.</p>
             <div class="migration-tools"><label>Maximum entries <input id="workflowMaxEntries" class="field" type="number" min="0" max="10000000" step="1"/></label><label>Maximum MiB <input id="workflowMaxMiB" class="field" type="number" min="0" max="1048576" step="1"/></label></div>
             <p class="fine">0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.</p>
-            <div class="migration-tools"><button class="setbtn" id="workflowSave">Save workflow settings</button><button class="setbtn" id="workflowReload">Reload saved settings</button></div><p id="workflowMessage" role="status" class="note"></p>
+            <p id="workflowMessage" role="status" class="note"></p>
           </details>
         </div>
         <div class="settings-pane" data-settings-pane="system">
@@ -1405,8 +1462,24 @@
       "Dictation controls":"听写控制",
       "Choose the on-device model that matches what you speak.":"选择与你所说语言匹配的本地模型。",
       "Recognition model":"识别模型",
-      "First setup · Spoken language":"首次设置 · 常用语言",
-      "Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.":"直接在下方选择。接下来会用简短的气泡导览指出 VocalCode 的重要区域。",
+      "Step 1 of 3 · Spoken language":"第 1 步，共 3 步 · 常用语言",
+      "Choose below. Its speech model downloads while you set up your talk key.":"在下方选择。你设置说话键的同时，对应的语音模型就会开始下载。",
+      "Step 2 of 3 · Talk key":"第 2 步，共 3 步 · 说话键",
+      "Hold the key you want to talk with":"选好按住说话的键",
+      "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"按住说话键时 VocalCode 才会听，松开后把你说的话输入到光标处。已设置的键：",
+      "Add another key":"添加其他按键",
+      "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"很多笔记本键盘没有右 Ctrl 键。如果你的键盘也没有，请再添加一个按键。",
+      "You can change these at any time in Shortcuts.":"之后随时可以在“快捷键”中更改。",
+      "Step 3 of 3 · Try it":"第 3 步，共 3 步 · 试一试",
+      "Your words appear here":"你说的话会出现在这里",
+      "Try dictating here":"在这里试试听写",
+      "Skip for now":"暂时跳过",
+      "Finish":"完成",
+      "VocalCode still needs permission to hear you and type. Skip for now, then grant it from the banner in Settings.":"VocalCode 还需要权限才能听到你说话并输入文字。可以先跳过，再到设置顶部的提示条中授权。",
+      "Your speech model is still getting ready. You can try it as soon as it is, or skip and keep going.":"语音模型还在准备中，准备好就能试；也可以先跳过。",
+      "Click in the box, hold your talk key and say a sentence. Let go to insert it.":"点一下输入框，按住说话键说一句话，松开就会输入。",
+      "Click in the box, press your talk key, say a sentence, then press it again.":"点一下输入框，按一下说话键，说一句话，再按一下结束。",
+      "It works. VocalCode heard: “{text}”":"成功了！VocalCode 听到的是：“{text}”",
       "Mandarin Chinese + English":"普通话 + English",
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"欧洲语言偏好共用 Parakeet。中文和英文提供经过实测的 CPU 模型选择；印地语使用经过测试的 Qwen3-ASR 路由。推荐模型可以手动更改。",
       "Take the tour":"查看导览",
@@ -1599,16 +1672,43 @@
       "Copy":"复制",
       "Remove Chinese pause words":"去除中文停顿词",
       "Chinese pause words":"中文停顿词",
-      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.":"可选，需将口语语言选为中文：去除逗号隔开的“呃”和部分句中“嗯”。保留句首或独立的“嗯”、重复回应“嗯嗯”、“啊”及确认回复。仅用于松开后整句输入，历史记录可查看清理前文本。请在下方保存工作流设置。",
+      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History.":"可选，需将口语语言选为中文：去除逗号隔开的“呃”和部分句中“嗯”。保留句首或独立的“嗯”、重复回应“嗯嗯”、“啊”及确认回复。仅用于松开后整句输入，历史记录可查看清理前文本。",
       "Reading view only: English or Chinese pause words may be removed. Saved transcripts and exports remain original.":"仅改变阅读显示：可能去除英文或中文停顿词。已保存的转写稿与导出文件仍保留原文。",
       "Reading view hides punctuation-only fragments and may remove English or Chinese pause words. Saved transcripts and exports remain original.":"阅读版会隐藏仅含标点的片段，并可能去除中英文停顿词。已保存的转写稿与导出文件仍保留原文。",
       "punctuation-only fragments hidden":"个纯标点片段已隐藏",
       "non-speech or punctuation-only fragments filtered":"个非语音或纯标点片段已过滤",
       "Review: little text in a long audio segment; not a confidence score.":"请复核：较长音频只识别出少量文字；这不是置信度评分。",
       "Remove English pause words":"去除英文停顿词",
-      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.":"可选：去除 um、uh、erm、uhm。需将口语语言选为英语；仅用于松开后整句输入，不改变流式输入及会议原稿。可在历史记录查看、复制清理前的识别文本。请在下方保存工作流设置。",
+      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History.":"可选：去除 um、uh、erm、uhm。需将口语语言选为英语；仅用于松开后整句输入，不改变流式输入及会议原稿。可在历史记录查看、复制清理前的识别文本。",
       "English pause words":"英文停顿词",
       "Remove conservatively":"保守去除",
+      "Light cleanup fixes casing and spoken acronyms. Original bypasses this chain; normalization inside a speech model can still apply. Your dictionary and snippets remain active.":"轻度整理会修正大小写和口述的缩写词；选原始识别则跳过这一步，但语音模型自带的规范化仍可能起作用。词典和词块照常生效。",
+      "Light cleanup":"轻度整理",
+      "Original recognition":"原始识别",
+      "Default cleanup":"默认整理方式",
+      "Application profiles & local diagnostics":"按应用设置与本地诊断",
+      "Applied at the start of each dictation. Exact executable filename on Windows (e.g. Code.exe), bundle ID on macOS. Never matched by window title or website.":"每次开始听写时生效。Windows 上填写准确的可执行文件名（如 Code.exe），macOS 上填写 Bundle ID。不会按窗口标题或网站匹配。",
+      "Application identity":"应用标识",
+      "Application cleanup":"该应用的整理方式",
+      "Progressive":"渐进式输入",
+      "Global setting":"跟随全局设置",
+      "On":"开启",
+      "Keep":"保留",
+      "Add / replace profile":"添加或替换",
+      "Save encrypted text diagnostics on this device":"在本机保存加密的文字诊断记录",
+      "Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.":"默认关闭。会保存原始识别文本、整理后的最终文本、模型、应用标识和耗时，不保存音频或窗口标题。Windows 上用当前账户加密，macOS 上用钥匙串保护的密钥加密。关闭后不再记录新条目，已有文件会保留。",
+      "Maximum entries":"最多条数",
+      "Maximum MiB":"最大容量（MiB）",
+      "0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.":"0 表示不限制。不会按时间自动删除。达到上限后保留已有记录，并暂停记录新的诊断。不设上限可能会占满磁盘。",
+      "Saved. Applies to the next dictation.":"已保存，下次听写时生效。",
+      "Text history is on.":"文字记录已开启。",
+      "Text history is off.":"文字记录已关闭。",
+      "Saved records":"已保存记录",
+      "Latest":"最新一条",
+      "none yet":"暂无",
+      "Workflow settings were changed elsewhere.":"工作流设置已在别处被修改。",
+      "The saved settings were reloaded; make the change again.":"已重新载入保存的设置，请再改一次。",
+      "Enter a whole number; 0 means unlimited.":"请输入整数，0 表示不限制。",
       "Clean reading view":"清爽阅读版",
       "Original transcript":"原始转写稿",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"仅改变阅读显示：可能去除英文停顿词。已保存的转写稿与导出文件仍保留原文。",
@@ -2102,8 +2202,24 @@
       "Dictation controls":"Controles de dictado",
       "Choose the on-device model that matches what you speak.":"Elige el modelo local que corresponda a lo que hablas.",
       "Recognition model":"Modelo de reconocimiento",
-      "First setup · Spoken language":"Configuración inicial · Idioma hablado",
-      "Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.":"Elige directamente abajo. Después, una breve guía señalará las partes importantes de VocalCode.",
+      "Step 1 of 3 · Spoken language":"Paso 1 de 3 · Idioma hablado",
+      "Choose below. Its speech model downloads while you set up your talk key.":"Elige abajo. Su modelo de voz se descarga mientras configuras tu tecla para hablar.",
+      "Step 2 of 3 · Talk key":"Paso 2 de 3 · Tecla para hablar",
+      "Hold the key you want to talk with":"Mantén la tecla con la que quieres hablar",
+      "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode solo escucha mientras mantienes pulsada una tecla para hablar y luego escribe lo que dijiste donde está el cursor. Estas teclas ya están configuradas:",
+      "Add another key":"Añadir otra tecla",
+      "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Muchos portátiles no tienen Ctrl derecha. Si el tuyo no la tiene, añade otra tecla.",
+      "You can change these at any time in Shortcuts.":"Puedes cambiarlas cuando quieras en Atajos.",
+      "Step 3 of 3 · Try it":"Paso 3 de 3 · Pruébalo",
+      "Your words appear here":"Tus palabras aparecen aquí",
+      "Try dictating here":"Prueba a dictar aquí",
+      "Skip for now":"Omitir por ahora",
+      "Finish":"Terminar",
+      "VocalCode still needs permission to hear you and type. Skip for now, then grant it from the banner in Settings.":"VocalCode aún necesita permiso para oírte y escribir. Omite este paso por ahora y concédelo desde el aviso de Ajustes.",
+      "Your speech model is still getting ready. You can try it as soon as it is, or skip and keep going.":"Tu modelo de voz aún se está preparando. Podrás probarlo en cuanto esté listo, o puedes omitir este paso y seguir.",
+      "Click in the box, hold your talk key and say a sentence. Let go to insert it.":"Haz clic en el cuadro, mantén pulsada tu tecla para hablar y di una frase. Suéltala para insertarla.",
+      "Click in the box, press your talk key, say a sentence, then press it again.":"Haz clic en el cuadro, pulsa tu tecla para hablar, di una frase y vuelve a pulsarla.",
+      "It works. VocalCode heard: “{text}”":"Funciona. VocalCode oyó: «{text}»",
       "Mandarin Chinese + English":"Chino mandarín + inglés",
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Las preferencias europeas comparten Parakeet. Chino e inglés ofrecen opciones de CPU medidas; hindi usa la ruta Qwen3-ASR probada. Las recomendaciones se pueden cambiar.",
       "Take the tour":"Ver la guía",
@@ -2228,12 +2344,39 @@
       "Copy":"Copiar",
       "Remove Chinese pause words":"Eliminar muletillas en chino",
       "Chinese pause words":"Muletillas en chino",
-      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.":"Opcional, con chino seleccionado: elimina 呃 entre comas y algunos 嗯 internos. Conserva 嗯 inicial o aislado, 嗯嗯, 啊 y respuestas de confirmación. Solo al soltar. El reconocimiento original sigue en Historial. Guarda los ajustes abajo.",
+      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History.":"Opcional, con chino seleccionado: elimina 呃 entre comas y algunos 嗯 internos. Conserva 嗯 inicial o aislado, 嗯嗯, 啊 y respuestas de confirmación. Solo al soltar. El reconocimiento original sigue en Historial.",
       "Reading view only: English or Chinese pause words may be removed. Saved transcripts and exports remain original.":"Solo vista de lectura: puede eliminar muletillas en inglés o chino. Las transcripciones guardadas y exportadas conservan el original.",
       "Remove English pause words":"Eliminar muletillas en inglés",
-      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.":"Opcional: um, uh, erm, uhm. Selecciona inglés como idioma hablado. Solo al soltar; no cambia la inserción progresiva ni el original de las reuniones. Revisa y copia el reconocimiento original en Historial. Guarda los ajustes abajo.",
+      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History.":"Opcional: um, uh, erm, uhm. Selecciona inglés como idioma hablado. Solo al soltar; no cambia la inserción progresiva ni el original de las reuniones. Revisa y copia el reconocimiento original en Historial.",
       "English pause words":"Muletillas en inglés",
       "Remove conservatively":"Eliminación conservadora",
+      "Light cleanup fixes casing and spoken acronyms. Original bypasses this chain; normalization inside a speech model can still apply. Your dictionary and snippets remain active.":"La limpieza ligera corrige mayúsculas y siglas dictadas. Reconocimiento original omite este paso, aunque la normalización del propio modelo de voz puede seguir aplicándose. Tu diccionario y tus fragmentos siguen activos.",
+      "Light cleanup":"Limpieza ligera",
+      "Original recognition":"Reconocimiento original",
+      "Default cleanup":"Limpieza predeterminada",
+      "Application profiles & local diagnostics":"Perfiles por app y diagnóstico local",
+      "Applied at the start of each dictation. Exact executable filename on Windows (e.g. Code.exe), bundle ID on macOS. Never matched by window title or website.":"Se aplica al empezar cada dictado. Nombre exacto del ejecutable en Windows (p. ej. Code.exe) o bundle ID en macOS. Nunca se compara con el título de la ventana ni con sitios web.",
+      "Application identity":"Identidad de la app",
+      "Application cleanup":"Limpieza de la app",
+      "Progressive":"Escritura progresiva",
+      "Global setting":"Ajuste global",
+      "On":"Activado",
+      "Keep":"Conservar",
+      "Add / replace profile":"Añadir o reemplazar perfil",
+      "Save encrypted text diagnostics on this device":"Guardar diagnósticos de texto cifrados en este dispositivo",
+      "Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.":"Desactivado por defecto. Guarda el reconocimiento original, el texto limpio y final, el modelo, la identidad de la app y los tiempos; no guarda audio ni títulos de ventana. Cifrado con tu cuenta en Windows y con una clave protegida por el Llavero en macOS. Al desactivarlo no se guardan entradas nuevas, pero se conservan los archivos existentes.",
+      "Maximum entries":"Máximo de entradas",
+      "Maximum MiB":"Máximo en MiB",
+      "0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.":"0 significa sin límite. No se borra nada por antigüedad. Al llegar al límite se conservan los registros anteriores y se pausan los diagnósticos nuevos. Sin límite, el disco puede llenarse.",
+      "Saved. Applies to the next dictation.":"Guardado. Se aplica en el próximo dictado.",
+      "Text history is on.":"El historial de texto está activado.",
+      "Text history is off.":"El historial de texto está desactivado.",
+      "Saved records":"Registros guardados",
+      "Latest":"Último",
+      "none yet":"ninguno todavía",
+      "Workflow settings were changed elsewhere.":"Los ajustes de flujo de trabajo se cambiaron en otro lugar.",
+      "The saved settings were reloaded; make the change again.":"Se recargaron los ajustes guardados; vuelve a hacer el cambio.",
+      "Enter a whole number; 0 means unlimited.":"Escribe un número entero; 0 significa sin límite.",
       "Clean reading view":"Vista de lectura limpia",
       "Original transcript":"Transcripción original",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Solo vista de lectura: puede eliminar muletillas en inglés. Las transcripciones guardadas y exportadas conservan el original.",
@@ -2759,8 +2902,24 @@
       "Dictation controls":"Commandes de dictée",
       "Choose the on-device model that matches what you speak.":"Choisissez le modèle local correspondant à la langue parlée.",
       "Recognition model":"Modèle de reconnaissance",
-      "First setup · Spoken language":"Première configuration · Langue parlée",
-      "Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.":"Choisissez directement ci-dessous. Une courte visite guidée indiquera ensuite les zones importantes de VocalCode.",
+      "Step 1 of 3 · Spoken language":"Étape 1 sur 3 · Langue parlée",
+      "Choose below. Its speech model downloads while you set up your talk key.":"Choisissez ci-dessous. Son modèle vocal se télécharge pendant que vous réglez votre touche de dictée.",
+      "Step 2 of 3 · Talk key":"Étape 2 sur 3 · Touche de dictée",
+      "Hold the key you want to talk with":"Maintenez la touche avec laquelle vous voulez parler",
+      "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode n’écoute que pendant que vous maintenez une touche de dictée, puis tape ce que vous avez dit à l’emplacement du curseur. Ces touches sont déjà configurées :",
+      "Add another key":"Ajouter une autre touche",
+      "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Beaucoup de claviers de portables n’ont pas de Ctrl droit. Si c’est le cas du vôtre, ajoutez une autre touche.",
+      "You can change these at any time in Shortcuts.":"Vous pouvez les modifier à tout moment dans Raccourcis.",
+      "Step 3 of 3 · Try it":"Étape 3 sur 3 · Essayer",
+      "Your words appear here":"Vos mots apparaissent ici",
+      "Try dictating here":"Essayez de dicter ici",
+      "Skip for now":"Passer pour l’instant",
+      "Finish":"Terminer",
+      "VocalCode still needs permission to hear you and type. Skip for now, then grant it from the banner in Settings.":"VocalCode a encore besoin d’autorisations pour vous entendre et taper. Passez cette étape pour l’instant, puis accordez-les depuis le bandeau des Réglages.",
+      "Your speech model is still getting ready. You can try it as soon as it is, or skip and keep going.":"Votre modèle vocal est encore en préparation. Vous pourrez essayer dès qu’il sera prêt, ou passer cette étape et continuer.",
+      "Click in the box, hold your talk key and say a sentence. Let go to insert it.":"Cliquez dans la zone, maintenez votre touche de dictée et dites une phrase. Relâchez pour l’insérer.",
+      "Click in the box, press your talk key, say a sentence, then press it again.":"Cliquez dans la zone, appuyez sur votre touche de dictée, dites une phrase, puis appuyez de nouveau.",
+      "It works. VocalCode heard: “{text}”":"Ça marche. VocalCode a entendu : « {text} »",
       "Mandarin Chinese + English":"Chinois mandarin + anglais",
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Les préférences européennes partagent Parakeet. Le chinois et l’anglais proposent des choix CPU mesurés ; l’hindi utilise la route Qwen3-ASR testée. Les recommandations peuvent être modifiées.",
       "Take the tour":"Voir la visite",
@@ -2885,12 +3044,39 @@
       "Copy":"Copier",
       "Remove Chinese pause words":"Supprimer les hésitations en chinois",
       "Chinese pause words":"Hésitations en chinois",
-      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.":"Option, avec le chinois sélectionné : retire 呃 séparé par des virgules et certains 嗯 internes. Conserve 嗯 initial ou isolé, 嗯嗯, 啊 et les confirmations. À la fin uniquement. Texte reconnu original consultable dans l’historique. Enregistrez ci-dessous.",
+      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History.":"Option, avec le chinois sélectionné : retire 呃 séparé par des virgules et certains 嗯 internes. Conserve 嗯 initial ou isolé, 嗯嗯, 啊 et les confirmations. À la fin uniquement. Texte reconnu original consultable dans l’historique.",
       "Reading view only: English or Chinese pause words may be removed. Saved transcripts and exports remain original.":"Lecture uniquement : les hésitations anglaises ou chinoises peuvent être supprimées. Les transcriptions enregistrées et exportées restent originales.",
       "Remove English pause words":"Supprimer les hésitations en anglais",
-      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.":"Option : um, uh, erm, uhm. Choisissez l’anglais comme langue parlée. À la fin de la dictée uniquement ; insertion progressive et originaux des réunions inchangés. Consultez et copiez le texte reconnu avant nettoyage dans l’historique. Enregistrez les réglages ci-dessous.",
+      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History.":"Option : um, uh, erm, uhm. Choisissez l’anglais comme langue parlée. À la fin de la dictée uniquement ; insertion progressive et originaux des réunions inchangés. Consultez et copiez le texte reconnu avant nettoyage dans l’historique.",
       "English pause words":"Hésitations en anglais",
       "Remove conservatively":"Suppression prudente",
+      "Light cleanup fixes casing and spoken acronyms. Original bypasses this chain; normalization inside a speech model can still apply. Your dictionary and snippets remain active.":"Le nettoyage léger corrige la casse et les sigles dictés. Reconnaissance d’origine saute cette étape ; la normalisation propre au modèle vocal peut encore s’appliquer. Votre dictionnaire et vos extraits restent actifs.",
+      "Light cleanup":"Nettoyage léger",
+      "Original recognition":"Reconnaissance d’origine",
+      "Default cleanup":"Nettoyage par défaut",
+      "Application profiles & local diagnostics":"Profils par application et diagnostics locaux",
+      "Applied at the start of each dictation. Exact executable filename on Windows (e.g. Code.exe), bundle ID on macOS. Never matched by window title or website.":"Appliqué au début de chaque dictée. Nom exact de l’exécutable sous Windows (p. ex. Code.exe), identifiant de bundle sous macOS. Jamais associé au titre de la fenêtre ni au site web.",
+      "Application identity":"Identité de l’application",
+      "Application cleanup":"Nettoyage de l’application",
+      "Progressive":"Saisie progressive",
+      "Global setting":"Réglage global",
+      "On":"Activé",
+      "Keep":"Conserver",
+      "Add / replace profile":"Ajouter ou remplacer le profil",
+      "Save encrypted text diagnostics on this device":"Enregistrer des diagnostics texte chiffrés sur cet appareil",
+      "Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.":"Désactivé par défaut. Enregistre la reconnaissance brute, le texte nettoyé et final, le modèle, l’identité de l’application et les durées ; ni audio ni titres de fenêtre. Chiffré avec votre compte sous Windows, avec une clé protégée par le trousseau sous macOS. Désactiver arrête les nouvelles entrées mais conserve les fichiers existants.",
+      "Maximum entries":"Nombre maximal d’entrées",
+      "Maximum MiB":"Taille maximale (Mio)",
+      "0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.":"0 signifie illimité. Aucune suppression selon l’ancienneté. À la limite, les enregistrements existants sont conservés et les nouveaux diagnostics sont suspendus. Sans limite, le disque peut se remplir.",
+      "Saved. Applies to the next dictation.":"Enregistré. S’applique à la prochaine dictée.",
+      "Text history is on.":"L’historique texte est activé.",
+      "Text history is off.":"L’historique texte est désactivé.",
+      "Saved records":"Enregistrements",
+      "Latest":"Dernier",
+      "none yet":"aucun pour l’instant",
+      "Workflow settings were changed elsewhere.":"Les réglages de traitement ont été modifiés ailleurs.",
+      "The saved settings were reloaded; make the change again.":"Les réglages enregistrés ont été rechargés ; refaites la modification.",
+      "Enter a whole number; 0 means unlimited.":"Saisissez un nombre entier ; 0 signifie illimité.",
       "Clean reading view":"Vue de lecture épurée",
       "Original transcript":"Transcription originale",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Lecture uniquement : les hésitations anglaises peuvent être supprimées. Les transcriptions enregistrées et exportées restent originales.",
@@ -3416,8 +3602,24 @@
       "Dictation controls":"Diktiersteuerung",
       "Choose the on-device model that matches what you speak.":"Wähle das lokale Modell passend zu deiner gesprochenen Sprache.",
       "Recognition model":"Erkennungsmodell",
-      "First setup · Spoken language":"Ersteinrichtung · Gesprochene Sprache",
-      "Choose directly below. Next, a short guided tour will point out the important parts of VocalCode.":"Wähle direkt unten aus. Anschließend zeigt eine kurze Führung die wichtigsten Bereiche von VocalCode.",
+      "Step 1 of 3 · Spoken language":"Schritt 1 von 3 · Gesprochene Sprache",
+      "Choose below. Its speech model downloads while you set up your talk key.":"Wähle unten aus. Das passende Sprachmodell lädt, während du deine Sprechtaste einrichtest.",
+      "Step 2 of 3 · Talk key":"Schritt 2 von 3 · Sprechtaste",
+      "Hold the key you want to talk with":"Halte die Taste, mit der du sprechen willst",
+      "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode hört nur zu, solange du eine Sprechtaste hältst, und tippt das Gesagte dann an der Cursorposition ein. Diese Tasten sind bereits eingerichtet:",
+      "Add another key":"Weitere Taste hinzufügen",
+      "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Viele Laptop-Tastaturen haben keine rechte Strg-Taste. Falls deine keine hat, füge eine andere Taste hinzu.",
+      "You can change these at any time in Shortcuts.":"Du kannst sie jederzeit unter Kurzbefehle ändern.",
+      "Step 3 of 3 · Try it":"Schritt 3 von 3 · Ausprobieren",
+      "Your words appear here":"Deine Worte erscheinen hier",
+      "Try dictating here":"Hier Diktieren ausprobieren",
+      "Skip for now":"Vorerst überspringen",
+      "Finish":"Abschließen",
+      "VocalCode still needs permission to hear you and type. Skip for now, then grant it from the banner in Settings.":"VocalCode braucht noch Berechtigungen, um dich zu hören und zu tippen. Überspringe das vorerst und erteile sie dann über den Hinweis in den Einstellungen.",
+      "Your speech model is still getting ready. You can try it as soon as it is, or skip and keep going.":"Dein Sprachmodell wird noch vorbereitet. Du kannst es ausprobieren, sobald es bereit ist, oder diesen Schritt überspringen.",
+      "Click in the box, hold your talk key and say a sentence. Let go to insert it.":"Klicke in das Feld, halte deine Sprechtaste und sag einen Satz. Lass los, um ihn einzufügen.",
+      "Click in the box, press your talk key, say a sentence, then press it again.":"Klicke in das Feld, drück deine Sprechtaste, sag einen Satz und drück sie dann erneut.",
+      "It works. VocalCode heard: “{text}”":"Es funktioniert. VocalCode hat verstanden: „{text}“",
       "Mandarin Chinese + English":"Mandarin-Chinesisch + Englisch",
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Europäische Einstellungen teilen Parakeet. Für Chinesisch und Englisch gibt es gemessene CPU-Optionen; Hindi nutzt die getestete Qwen3-ASR-Route. Empfehlungen können geändert werden.",
       "Take the tour":"Führung starten",
@@ -3542,12 +3744,39 @@
       "Copy":"Kopieren",
       "Remove Chinese pause words":"Chinesische Fülllaute entfernen",
       "Chinese pause words":"Chinesische Fülllaute",
-      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History. Save workflow settings below.":"Optional bei gewähltem Chinesisch: entfernt komma-getrenntes 呃 und manche 嗯 im Satzinneren. Behält anfängliches oder alleinstehendes 嗯, 嗯嗯, 啊 und Bestätigungen. Nur nach dem Loslassen. Originalerkennung im Verlauf prüfen. Einstellungen unten speichern.",
+      "Optional, with Chinese selected: remove comma-separated 呃 and some medial 嗯. Keep initial or standalone 嗯, 嗯嗯, 啊, and acknowledgement replies. On-release only. Original recognition remains reviewable in History.":"Optional bei gewähltem Chinesisch: entfernt komma-getrenntes 呃 und manche 嗯 im Satzinneren. Behält anfängliches oder alleinstehendes 嗯, 嗯嗯, 啊 und Bestätigungen. Nur nach dem Loslassen. Originalerkennung im Verlauf prüfen.",
       "Reading view only: English or Chinese pause words may be removed. Saved transcripts and exports remain original.":"Nur Leseansicht: Englische oder chinesische Fülllaute können entfallen. Gespeicherte Transkripte und Exporte bleiben unverändert.",
       "Remove English pause words":"Englische Fülllaute entfernen",
-      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History. Save workflow settings below to apply.":"Optional: um, uh, erm, uhm. Englisch als gesprochene Sprache wählen. Nur nach dem Loslassen; schrittweise Eingabe und Meeting-Originale bleiben unverändert. Erkennung vor der Bereinigung im Verlauf ansehen und kopieren. Workflow-Einstellungen unten speichern.",
+      "Optional: um, uh, erm, uhm. Select English as the spoken language. On-release dictation only; progressive insertion and meeting originals stay unchanged. Review and copy recognition before cleanup in History.":"Optional: um, uh, erm, uhm. Englisch als gesprochene Sprache wählen. Nur nach dem Loslassen; schrittweise Eingabe und Meeting-Originale bleiben unverändert. Erkennung vor der Bereinigung im Verlauf ansehen und kopieren.",
       "English pause words":"Englische Fülllaute",
       "Remove conservatively":"Vorsichtig entfernen",
+      "Light cleanup fixes casing and spoken acronyms. Original bypasses this chain; normalization inside a speech model can still apply. Your dictionary and snippets remain active.":"Leichte Bereinigung korrigiert Groß- und Kleinschreibung sowie gesprochene Abkürzungen. Originalerkennung überspringt diesen Schritt; die Normalisierung im Sprachmodell selbst kann trotzdem greifen. Dein Wörterbuch und deine Textbausteine bleiben aktiv.",
+      "Light cleanup":"Leichte Bereinigung",
+      "Original recognition":"Originalerkennung",
+      "Default cleanup":"Standardbereinigung",
+      "Application profiles & local diagnostics":"App-Profile und lokale Diagnose",
+      "Applied at the start of each dictation. Exact executable filename on Windows (e.g. Code.exe), bundle ID on macOS. Never matched by window title or website.":"Gilt ab dem Beginn jedes Diktats. Exakter Programmdateiname unter Windows (z. B. Code.exe), Bundle-ID unter macOS. Nie nach Fenstertitel oder Website zugeordnet.",
+      "Application identity":"App-Kennung",
+      "Application cleanup":"Bereinigung für diese App",
+      "Progressive":"Progressive Eingabe",
+      "Global setting":"Globale Einstellung",
+      "On":"An",
+      "Keep":"Behalten",
+      "Add / replace profile":"Profil hinzufügen oder ersetzen",
+      "Save encrypted text diagnostics on this device":"Verschlüsselte Textdiagnose auf diesem Gerät speichern",
+      "Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.":"Standardmäßig aus. Speichert Roherkennung, bereinigten und finalen Text, Modell, App-Kennung und Zeiten; kein Audio und keine Fenstertitel. Unter Windows mit deinem Konto verschlüsselt, unter macOS mit einem durch den Schlüsselbund geschützten Schlüssel. Ausschalten stoppt neue Einträge, vorhandene Dateien bleiben erhalten.",
+      "Maximum entries":"Maximale Einträge",
+      "Maximum MiB":"Maximal MiB",
+      "0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.":"0 bedeutet unbegrenzt. Keine Löschung nach Alter. Am Limit bleiben frühere Einträge erhalten und neue Diagnosen pausieren. Ohne Limit kann die Festplatte volllaufen.",
+      "Saved. Applies to the next dictation.":"Gespeichert. Gilt ab dem nächsten Diktat.",
+      "Text history is on.":"Textverlauf ist an.",
+      "Text history is off.":"Textverlauf ist aus.",
+      "Saved records":"Gespeicherte Einträge",
+      "Latest":"Neuester",
+      "none yet":"noch keiner",
+      "Workflow settings were changed elsewhere.":"Die Workflow-Einstellungen wurden an anderer Stelle geändert.",
+      "The saved settings were reloaded; make the change again.":"Die gespeicherten Einstellungen wurden neu geladen; nimm die Änderung erneut vor.",
+      "Enter a whole number; 0 means unlimited.":"Gib eine ganze Zahl ein; 0 bedeutet unbegrenzt.",
       "Clean reading view":"Bereinigte Leseansicht",
       "Original transcript":"Originaltranskript",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Nur Leseansicht: Englische Fülllaute können entfallen. Gespeicherte Transkripte und Exporte bleiben unverändert.",
@@ -4169,23 +4398,34 @@
     "key:MetaRight": "Bound. Copy, paste and every other ⌘ shortcut still work — use the left ⌘ Command.",
   };
 
+  // A row can be on screen twice: first run's key step shows the same talk
+  // bindings, with the same Add, as Shortcuts. Every cell marked with the row's
+  // `data-cap` receives every prompt and answer, so the capture that one
+  // started is told truthfully in whichever one is visible.
+  function capCells(which){ return Array.from(document.querySelectorAll('[data-cap="'+which+'"]')); }
+  const capTimers={};
+  // The capture is still open: say what it is waiting for, or what it saw.
+  function capPrompt(which, msg){
+    clearTimeout(capTimers[which]);
+    capCells(which).forEach(cell=>{ cell.textContent=msg; cell.classList.add("capturing"); });
+  }
   // `ms` is for the notes that cost the user something. 2.6s is enough to read
   // "already bound"; it is not enough to read that you have just given away
   // copy and paste, and that one has to be read.
   function capNote(which, msg, ms){
-    const cell=document.getElementById(which+"Cap");
-    cell.textContent=msg;
-    cell.classList.remove("capturing");
-    clearTimeout(cell._capMsg);
-    cell._capMsg=setTimeout(()=>showCap(which), ms||2600);
+    capCells(which).forEach(cell=>{ cell.textContent=msg; cell.classList.remove("capturing"); });
+    clearTimeout(capTimers[which]);
+    capTimers[which]=setTimeout(()=>showCap(which), ms||2600);
   }
   function showCap(which){
-    const c=document.getElementById(which+"Cap");
+    const list=bindList(which);
+    // Home and first run echo the talk key, so they follow every rebind.
+    if(which==="talk"){ refreshHomeKey(); renderFirstRunKeyWarning(); }
+    capCells(which).forEach(c=>renderCapCell(which, c, list));
+  }
+  function renderCapCell(which, c, list){
     c.classList.remove("capturing");
     c.textContent="";
-    const list=bindList(which);
-    // Home echoes the talk key, so it has to follow every rebind.
-    if(which==="talk") refreshHomeKey();
     if(!list.length){
       const none=document.createElement("span");
       none.className="none"; none.textContent=t("Not bound");
@@ -4217,7 +4457,7 @@
     });
   }
   document.querySelectorAll(".setbtn[data-for]").forEach(b=>b.onclick=()=>{
-    const which=b.dataset.for, c=document.getElementById(which+"Cap");
+    const which=b.dataset.for;
     // Give the focus back. A clicked button keeps DOM focus, and a focused
     // button is activated by Space and Enter — including the Enter this very
     // app injects after tap-to-send. With our window frontmost, every such
@@ -4229,8 +4469,7 @@
     // into the NEW capture and wipe its prompt while the hook kept waiting —
     // the invisible-prompt failure, triggered by following the UI's own
     // instruction.
-    clearTimeout(c._capMsg);
-    c.textContent=t("Press a key or device button…"); c.classList.add("capturing");
+    capPrompt(which, t("Press a key or device button…"));
     armPageCapture(which);
     send({type:"capture", which});
   });
@@ -4256,6 +4495,35 @@
     e.preventDefault(); e.stopPropagation();
     send({type:"capture_key", which:pageCaptureWhich, code:e.code});
   }, true);
+  // The talk key has the same hole. Held in one of this window's own text
+  // fields — first run's "Try it" box, the dictionary, the scratchpad — it
+  // never reached the hook, so it did nothing. The page forwards the edges; the
+  // host drops this copy whenever the hook did see the key, so it cannot fire
+  // twice. Only a focused text field counts: anywhere else the words have
+  // nowhere to go and a stray press would end up on the clipboard.
+  const pageTalkHeld=new Set();
+  function pageTextFieldFocused(){
+    const el=document.activeElement;
+    if(!el || el.disabled || el.readOnly) return false;
+    if(el.isContentEditable || el.tagName==="TEXTAREA") return true;
+    return el.tagName==="INPUT" && /^(text|search|url|email|number)$/.test(el.type||"text");
+  }
+  window.addEventListener("keydown",function(e){
+    if(pageCaptureWhich || !e.code) return;
+    // Auto-repeat of a held talk key must not type into the field either.
+    if(pageTalkHeld.has(e.code)){ e.preventDefault(); return; }
+    if(e.repeat || bindList("talk").indexOf("key:"+e.code)<0 || !pageTextFieldFocused()) return;
+    pageTalkHeld.add(e.code);
+    e.preventDefault();
+    send({type:"page_talk", code:e.code, pressed:true});
+  }, true);
+  function releasePageTalk(code){
+    if(!pageTalkHeld.delete(code)) return;
+    send({type:"page_talk", code:code, pressed:false});
+  }
+  window.addEventListener("keyup",function(e){ releasePageTalk(e.code); }, true);
+  // A keyup that happens after focus has left this window never arrives here.
+  window.addEventListener("blur",function(){ Array.from(pageTalkHeld).forEach(releasePageTalk); });
   // Escape is the one universal way out. During trigger capture it belongs to
   // the capture state machine; in the tiny Teach capsule it cancels the
   // capsule; everywhere else it minimises Settings immediately.
@@ -4279,7 +4547,6 @@
     // that discarded it.
     send({type:"captured_ack", which:which, code:code});
     try{
-    const cell=document.getElementById(which+"Cap");
     // The hook is still waiting; this is only telling us what it saw. A key
     // that arrives as a mouse click means something between the keyboard and
     // Windows is rewriting it — remapping software, a gaming profile, a macro.
@@ -4292,8 +4559,7 @@
     // rewriting their keys, every time they click, is worse than saying
     // nothing. The remapping case is real but rare, so it goes second.
     if(code==="mouse_click"){
-      cell.textContent = t("A click can't be bound — still waiting for a key or device button.");
-      cell.classList.add("capturing");
+      capPrompt(which, t("A click can't be bound — still waiting for a key or device button."));
       return;
     }
     // A held modifier is only a candidate — it binds when released alone, and
@@ -4301,9 +4567,7 @@
     // this line, a modifier that visibly keeps doing its old job reads as
     // "the listener is broken".
     if(code.indexOf("pending:")===0){
-      cell.textContent = t("Release to bind")+" — "+labelFor(code.slice(8));
-      cell.classList.add("capturing");
-      clearTimeout(cell._capMsg);
+      capPrompt(which, t("Release to bind")+" — "+labelFor(code.slice(8)));
       return;
     }
     // An already-bound control no longer spends the capture: the host lets it
@@ -4313,11 +4577,9 @@
       var brest=code.slice(6), bsep=brest.indexOf(":");
       var brole=brest.slice(0,bsep), bcode=brest.slice(bsep+1);
       var BROLE={talk:"push-to-talk",send:"tap-to-send",teach:"teach a word"};
-      cell.textContent = brole===which
+      capPrompt(which, brole===which
         ? labelFor(bcode)+" — "+t("Already bound here; no need to add it again.")
-        : t("That key is already bound to")+" "+t(BROLE[brole]||brole);
-      cell.classList.add("capturing");
-      clearTimeout(cell._capMsg);
+        : t("That key is already bound to")+" "+t(BROLE[brole]||brole));
       return;
     }
     // The hook stopped waiting on its own. Saying so is the whole point: this
@@ -4332,9 +4594,7 @@
     // a candidate, so the "Release to bind" promise above must be retracted.
     // Back to the waiting prompt, which is the truth — still capturing.
     if(code==="chord"){
-      cell.textContent = t("Press a key or device button…");
-      cell.classList.add("capturing");
-      clearTimeout(cell._capMsg);
+      capPrompt(which, t("Press a key or device button…"));
       return;
     }
     // Same shape as the click above, and for the same reason. An answer the
@@ -4345,14 +4605,12 @@
     // a row that looked idle, and got nothing. That is the invisible-prompt
     // failure again, arrived at from the other side.
     if(code==="typing_key" || code==="unsupported"){
-      cell.textContent = t(code==="typing_key"
+      capPrompt(which, t(code==="typing_key"
         ? "Can't use letters or digits — try ⌥ ⌃ ⇧ ⌘, an F-key, or an arrow key"
-        : "That key can't be used — try ⌥ ⌃ ⇧ ⌘, an F-key, or an arrow key");
-      cell.classList.add("capturing");
-      clearTimeout(cell._capMsg);
+        : "That key can't be used — try ⌥ ⌃ ⇧ ⌘, an F-key, or an arrow key"));
       return;
     }
-    clearTimeout(cell._capMsg);
+    clearTimeout(capTimers[which]);
     // Everything above kept the capture open and returned; reaching here means
     // it is over — either a real binding or Escape — so stop swallowing keys.
     disarmPageCapture();
@@ -4802,26 +5060,19 @@
   }
 
   function renderLangs(){
-    var talkHint = document.getElementById("frTalkHint");
-    if (talkHint) {
-      var talkLabels = bindList("talk").map(labelFor);
-      talkHint.textContent = talkLabels.length
-        ? talkLabels.join(" " + t("or") + " ")
-        : t("Choose a talk control in Triggers before dictating.");
-    }
     renderLanguageButtons("frLanguageGrid",true);
     renderLanguageButtons("languageGrid",false);
     updateModelRoute();
     renderModelChoices();
   }
 
-  var onboardingStep=0, tourIndex=-1, tourTarget=null;
+  // First run has already put the key under the person's hand and had them
+  // use it, so the tour no longer walks through the talk key, the language or
+  // the settings page. It points at the two places worth coming back to.
+  var tourIndex=-1, tourTarget=null;
   var TOUR_STEPS=[
-    {selector:".home-shortcut",title:"Hold your key and speak",copy:"One simple flow — no mode or menu to open first."},
     {selector:".nav[data-panel='triggers']",title:"Your shortcuts live here",copy:"Change talk, send, or Teach a word controls here."},
-    {selector:".nav[data-panel='language']",title:"Choose what you speak",copy:"VocalCode picks the matching on-device model automatically."},
-    {selector:".nav[data-panel='writing']",title:"Format with your voice",copy:"Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app."},
-    {selector:".nav[data-panel='behaviour']",title:"Fine-tune VocalCode here",copy:"Audio, insertion, startup, updates, and app language all live in Settings."}
+    {selector:".nav[data-panel='writing']",title:"Format with your voice",copy:"Turn on “new line”, “scratch that”, spoken lists or “press enter”, and pick a style per app."}
   ];
 
   function clearTourTarget(){
@@ -4883,15 +5134,46 @@
     if(moveFocus!==false) focusActivePanelHeading();
   }
 
+  // FIRST RUN
+  // Three steps, each ending in something the person did rather than read:
+  // choose a language (its model starts downloading), see the talk key and
+  // replace it if this keyboard lacks it, then dictate once into a box on this
+  // page. Before, first run only picked a language and the tour pointed at
+  // the navigation, so nobody was ever shown the key, let alone tried it.
+  var onboardingStep=0;
+  // Set once the language is chosen. From then on the page is ahead of the
+  // host, whose status says `onboarded=false` until that save lands and `true`
+  // for the rest of first run — neither may close or restart the later steps.
+  // A rejected language save clears it and reopens step 1.
+  var firstRunAhead=false;
+  var FIRST_RUN_STEPS=[null,
+    {id:"frLanguageStep",title:"firstRunTitle"},
+    {id:"frKeyStep",title:"frKeyTitle"},
+    {id:"frTryStep",title:"frTryTitle"}];
+  var firstRunTry={mark:null, heard:"", status:null, ready:false};
+
   function showOnboardingStep(step){
-    onboardingStep=step;
     var first=document.getElementById("firstrun"), app=document.querySelector(".app");
     var open=step>0, wasOpen=!!(first && first.classList.contains("show"));
-    if(first) first.classList.toggle("show",open);
+    // Status arrives many times a second while a model downloads. Re-showing
+    // the step already on screen must not pull focus back to its title.
+    if(step===onboardingStep && open===wasOpen) return;
+    onboardingStep=step;
+    FIRST_RUN_STEPS.forEach(function(s,i){
+      var el=s && document.getElementById(s.id);
+      if(el) el.hidden=i!==step;
+    });
+    if(first){
+      first.classList.toggle("show",open);
+      if(open) first.setAttribute("aria-labelledby",FIRST_RUN_STEPS[step].title);
+    }
     if(app) app.inert=open;
+    if(step===2) renderFirstRunKeyWarning();
+    if(step===3) enterFirstRunTry();
     if(open) setTimeout(function(){
-      var title=document.getElementById("firstRunTitle");
-      if(title) title.focus({preventScroll:true});
+      if(onboardingStep!==step) return;
+      var target=document.getElementById(step===3 && firstRunTry.ready ? "frTryBox" : FIRST_RUN_STEPS[step].title);
+      if(target) target.focus({preventScroll:true});
       if(first) first.scrollTop=0;
       if(first && first.firstElementChild) first.firstElementChild.scrollTop=0;
     },0);
@@ -4899,9 +5181,9 @@
   }
 
   function setOnboarding(on){
-    // After the language transaction starts, host status can briefly still say
-    // `onboarded=false`. The guided tour owns that short interval, so do not
-    // throw the full-screen language picker back over it.
+    if(firstRunAhead) return;
+    // The guided tour runs right after first run, while status may still be
+    // catching up; do not throw the language picker back over it.
     if(on){ if(tourIndex<0) showOnboardingStep(1); }
     else showOnboardingStep(0);
   }
@@ -4909,12 +5191,122 @@
   function pickLang(code){
     var changesModel = selectLanguage(code);
     cfg.onboarded = true;
+    firstRunAhead = true;
     // Use the same acknowledged transaction as every other setting. If the
     // write or model/device apply fails, vocalcodeConfigResult rolls this state
     // back and reopens onboarding instead of leaving the page ahead of disk.
-    save(true); renderLangs(); showOnboardingStep(0); startTour();
+    // The model downloads while the key step is on screen.
+    save(true); renderLangs(); showOnboardingStep(2);
     showLanguageApplyNote(changesModel);
   }
+
+  function finishFirstRun(){
+    firstRunAhead=false;
+    showOnboardingStep(0);
+    startTour();
+  }
+
+  // Right Ctrl is the keyboard half of the Windows default, and plenty of
+  // laptops have none. Say so while it is the only keyboard key that talks;
+  // a mouse button alone is no help to someone on a bare laptop. On a Mac the
+  // default has Right Option, and a Right Ctrl there was bound by pressing it.
+  function renderFirstRunKeyWarning(){
+    var warn=document.getElementById("frTalkWarn");
+    if(!warn) return;
+    var keys=bindList("talk").filter(function(code){ return code.indexOf("key:")===0; });
+    warn.hidden=!(OS!=="macos" && keys.length===1 && keys[0]==="key:ControlRight");
+  }
+
+  // Identity of the newest History entry. History holds every finished
+  // dictation, so a new one is proof the whole path worked: the key reached
+  // the engine, the microphone heard speech and the model returned text.
+  function firstRunHistoryMark(list){
+    var first=Array.isArray(list) && list[0];
+    if(!first) return "";
+    return list.length+"|"+(Array.isArray(first) ? first[0]+"|"+first[1] : first.at+"|"+first.text);
+  }
+  function firstRunHistoryText(list){
+    var first=Array.isArray(list) && list[0];
+    if(!first) return "";
+    var text=Array.isArray(first) ? first[1] : first.text;
+    return typeof text==="string" ? text : "";
+  }
+  function enterFirstRunTry(){
+    // Only a dictation finished from here on counts. History can already hold
+    // earlier ones — persistent diagnostics reload it at start.
+    if(!firstRunTry.heard) firstRunTry.mark=firstRunHistoryMark(hist);
+    renderFirstRunTry(null);
+  }
+  function renderFirstRunTry(s){
+    if(s) firstRunTry.status=s;
+    if(onboardingStep!==3) return;
+    s=firstRunTry.status||{};
+    var copy=document.getElementById("frTryCopy"), dl=document.getElementById("frTryDl"),
+        box=document.getElementById("frTryBox"), heard=document.getElementById("frTryHeard"),
+        done=document.getElementById("frTryDone");
+    // Whether the words also landed in the box depends on focus, so the box
+    // is not the signal; the History entry is.
+    if(!firstRunTry.heard && firstRunTry.mark!==null && firstRunHistoryMark(hist)!==firstRunTry.mark){
+      var text=firstRunHistoryText(hist).trim();
+      if(text) firstRunTry.heard=text;
+    }
+    var needsPermission=s.permissions_ok===false, ready=s.ready===true && !needsPermission;
+    if(needsPermission){
+      copy.textContent=t("VocalCode still needs permission to hear you and type. Skip for now, then grant it from the banner in Settings.");
+    }else if(!ready){
+      copy.textContent=t("Your speech model is still getting ready. You can try it as soon as it is, or skip and keep going.");
+    }else{
+      copy.textContent=t(cfg.talk_mode==="toggle"
+        ? "Click in the box, press your talk key, say a sentence, then press it again."
+        : "Click in the box, hold your talk key and say a sentence. Let go to insert it.");
+    }
+    renderFirstRunTryKeys(ready);
+    dl.hidden=ready || needsPermission;
+    if(!dl.hidden){
+      var download=s.download, progress=download ? Math.max(0,Math.min(100,Number(download.pct)||0)) : 0;
+      setTextIfChanged(document.getElementById("frTryDlLabel"),
+        download ? t("Downloading")+" "+download.label+" …" : t("Preparing the speech model — downloading verified files when needed."));
+      setTextIfChanged(document.getElementById("frTryDlPct"),download ? progress.toFixed(0)+"%" : "");
+      document.getElementById("frTryDlBar").style.width=progress.toFixed(1)+"%";
+    }
+    box.disabled=!ready;
+    // Put the cursor in the box the moment it can be used, unless the person
+    // has already moved on to a button.
+    if(ready && !firstRunTry.ready){
+      var active=document.activeElement;
+      if(!active || active===document.body || active.id==="frTryTitle") box.focus({preventScroll:true});
+    }
+    firstRunTry.ready=ready;
+    heard.hidden=!firstRunTry.heard;
+    if(firstRunTry.heard) setTextIfChanged(heard,t("It works. VocalCode heard: “{text}”").split("{text}").join(firstRunTry.heard));
+    done.disabled=!firstRunTry.heard;
+  }
+
+  // The keys to press, as the chips the rest of the app shows them as. Rebuilt
+  // only when they change: status arrives many times a second.
+  function renderFirstRunTryKeys(ready){
+    var host=document.getElementById("frTryKeys");
+    var labels=bindList("talk").map(labelFor);
+    host.hidden=!ready || !labels.length;
+    if(host.dataset.labels===labels.join("\n")) return;
+    host.dataset.labels=labels.join("\n");
+    host.textContent="";
+    labels.forEach(function(label){
+      var chip=document.createElement("span");
+      chip.className="keycap"; chip.textContent=label;
+      host.appendChild(chip);
+    });
+  }
+
+  document.querySelectorAll("[data-fr-back]").forEach(function(button){
+    button.onclick=function(){ if(onboardingStep>1) showOnboardingStep(onboardingStep-1); };
+  });
+  document.getElementById("frKeyNext").onclick=function(){ showOnboardingStep(3); };
+  // Finishing needs a dictation that worked; skipping is always allowed, since
+  // the model can still be downloading and the key cannot be forced to work.
+  document.getElementById("frTryDone").onclick=function(){ if(firstRunTry.heard) finishFirstRun(); };
+  document.getElementById("frTrySkip").onclick=finishFirstRun;
+  // END FIRST RUN
 
   document.getElementById("tourReplay").onclick=startTour;
   document.getElementById("tourSkip").onclick=function(){ stopTour(); };
@@ -5248,6 +5640,7 @@
         sub.textContent = t("Works with most supported desktop text fields");
       }
     }
+    renderFirstRunTry(s);
     if(s.model) document.getElementById("stModel").textContent = s.model.split(" · ")[0];
     // permissions_ok is always true off macOS, so this banner never shows there.
     document.getElementById("perm").classList.toggle("on", s.permissions_ok===false);
@@ -5388,7 +5781,7 @@
       // the next request instead of being erased by a late acknowledgement.
       rollbackRejected(host,completed.snapshot);
       confirmedCfg=host;
-      if(cfg.onboarded===false){ stopTour(false); onboardingStep=0; }
+      if(cfg.onboarded===false){ stopTour(false); firstRunAhead=false; onboardingStep=0; }
       renderConfigState();
       toast(t(msg));
     }
@@ -5999,7 +6392,12 @@
   function changeCalendarLink(op){const id=selectedCalendarMeeting();if(!calendarLinkState||calendarLinkState.meeting_id!==id){calendarEl("calendarAssociation").textContent=t("Load the selected meeting's association first.");return;}calendarRequest(op,{meeting_id:id,revision:calendarLinkState.revision,key:calendarEl("calendarEvent").value});}
   calendarEl("calendarLink").onclick=()=>changeCalendarLink("link");calendarEl("calendarUnlink").onclick=()=>changeCalendarLink("unlink");
 
-  let workflowBusy=false,workflowId=0,workflowRevision="",workflowPrefs=null,diagnosticOffset=0,diagnosticTotal=0,workflowWatchdog=null;
+  let workflowBusy=false,workflowId=0,workflowOp="",workflowRevision="",workflowPrefs=null,diagnosticOffset=0,diagnosticTotal=0,workflowWatchdog=null;
+  // Workflow settings save as they change, like every other setting; there is
+  // no Save button to forget. Edits wait here by field until the one request
+  // the host accepts at a time is free, then go out bound to the revision they
+  // were made against. `workflowSending` is the part inside that request.
+  let workflowEdits={},workflowSending=null,workflowSaveTimer=null,workflowNotice="";
   const workflowEl=id=>document.getElementById(id);
   let rewriteBefore=null,rewriteAccepted=null,rewritePendingSource=null,rewriteCandidateSource=null;
   function rewriteSize(){const source=workflowEl("rewriteSource").value;workflowEl("rewriteSize").textContent=utf8Bytes(source)+" / 3000 "+t("UTF-8 bytes");return source.trim().length>0&&utf8Bytes(source)<=3000&&!source.includes("\0");}
@@ -6031,27 +6429,82 @@
     }
     return t(value);
   }
-  function workflowCommunicationFailed(id,message){if(id!==workflowId)return;workflowBusy=false;workflowId++;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;rewritePendingSource=null;for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(message);}
+  function workflowCommunicationFailed(id,message){if(id!==workflowId)return;workflowBusy=false;workflowId++;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;rewritePendingSource=null;for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(message);
+    // A save whose outcome is unknown: drop the edits and show what is really
+    // saved. Reading is not a retry of the write.
+    if(workflowSending!==null){workflowSending=null;workflowEdits={};toast(t(message));workflowRequest("load");}}
   function workflowRequest(op,extra){
     if(workflowBusy)return; workflowBusy=true;
-    const id=++workflowId;
+    const id=++workflowId;workflowOp=op;
     // No automatic retry of writes or provider requests. A lost acknowledgement
     // must not lock the page forever; a late result cannot acknowledge a new request.
     if(op!=="export_history")workflowWatchdog=setTimeout(()=>workflowCommunicationFailed(id,"No confirmation received. Reload to verify the current state. Nothing was retried automatically."),120000);
     try{if(send(Object.assign({type:"workflow",op:op,id},extra||{})))return;}catch(_){}
     workflowCommunicationFailed(id,"Could not send the request. Nothing was retried automatically.");
   }
+  // What the controls show: saved, then in flight, then not yet sent.
+  function workflowView(){return Object.assign({},workflowPrefs||{},workflowSending||{},workflowEdits);}
+  function editWorkflow(field,value){
+    workflowEdits[field]=value;
+    clearTimeout(workflowSaveTimer);workflowSaveTimer=setTimeout(flushWorkflowSave,250);
+  }
+  function flushWorkflowSave(){
+    clearTimeout(workflowSaveTimer);workflowSaveTimer=null;
+    // While busy, the result that frees the page sends these.
+    if(workflowBusy||!Object.keys(workflowEdits).length)return;
+    // Never loaded (the startup read failed): a save must name the revision it
+    // replaces, so read first. That result sends these edits.
+    if(!workflowPrefs){workflowRequest("load");return;}
+    workflowSending=workflowEdits;workflowEdits={};
+    workflowRequest("save",{revision:workflowRevision,preferences:Object.assign({},workflowPrefs,workflowSending)});
+  }
+  function renderWorkflowPrefs(){
+    const p=workflowView();
+    workflowEl("workflowCleanup").value=p.cleanup;
+    workflowEl("workflowFillers").checked=p.remove_fillers===true;
+    workflowEl("workflowChineseFillers").checked=p.chinese_fillers===true;
+    workflowEl("workflowDiagnostics").checked=p.diagnostics===true;
+    workflowEl("workflowMaxEntries").value=p.max_entries;
+    workflowEl("workflowMaxMiB").value=p.max_bytes/1048576;
+    renderWorkflowProfiles();
+  }
+  function workflowStorageLine(storage){
+    if(!storage)return "";
+    const state=t(workflowPrefs.diagnostics?"Text history is on.":"Text history is off.");
+    if(storage.error)return state+" "+t(String(storage.error));
+    return state+" "+t("Saved records")+": "+storage.total+" · "+t("Latest")+": "+(storage.latest_record_unix_ms?new Date(storage.latest_record_unix_ms).toLocaleString():t("none yet"));
+  }
   function renderWorkflowProfiles(){
     const host=workflowEl("workflowProfiles");host.replaceChildren();
-    (workflowPrefs.profiles||[]).forEach((p,index)=>{
+    const either=(value,on,off)=>value==null?t("Global setting"):t(value?on:off);
+    (workflowView().profiles||[]).forEach(p=>{
       const row=document.createElement("div");row.className="migration-tools";
-      const text=document.createElement("span");text.textContent=p.app_id+" · "+p.cleanup+" · progressive: "+(p.progressive===null?"global":p.progressive)+" · paste: "+(p.paste===null?"global":p.paste)+" · English pauses: "+(p.remove_fillers==null?"global":p.remove_fillers?"remove":"keep")+" · Chinese pauses: "+(p.chinese_fillers==null?"global":p.chinese_fillers?"remove":"keep");
-      const remove=document.createElement("button");remove.className="setbtn";remove.textContent="Remove from draft";remove.onclick=()=>{if(workflowBusy)return;workflowPrefs.profiles.splice(index,1);renderWorkflowProfiles();};row.append(text,remove);host.append(row);
+      const text=document.createElement("span");text.textContent=p.app_id+" · "+t(p.cleanup==="original"?"Original recognition":"Light cleanup")+" · "+t("Progressive")+": "+either(p.progressive,"On","Off")+" · "+t("Compatibility paste")+": "+either(p.paste,"On","Off")+" · "+t("English pause words")+": "+either(p.remove_fillers,"Remove conservatively","Keep")+" · "+t("Chinese pause words")+": "+either(p.chinese_fillers,"Remove conservatively","Keep");
+      const remove=document.createElement("button");remove.className="setbtn";remove.textContent=t("Remove");remove.onclick=()=>{editWorkflow("profiles",(workflowView().profiles||[]).filter(q=>q.app_id!==p.app_id));renderWorkflowProfiles();};row.append(text,remove);host.append(row);
     });
   }
   window.vocalcodeWorkflowResult=function(result){
     if(result.id!==workflowId)return;workflowBusy=false;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;
-    if(!result.ok){workflowEl("workflowMessage").textContent=result.message;workflowEl("diagnosticMessage").textContent=result.message;workflowEl("rewriteMessage").textContent=result.message;return;}
+    // Whatever this answered, the page is free again: edits made meanwhile go
+    // out now, on top of the revision this result may have rotated.
+    try{applyWorkflowResult(result);}finally{if(workflowSaveTimer===null)flushWorkflowSave();}
+  };
+  function applyWorkflowResult(result){
+    if(!result.ok){
+      for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(result.message);
+      // A refused save (another writer rotated the revision, or a value the
+      // host rejects) changed nothing on disk. Say so where it can be seen and
+      // put the controls back to what is saved; nothing is re-sent on its own.
+      if(workflowOp==="save"){
+        workflowSending=null;workflowEdits={};
+        workflowNotice=t(result.message)+" "+t("The saved settings were reloaded; make the change again.");
+        toast(workflowNotice);workflowRequest("load");
+      }else if(workflowOp==="load"&&!workflowPrefs&&Object.keys(workflowEdits).length){
+        // Nothing readable to save against; say so rather than keep asking.
+        workflowEdits={};toast(t(result.message));
+      }
+      return;
+    }
     if(result.cancelled)return;
     const d=result.data||{};
     if(Array.isArray(d.models)){const host=workflowEl("rewriteModel");host.replaceChildren();d.models.forEach(m=>{const option=document.createElement("option");option.value=m.name;option.textContent=m.name+" · "+(m.size/1073741824).toFixed(1)+" GiB";host.append(option);});workflowEl("rewriteMessage").textContent=t(d.models.length?"Choose a local model. Nothing downloaded.":"No eligible installed local models found.");}
@@ -6065,15 +6518,11 @@
     }
     if("candidate"in d){if(rewritePendingSource===null||d.source!==rewritePendingSource||workflowEl("rewriteSource").value!==d.source){workflowEl("rewriteMessage").textContent=t("Source changed or candidate was discarded. Generate again; your edits were preserved.");}else{workflowEl("rewriteCandidate").value=d.candidate;rewriteCandidateSource=d.source;workflowEl("rewriteMessage").textContent=t(d.provider==="claude"?"Claude Code candidate":"Local candidate")+t(" ready in ")+(d.elapsed_ms/1000).toFixed(1)+t(" s. Review meaning before accepting. ")+(d.warnings||[]).map(rewriteWarningText).join(" · ");}rewritePendingSource=null;}
     if(d.preferences){
-      workflowPrefs=d.preferences;workflowRevision=d.revision;
-      workflowEl("workflowCleanup").value=workflowPrefs.cleanup;
-      workflowEl("workflowFillers").checked=workflowPrefs.remove_fillers===true;
-      workflowEl("workflowChineseFillers").checked=workflowPrefs.chinese_fillers===true;
-      workflowEl("workflowDiagnostics").checked=workflowPrefs.diagnostics;
-      workflowEl("workflowMaxEntries").value=workflowPrefs.max_entries;
-      workflowEl("workflowMaxMiB").value=workflowPrefs.max_bytes/1048576;
-      renderWorkflowProfiles();workflowEl("workflowMessage").textContent=d.saved?"Saved. Applies to the next dictation.":"Saved workflow settings loaded.";
-      if(d.diagnostic_storage){const s=d.diagnostic_storage;workflowEl("workflowMessage").textContent+=" Text history: "+(workflowPrefs.diagnostics?"ON":"OFF")+". "+(s.error?String(s.error):s.total+" saved records; latest: "+(s.latest_record_unix_ms?new Date(s.latest_record_unix_ms).toLocaleString():"none yet")+".");}
+      workflowPrefs=d.preferences;workflowRevision=d.revision;workflowSending=null;
+      renderWorkflowPrefs();
+      if(d.saved)showSaved();
+      const lead=workflowNotice||(d.saved?t("Saved. Applies to the next dictation."):"");workflowNotice="";
+      workflowEl("workflowMessage").textContent=[lead,workflowStorageLine(d.diagnostic_storage)].filter(Boolean).join(" ");
     }
     if(Array.isArray(d.entries)){
       diagnosticOffset=d.offset;diagnosticTotal=d.total;
@@ -6091,13 +6540,22 @@
       workflowEl("diagnosticPrev").disabled=diagnosticOffset===0;workflowEl("diagnosticNext").disabled=diagnosticOffset+20>=diagnosticTotal;
     }
     if("exported"in d)workflowEl("diagnosticMessage").textContent="Exported "+d.exported+" readable records. Keep the file private.";
-  };
-  workflowEl("workflowAdd").onclick=()=>{if(workflowBusy||!workflowPrefs)return;const app=workflowEl("workflowApp").value.trim();if(!app)return;const tri=id=>workflowEl(id).value==="inherit"?null:workflowEl(id).value==="true";workflowPrefs.profiles=workflowPrefs.profiles.filter(p=>p.app_id.toLowerCase()!==app.toLowerCase());workflowPrefs.profiles.push({app_id:app,cleanup:workflowEl("workflowAppCleanup").value,progressive:tri("workflowAppLive"),paste:tri("workflowAppPaste"),remove_fillers:tri("workflowAppFillers"),chinese_fillers:tri("workflowAppChineseFillers")});renderWorkflowProfiles();workflowEl("workflowMessage").textContent="Draft changed. Save to apply.";};
-  workflowEl("workflowSave").onclick=()=>{if(workflowBusy||!workflowPrefs)return;workflowRequest("save",{revision:workflowRevision,preferences:Object.assign({},workflowPrefs,{cleanup:workflowEl("workflowCleanup").value,remove_fillers:workflowEl("workflowFillers").checked,chinese_fillers:workflowEl("workflowChineseFillers").checked,diagnostics:workflowEl("workflowDiagnostics").checked,max_entries:Number(workflowEl("workflowMaxEntries").value),max_bytes:Number(workflowEl("workflowMaxMiB").value)*1048576})});};
-  workflowEl("workflowReload").onclick=()=>workflowRequest("load");
-  workflowEl("workflowCleanup").onchange=()=>{workflowEl("workflowDetails").open=true;workflowEl("workflowMessage").textContent="Mode changed in draft. Save workflow settings to apply.";};
-  workflowEl("workflowFillers").onchange=workflowEl("workflowCleanup").onchange;
-  workflowEl("workflowChineseFillers").onchange=workflowEl("workflowCleanup").onchange;
+  }
+  workflowEl("workflowAdd").onclick=()=>{const app=workflowEl("workflowApp").value.trim();if(!app)return;const tri=id=>workflowEl(id).value==="inherit"?null:workflowEl(id).value==="true";const profiles=(workflowView().profiles||[]).filter(p=>p.app_id.toLowerCase()!==app.toLowerCase());profiles.push({app_id:app,cleanup:workflowEl("workflowAppCleanup").value,progressive:tri("workflowAppLive"),paste:tri("workflowAppPaste"),remove_fillers:tri("workflowAppFillers"),chinese_fillers:tri("workflowAppChineseFillers")});editWorkflow("profiles",profiles);renderWorkflowProfiles();};
+  workflowEl("workflowCleanup").onchange=()=>editWorkflow("cleanup",workflowEl("workflowCleanup").value);
+  workflowEl("workflowFillers").onchange=()=>editWorkflow("remove_fillers",workflowEl("workflowFillers").checked);
+  workflowEl("workflowChineseFillers").onchange=()=>editWorkflow("chinese_fillers",workflowEl("workflowChineseFillers").checked);
+  workflowEl("workflowDiagnostics").onchange=()=>editWorkflow("diagnostics",workflowEl("workflowDiagnostics").checked);
+  // An emptied field is not a request for "unlimited": Number("") is 0, and 0
+  // is how unlimited is spelled. Only a whole number is saved.
+  function editWorkflowLimit(id,field,scale){
+    const raw=String(workflowEl(id).value).trim(),value=Number(raw);
+    if(raw&&Number.isSafeInteger(value)&&value>=0){editWorkflow(field,value*scale);return;}
+    const current=workflowView()[field];workflowEl(id).value=typeof current==="number"?current/scale:"";
+    workflowEl("workflowMessage").textContent=t("Enter a whole number; 0 means unlimited.");
+  }
+  workflowEl("workflowMaxEntries").onchange=()=>editWorkflowLimit("workflowMaxEntries","max_entries",1);
+  workflowEl("workflowMaxMiB").onchange=()=>editWorkflowLimit("workflowMaxMiB","max_bytes",1048576);
   workflowEl("diagnosticLoad").onclick=()=>workflowRequest("history",{offset:0});
   workflowEl("diagnosticPrev").onclick=()=>workflowRequest("history",{offset:Math.max(0,diagnosticOffset-20)});
   workflowEl("diagnosticNext").onclick=()=>{if(diagnosticOffset+20<diagnosticTotal)workflowRequest("history",{offset:diagnosticOffset+20});};

@@ -189,6 +189,9 @@ fn migrate_legacy_with(
         }
     }
 }
+/// Refusal for a save made against a revision another writer has replaced.
+pub(crate) const REVISION_CONFLICT: &str = "Workflow settings were changed elsewhere.";
+
 pub(crate) fn handle(
     base: &Path,
     status: &crate::webui::RuntimeStatus,
@@ -213,7 +216,9 @@ pub(crate) fn handle(
             let (mut revision, mut prefs) = load_locked(base)?;
             if request["op"] == "save" {
                 if request["revision"].as_str() != Some(&revision) {
-                    return Err("Workflow settings changed. Reload before saving.".into());
+                    // The page saves each change as it is made and reloads by
+                    // itself when this is refused; it translates this text.
+                    return Err(REVISION_CONFLICT.into());
                 }
                 prefs = serde_json::from_value(request["preferences"].clone())
                     .map_err(|_| "Invalid workflow preferences.")?;
@@ -434,7 +439,10 @@ mod tests {
         assert!(load(&base).unwrap().1.remove_fillers);
         let bad =
             json!({"op":"save","revision":before["revision"],"preferences":Preferences::default()});
-        assert!(handle(&base, &status, &bad, None).is_err());
+        assert_eq!(
+            handle(&base, &status, &bad, None).unwrap_err(),
+            REVISION_CONFLICT
+        );
         assert_eq!(load(&base).unwrap().1.cleanup, Cleanup::Original);
         std::fs::remove_dir_all(base).unwrap();
     }
