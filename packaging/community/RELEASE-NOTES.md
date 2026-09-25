@@ -4,36 +4,41 @@ Free, local-first dictation and meeting notes, open source under
 AGPL-3.0-only. There is nothing to buy: no purchase, account or activation
 code. Recognition runs on your CPU after the selected model downloads.
 
-## New in 1.4.0
+## New in 1.4.1
 
-- **Writing page.** Opt-in voice commands for complete dictations: "new
-  line" / "new paragraph" (换行 / 另起一段), "scratch that" (删掉上一句),
-  spoken lists ("first… second…", 第一，第二…), coding words ("camel case user
-  id" → `userId`, "open paren"), and ending with "press enter" (回车) to send.
-  Formal / Casual / Very casual style, per program, with a chat-app preset and
-  a Try-it box that runs the same rules as dictation. Everything is off until
-  you turn it on; History keeps the original recognition.
-- **Double-tap to lock.** Hold to talk as before, or double-tap the talk key to
-  keep listening hands-free; press once more to finish.
-- **Mute other audio while dictating** (Windows, opt-in), restoring exactly what
-  it muted; skipped during meeting capture.
-- **Home insights:** day streak, words per minute, words this week and a
-  12-week heatmap, from counts only.
-- **Rewrite scratchpad:** translate to English or Chinese, or give your own
-  instruction (you can dictate it). You still review every candidate.
-- **Desktop control capsule** (Windows, opt-in) for starting, stopping and
-  cancelling dictation with the mouse.
-- **Fixes:** multi-line text and snippets are pasted rather than typed, so a
-  line break no longer presses Enter and sends half a chat message; a
-  Qwen3-ASR result containing a line break or a leaked
-  "language English<asr_text>" header no longer drops or garbles the
-  dictation; Spanish, French and German cover every string.
-- **Tested with speech:** a new voice-corpus release test replays 1,072
-  synthetic clips (generic neural voices, accents, noise, speed and low
-  volume) through the production pipeline on four speech-model routes before
-  release. Spoken coding words ("snake case", "open paren") are recognized
-  best by the Qwen3-ASR and Parakeet English models; the default SenseVoice
-  model often mishears them.
+- **One app, free for good.** "VocalCode Community" is now just VocalCode.
+  It takes the place of the paid VocalCode releases (see below), so a paid
+  installation updates to it in place and keeps everything.
+- **Setup in three steps:** pick your language (its model starts
+  downloading), check your talk key (add another if your keyboard has no
+  Right Ctrl), then try a sentence in a box that shows what VocalCode heard.
+- **New installs start with safer defaults:** the mouse Back button is no
+  longer Enter (tick it in setup or Shortcuts if you want it); the speech
+  gate is on, so a noise-only press types nothing; History is kept on disk,
+  encrypted, for a week (change it on the History page). Existing installations keep
+  their current settings.
+- **Notices while you dictate.** Pressing the talk key while the model is
+  still downloading, the microphone is broken or no text field has focus now
+  shows a short line at the indicator instead of doing nothing.
+- **Model downloads resume** after a dropped connection or quitting, instead
+  of starting over, and a failed download says why and retries.
+- **English defaults to Parakeet** on computers fast enough for it (better
+  with coding words than SenseVoice); smaller computers keep SenseVoice.
+- **Faster in noisy rooms:** pauses are found against the room's own noise
+  floor, so long dictations are prepared while you talk rather than all after
+  you let go.
+- **Chinese punctuation in mixed Chinese/English sentences** stays
+  full-width; a result that is only punctuation (a stray "。" over noise) is
+  treated as nothing heard.
+- **Qwen3-ASR:** dictations longer than about 38 seconds are no longer cut
+  off or replaced by the word "language"; long input is decoded in pieces,
+  and text invented over silence or hum is dropped.
+- **About & help** replaces the old licence page, with Copy diagnostics
+  (nothing is sent). If VocalCode closes unexpectedly, the next start says so
+  and points to the log.
+- **Tested with speech:** the release voice corpus now has 1,199 clips,
+  including mixed Chinese/English, noise-only presses and 30–90 second
+  dictations, replayed through the production pipeline on four model routes.
 
 ## Downloads
 
@@ -79,12 +84,13 @@ size, SHA-256, publisher signature and product identity before installing.
 
 ## 中文
 
-1.4.0 新增：「写作」页（可选的语音换行、删掉上一句、口述列表、代码词、结尾说「回车」发送，
-正式／随意／很随意三档风格可按程序设置，并带「试一试」）；双击说话键锁定免提；听写时静音
-其他声音（Windows，可选）；首页统计（连续天数、每分钟字数、12 周热力图，只记数量）；
-改写草稿支持翻译和自定义指令；桌面控制胶囊（Windows，可选）。多行文字和片段改为粘贴，
-不再把换行当回车发出半句话；Qwen3-ASR 输出里带换行或漏出提示头时，不再丢掉整句或打出乱码。
-发布前用 1072 段合成语音在四条识别路线上做了完整回放测试。
+1.4.1 新增：VocalCode Community 改名为 VocalCode，并接替付费版，付费版可原地更新、数据不动；
+首次设置改成三步（选语言、确认说话键、试说一句）；新安装默认：鼠标后退键不再当回车、语音闸门开启
+（只有噪声时不输入）、历史记录加密保存在本机一周，已有安装保持原设置；模型没准备好、麦克风异常或没有
+输入框时，指示器会给出提示；模型下载可断点续传；性能足够的电脑上英语默认用 Parakeet；嘈杂环境里更早
+开始识别；中英混说时中文标点保持全角，噪声里只识别出一个标点时不再输入；Qwen3-ASR 超过约 38 秒的
+长听写不再被截断或变成 "language"；新增「关于与帮助」和意外退出提示。发布前用 1199 段合成语音
+（含中英混说、纯噪声、30–90 秒长听写）在四条识别路线上做了完整回放测试。
 
 VocalCode 现在是一个免费应用，按 AGPL-3.0 开源，无需购买、账户或激活。下载：Windows 用
 `VocalCodeSetup.exe`，Apple 芯片 Mac 用 `VocalCode-<版本>.dmg`，源码为
