@@ -2027,19 +2027,15 @@ fn truncate_utf8(value: &str, maximum_bytes: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
 
-    pub(super) fn test_root(label: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "vocalcode-app-meeting-{label}-{}-{}",
-            std::process::id(),
-            now_ms()
-        ))
+    pub(super) fn test_root(label: &str) -> TempDir {
+        TempDir::new(&format!("app-meeting-{label}"))
     }
 
     #[test]
     fn export_refuses_to_overwrite_an_existing_file() {
         let root = test_root("export");
-        let _ = std::fs::remove_dir_all(&root);
         let store = MeetingStore::open(&root).unwrap();
         let meeting = store
             .create(NewMeeting {
@@ -2056,7 +2052,6 @@ mod tests {
         std::fs::write(&target, "keep").unwrap();
         assert!(export_to(&store, &meeting.id, ExportKind::Markdown, &target).is_err());
         assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2068,7 +2063,6 @@ mod tests {
     #[test]
     fn live_aec_is_enabled_only_when_both_audio_sources_are_selected() {
         let root = test_root("aec-source-gating");
-        let _ = std::fs::remove_dir_all(&root);
 
         let microphone_only = TrackSet::new(&root.join("microphone"), true, false).unwrap();
         assert!(microphone_only.echo.is_none());
@@ -2078,9 +2072,6 @@ mod tests {
 
         let both = TrackSet::new(&root.join("both"), true, true).unwrap();
         assert!(both.echo.is_some());
-
-        drop((microphone_only, system_only, both));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     pub(super) fn transcript(
@@ -2221,7 +2212,6 @@ mod tests {
         assert!(loaded.summary.is_some());
         assert_eq!(loaded.error.as_deref(), Some(message.as_str()));
         assert!(message.contains("retained locally"));
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2268,7 +2258,6 @@ mod tests {
         assert_eq!(loaded.bookmarks.len(), 1);
         assert_eq!(loaded.bookmarks[0].at_ms, 1_250);
         assert_eq!(loaded.bookmarks[0].label, "Decision");
-        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -2334,7 +2323,6 @@ mod tests {
                 .unwrap();
         assert!(!metadata.contains("private-input"));
         assert!(!metadata.contains(&input.to_string_lossy().to_string()));
-        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

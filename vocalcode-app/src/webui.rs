@@ -8073,7 +8073,7 @@ mod config_apply_contract_tests {
                 service_tx.send(()).unwrap();
             })
             .unwrap();
-            service_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            service_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             wait_for_worker_reap(&status, false);
 
             let (teach_tx, teach_rx) = std::sync::mpsc::channel();
@@ -8081,7 +8081,7 @@ mod config_apply_contract_tests {
                 teach_tx.send(()).unwrap();
             })
             .unwrap();
-            teach_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            teach_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             wait_for_worker_reap(&status, true);
 
             assert!(status.service_workers.lock().unwrap().len() <= SERVICE_WORKER_LIMIT);
@@ -8269,7 +8269,7 @@ mod config_apply_contract_tests {
                 .unwrap(),
                 UpdateInstallStart::Started
             );
-            finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            finished_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             wait_for_update_reap(&status);
             assert!(!status.update_in_progress.load(Ordering::Acquire));
         }
@@ -8294,7 +8294,7 @@ mod config_apply_contract_tests {
             .unwrap(),
             UpdateInstallStart::Started
         );
-        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        finished_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         wait_for_update_reap(&status);
         assert!(!status.update_in_progress.load(Ordering::Acquire));
     }
@@ -8516,15 +8516,7 @@ mod config_apply_contract_tests {
 
     #[test]
     fn config_worker_persists_requests_in_page_arrival_order() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-config-fifo-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&base).unwrap();
+        let base = crate::test_support::TempDir::new("config-fifo");
         let initial = configured();
         std::fs::write(
             base.join("vocalcode.toml"),
@@ -8558,7 +8550,6 @@ mod config_apply_contract_tests {
         assert_eq!(apply.generation, 2);
         assert_eq!(apply.pending.as_ref().unwrap().request_id, 2);
         drop(apply);
-        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -8573,7 +8564,7 @@ mod config_apply_contract_tests {
                 "vocalcode-cancel-request-test",
                 move || {
                     started_tx.send(()).unwrap();
-                    let _ = release_rx.recv_timeout(Duration::from_secs(2));
+                    let _ = release_rx.recv_timeout(Duration::from_secs(30));
                     Ok((true, "must not publish".to_string()))
                 },
             );
@@ -8584,27 +8575,20 @@ mod config_apply_contract_tests {
             }
         })
         .unwrap();
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         status.shutdown.store(true, Ordering::Release);
         let started = Instant::now();
         join_service_workers(&status);
 
-        assert!(started.elapsed() < Duration::from_secs(1));
+        // 100x the 50 ms cancel poll; the stalled request would hold 30 s.
+        assert!(started.elapsed() < Duration::from_secs(5));
         assert!(status.activation.lock().unwrap().is_none());
         let _ = release_tx.send(());
     }
 
     #[test]
     fn persistence_failure_is_queued_before_the_older_generation_can_finish() {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-config-result-order-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&base).unwrap();
+        let base = crate::test_support::TempDir::new("config-result-order");
         let initial = configured();
         let mut external = initial.clone();
         external.cue_sounds = !initial.cue_sounds;
@@ -8667,7 +8651,7 @@ mod config_apply_contract_tests {
         );
 
         drop(result_guard);
-        acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        acquired_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         engine.join().unwrap();
         drop(sender);
         join_service_workers(&status);
@@ -8679,7 +8663,6 @@ mod config_apply_contract_tests {
         assert_eq!(results[1].request_id, 1);
         assert!(results[1].generation_bound);
         drop(results);
-        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -8849,18 +8832,10 @@ mod config_apply_contract_tests {
 #[cfg(test)]
 mod dictionary_revision_contract_tests {
     use super::*;
+    use crate::test_support::TempDir;
 
-    fn scratch(name: &str) -> PathBuf {
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let path = std::env::temp_dir().join(format!(
-            "vocalcode-dictionary-ui-{name}-{}-{nonce}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&path).unwrap();
-        path
+    fn scratch(name: &str) -> TempDir {
+        TempDir::new(&format!("dictionary-ui-{name}"))
     }
 
     #[test]
@@ -8922,8 +8897,6 @@ mod dictionary_revision_contract_tests {
         assert_eq!(reloaded.revision, winner_document.revision);
         assert_eq!(reloaded.rules, winner_document.rules);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "first => winner\n");
-
-        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -8946,8 +8919,6 @@ mod dictionary_revision_contract_tests {
         let reloaded = stale.document.unwrap();
         assert_eq!(reloaded, latest);
         assert_eq!(std::fs::read(&path).unwrap(), external);
-
-        std::fs::remove_dir_all(base).unwrap();
     }
 
     #[test]
@@ -9983,7 +9954,7 @@ mod bounded_command_tests {
         // Always clean the owned helper before assertions, including on error.
         stop_and_reap_command(&mut child, &mut tree);
         assert!(!running.unwrap());
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(10));
         assert!(wait_for_command_exit(&mut child, Duration::ZERO).unwrap());
     }
 
@@ -10009,7 +9980,7 @@ mod bounded_command_tests {
             "中文 日本語 한국어 Hindi नमस्ते $(no_execution) `text` & | \"quoted\"\nnext line";
         let output = bounded_command_input(
             &mut command,
-            Duration::from_secs(5),
+            Duration::from_secs(60),
             None,
             source.as_bytes().to_vec(),
         )
@@ -10033,7 +10004,7 @@ mod bounded_command_tests {
         )
         .unwrap_err();
         assert!(matches!(error, BoundedCommandError::TimedOut(_)));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(20));
     }
 
     fn shell_command(_windows_script: &str, _unix_script: &str) -> std::process::Command {
@@ -10097,7 +10068,7 @@ mod bounded_command_tests {
             "echo hello & echo problem 1>&2 & exit /b 7",
             "printf hello; printf problem >&2; exit 7",
         );
-        let output = bounded_command_output(&mut command, Duration::from_secs(3), None).unwrap();
+        let output = bounded_command_output(&mut command, Duration::from_secs(60), None).unwrap();
         assert_eq!(output.status.code(), Some(7));
         assert!(String::from_utf8_lossy(&output.stdout).contains("hello"));
         assert!(String::from_utf8_lossy(&output.stderr).contains("problem"));
@@ -10110,8 +10081,11 @@ mod bounded_command_tests {
         let error =
             bounded_command_output(&mut command, Duration::from_millis(150), None).unwrap_err();
         assert!(matches!(error, BoundedCommandError::TimedOut(_)));
+        // These bounds include spawning the test binary, which alone took
+        // seconds on a loaded machine. Waiting for the helper instead takes at
+        // least its 30 s sleep, so 20 s still separates the two outcomes.
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(20),
             "timed-out child was not reaped promptly: {:?}",
             started.elapsed()
         );
@@ -10127,12 +10101,12 @@ mod bounded_command_tests {
         });
         let mut command = slow_command();
         let started = Instant::now();
-        let error = bounded_command_output(&mut command, Duration::from_secs(5), Some(&shutdown))
+        let error = bounded_command_output(&mut command, Duration::from_secs(60), Some(&shutdown))
             .unwrap_err();
         canceller.join().unwrap();
         assert!(matches!(error, BoundedCommandError::Cancelled));
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(20),
             "cancelled child was not reaped promptly: {:?}",
             started.elapsed()
         );
@@ -10142,10 +10116,11 @@ mod bounded_command_tests {
     fn bounded_command_drains_but_rejects_oversized_output() {
         let mut command = oversized_output_command();
         let started = Instant::now();
-        let error = bounded_command_output(&mut command, Duration::from_secs(5), None).unwrap_err();
+        let error =
+            bounded_command_output(&mut command, Duration::from_secs(60), None).unwrap_err();
         assert!(matches!(error, BoundedCommandError::OutputTooLarge));
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(20),
             "oversized output blocked its child pipe: {:?}",
             started.elapsed()
         );
@@ -10162,10 +10137,11 @@ mod bounded_command_tests {
             ])
             .env("VOCALCODE_COMMAND_TREE_TEST", "parent");
         let started = Instant::now();
-        let output = bounded_command_output(&mut command, Duration::from_secs(5), None).unwrap();
+        let output = bounded_command_output(&mut command, Duration::from_secs(60), None).unwrap();
         assert!(output.status.success());
+        // The descendant holds the inherited pipes for 30 s.
         assert!(
-            started.elapsed() < Duration::from_secs(2),
+            started.elapsed() < Duration::from_secs(20),
             "a descendant kept command pipes alive: {:?}",
             started.elapsed()
         );
@@ -10247,7 +10223,7 @@ mod bounded_command_tests {
             acquire_update_file_lock(&contender, started + Duration::from_millis(125), None)
                 .unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::TimedOut);
-        assert!(started.elapsed() < Duration::from_secs(1));
+        assert!(started.elapsed() < Duration::from_secs(2));
 
         fs2::FileExt::unlock(&owner).unwrap();
         acquire_update_file_lock(&contender, Instant::now() + Duration::from_secs(1), None)
@@ -10405,7 +10381,7 @@ mod update_download_tests {
             &target,
             &sha256(b"abcdefgh"),
             8,
-            policy(Duration::from_millis(500)),
+            policy(Duration::from_secs(2)),
             || false,
             |_, _| {},
         )
@@ -10414,7 +10390,9 @@ mod update_download_tests {
         assert!(
             matches!(error, UpdateDownloadError::Failed(message) if message.contains("without progress after 3 attempts"))
         );
-        assert!(started.elapsed() < Duration::from_secs(1));
+        // Inside the 3 s transfer deadline; waiting out even one slice per
+        // empty body would have crossed it and failed with a timeout instead.
+        assert!(started.elapsed() < Duration::from_millis(2_500));
         assert!(!target.exists(), "empty response bytes must be removed");
         server.join().unwrap();
     }
@@ -10563,13 +10541,13 @@ mod update_download_tests {
                 .unwrap();
             stream.flush().unwrap();
             body_started_tx.send(()).unwrap();
-            let _ = release_rx.recv_timeout(Duration::from_secs(2));
+            let _ = release_rx.recv_timeout(Duration::from_secs(30));
         });
         let cancelled = Arc::new(AtomicBool::new(false));
         let cancel_from_thread = cancelled.clone();
         let canceller = std::thread::spawn(move || {
             body_started_rx
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(10))
                 .unwrap();
             // Give the local client time to enter its body read. The server
             // deliberately sends no body bytes, so this exercises the only
@@ -10599,7 +10577,7 @@ mod update_download_tests {
             "the test did not reach the stalled body read: {elapsed:?}"
         );
         assert!(
-            elapsed < Duration::from_secs(1),
+            elapsed < Duration::from_millis(2_500),
             "cancellation took {elapsed:?}"
         );
         assert!(!target.exists(), "cancelled update bytes must be removed");
@@ -10612,10 +10590,13 @@ mod update_download_tests {
 #[cfg(test)]
 mod purge_tests {
     use super::*;
+    use crate::test_support::TempDir;
 
-    fn scratch(name: &str) -> std::path::PathBuf {
-        let d = std::env::temp_dir().join(format!("vocalcode-purge-{name}"));
-        let _ = std::fs::remove_dir_all(&d);
+    // Per-process names: a fixed `vocalcode-purge-*` path was shared by every
+    // concurrently running test binary (parallel checkouts), which then
+    // purged each other's fixtures.
+    fn scratch(name: &str) -> TempDir {
+        let d = TempDir::new(&format!("purge-{name}"));
         std::fs::create_dir_all(d.join("models/paraformer-zh")).unwrap();
         std::fs::write(d.join("models/paraformer-zh/model.onnx"), b"x").unwrap();
         std::fs::write(d.join(TRIAL_FILE), b"signed-trial-cache").unwrap();
@@ -10653,7 +10634,6 @@ mod purge_tests {
             std::fs::read_to_string(d.join(TRUSTED_TIME_FILE)).unwrap(),
             "trusted-time-cache"
         );
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// Twice in a row, because someone will: the second press must not throw and
@@ -10665,7 +10645,6 @@ mod purge_tests {
         purge_app_data(&d).unwrap();
         assert!(d.join(TRIAL_FILE).exists());
         assert!(d.join(TRUSTED_TIME_FILE).exists());
-        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -10732,32 +10711,25 @@ mod purge_tests {
     #[test]
     fn a_symlink_is_unlinked_rather_than_followed() {
         let d = scratch("symlink");
-        let outside = std::env::temp_dir().join("vocalcode-purge-outside");
-        std::fs::create_dir_all(&outside).unwrap();
+        let outside = TempDir::new("purge-outside");
         std::fs::write(outside.join("keepme"), b"not ours").unwrap();
         std::os::unix::fs::symlink(&outside, d.join("linked")).unwrap();
         purge_app_data(&d).unwrap();
         assert!(!d.join("linked").exists(), "the link goes");
         assert!(outside.join("keepme").exists(), "what it pointed at stays");
-        let _ = std::fs::remove_dir_all(&d);
-        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[cfg(unix)]
     #[test]
     fn a_symlinked_app_data_root_is_refused() {
-        let scratch = std::env::temp_dir().join("vocalcode-purge-root-link");
-        let outside = std::env::temp_dir().join("vocalcode-purge-root-target");
-        let _ = std::fs::remove_file(&scratch);
-        let _ = std::fs::remove_dir_all(&outside);
-        std::fs::create_dir_all(&outside).unwrap();
+        let parent = TempDir::new("purge-root-link");
+        let scratch = parent.join("app-data");
+        let outside = TempDir::new("purge-root-target");
         std::fs::write(outside.join("keepme"), b"not ours").unwrap();
         std::os::unix::fs::symlink(&outside, &scratch).unwrap();
         let error = purge_app_data(&scratch).unwrap_err();
         assert!(error.contains("symlinked app data"), "{error}");
         assert!(outside.join("keepme").exists());
-        let _ = std::fs::remove_file(&scratch);
-        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[cfg(windows)]
@@ -10771,6 +10743,5 @@ mod purge_tests {
         std::fs::rename(&intermediate, &upper).unwrap();
         purge_app_data(&d).unwrap();
         assert!(upper.exists());
-        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -272,7 +272,7 @@ mod tests {
             worker
                 .meeting(vec![0.; 48_000], 16000)
                 .unwrap()
-                .recv_timeout(std::time::Duration::from_secs(2))
+                .recv_timeout(std::time::Duration::from_secs(10))
                 .unwrap()
                 .unwrap(),
             "unchanged recognition"

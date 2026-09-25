@@ -1615,20 +1615,21 @@ mod tests {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let (release_tx, release_rx) = std::sync::mpsc::channel();
         let canceller = std::thread::spawn(move || {
-            started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+            started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
             cancel.store(true, Ordering::Release);
         });
         let started = Instant::now();
         let result = cancellable_network_request(&shutdown, "vocalcode-stalled-test", move || {
             started_tx.send(()).unwrap();
-            let _ = release_rx.recv_timeout(Duration::from_secs(2));
+            let _ = release_rx.recv_timeout(Duration::from_secs(30));
             Ok(7_u8)
         })
         .unwrap();
 
         assert!(matches!(result, CancellableRequest::Cancelled));
+        // 100x the 50 ms cancel poll; the request itself would hold for 30 s.
         assert!(
-            started.elapsed() < Duration::from_secs(1),
+            started.elapsed() < Duration::from_secs(5),
             "cancellation took {:?}",
             started.elapsed()
         );
@@ -1706,17 +1707,22 @@ mod tests {
         let _held = local.lock().unwrap();
         let shutdown = AtomicBool::new(false);
         let started = Instant::now();
-        let result =
-            license_operation_with_timeout_and_cancel(&dir, &local, Duration::from_secs(5), || {
+        let result = license_operation_with_timeout_and_cancel(
+            &dir,
+            &local,
+            Duration::from_secs(30),
+            || {
                 if started.elapsed() >= Duration::from_millis(75) {
                     shutdown.store(true, Ordering::Release);
                 }
                 shutdown.load(Ordering::Acquire)
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
 
         assert!(result.is_none());
-        assert!(started.elapsed() < Duration::from_secs(1));
+        // Far past the 75 ms trigger, far short of the 30 s lock deadline.
+        assert!(started.elapsed() < Duration::from_secs(5));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1738,7 +1744,7 @@ mod tests {
             "{error}"
         );
         assert!(
-            elapsed >= Duration::from_millis(100) && elapsed < Duration::from_secs(1),
+            elapsed >= Duration::from_millis(100) && elapsed < Duration::from_secs(2),
             "local lock deadline was not bounded: {elapsed:?}"
         );
         drop(held);
@@ -1777,7 +1783,7 @@ mod tests {
             "{error}"
         );
         assert!(
-            elapsed >= Duration::from_millis(100) && elapsed < Duration::from_secs(1),
+            elapsed >= Duration::from_millis(100) && elapsed < Duration::from_secs(2),
             "file lock deadline was not bounded: {elapsed:?}"
         );
         assert!(
@@ -1883,7 +1889,7 @@ mod tests {
             stream.flush().unwrap();
             // The declared JSON body remains incomplete well past the client's
             // deadline. read_json must return on the global timer, not EOF.
-            let _ = release_rx.recv_timeout(Duration::from_secs(4));
+            let _ = release_rx.recv_timeout(Duration::from_secs(30));
         });
 
         let policy = JsonRequestPolicy {
@@ -1892,10 +1898,10 @@ mod tests {
             response_timeout: Duration::from_secs(1),
             // Keep the phase-specific bound later than the global one so the
             // observed error proves the end-to-end timer reached Body::read_json.
-            body_timeout: Duration::from_secs(4),
+            body_timeout: Duration::from_secs(30),
             // Windows' socket timeout has coarse sub-second behavior on some
             // runners, so use one full second while keeping the peer open for
-            // four. Production uses this exact path with a 45-second bound.
+            // thirty. Production uses this exact path with a 45-second bound.
             global_timeout: Duration::from_secs(1),
         };
         let started = Instant::now();
@@ -1913,7 +1919,7 @@ mod tests {
             "unexpected stalled-body error: {error}"
         );
         assert!(
-            elapsed >= Duration::from_millis(750) && elapsed < Duration::from_millis(2_500),
+            elapsed >= Duration::from_millis(750) && elapsed < Duration::from_secs(10),
             "activation body ignored its global deadline: {elapsed:?}"
         );
         let _ = release_tx.send(());

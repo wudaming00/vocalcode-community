@@ -695,9 +695,7 @@ mod tests {
 
     #[test]
     fn chunk_writer_bounds_memory_and_writes_recoverable_wav_files() {
-        let root =
-            std::env::temp_dir().join(format!("vocalcode-meeting-audio-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
+        let root = crate::test_support::TempDir::new("meeting-audio");
         let mut writer =
             ChunkedPcmWriter::with_chunk_samples(&root, AudioSource::Imported, 1_000).unwrap();
         let chunks = writer.push(&vec![0.25; 2_500]).unwrap();
@@ -708,6 +706,5 @@ mod tests {
             let reader = hound::WavReader::open(&chunk.path).unwrap();
             assert_eq!(reader.spec().sample_rate, TARGET_SAMPLE_RATE);
         }
-        fs::remove_dir_all(root).unwrap();
     }
 }

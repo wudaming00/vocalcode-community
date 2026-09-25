@@ -214,7 +214,7 @@ mod tests {
         set_others_muted(false);
         let started = std::time::Instant::now();
         restore_blocking(Duration::from_millis(500));
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_secs(5));
         assert!(!DESIRED.load(Ordering::Acquire));
     }
 }

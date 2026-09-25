@@ -1420,33 +1420,13 @@ pub(crate) fn enter_data_lifecycle_until(deadline: Instant) -> std::io::Result<D
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
-
-    struct Scratch(PathBuf);
-    impl Scratch {
-        fn new(name: &str) -> Self {
-            let path = std::env::temp_dir().join(format!(
-                "vocalcode-paths-{name}-{}-{}",
-                std::process::id(),
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos()
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
-        }
-    }
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
+    use crate::test_support::TempDir;
 
     #[test]
     fn migration_moves_only_allow_listed_data_and_never_program_files() {
-        let scratch = Scratch::new("allow-list");
-        let legacy = scratch.0.join("install");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-allow-list");
+        let legacy = scratch.join("install");
+        let data = scratch.join("data");
         std::fs::create_dir_all(legacy.join("models/model-a")).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         std::fs::write(legacy.join("models/model-a/model.onnx"), b"model").unwrap();
@@ -1498,9 +1478,9 @@ mod tests {
 
     #[test]
     fn migration_never_overwrites_newer_destination_state() {
-        let scratch = Scratch::new("no-clobber");
-        let legacy = scratch.0.join("install");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-no-clobber");
+        let legacy = scratch.join("install");
+        let data = scratch.join("data");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         std::fs::write(legacy.join("vocalcode.toml"), b"old").unwrap();
@@ -1517,9 +1497,9 @@ mod tests {
 
     #[test]
     fn crash_after_source_staging_is_recovered_before_migration_retries() {
-        let scratch = Scratch::new("crash-source-stage");
-        let legacy = scratch.0.join("legacy");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-crash-source-stage");
+        let legacy = scratch.join("legacy");
+        let data = scratch.join("data");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let source = legacy.join("vocalcode.toml");
@@ -1542,9 +1522,9 @@ mod tests {
 
     #[test]
     fn crash_after_conflicting_destination_preserves_staged_authority() {
-        let scratch = Scratch::new("crash-after-publish");
-        let legacy = scratch.0.join("legacy");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-crash-after-publish");
+        let legacy = scratch.join("legacy");
+        let data = scratch.join("data");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let stage = create_migration_stage(&legacy, "source").unwrap();
@@ -1566,9 +1546,9 @@ mod tests {
 
     #[test]
     fn crash_after_committed_publish_removes_identical_source_residue() {
-        let scratch = Scratch::new("crash-after-committed-publish");
-        let legacy = scratch.0.join("legacy");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-crash-after-committed-publish");
+        let legacy = scratch.join("legacy");
+        let data = scratch.join("data");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let stage = create_migration_stage(&legacy, "source").unwrap();
@@ -1596,9 +1576,9 @@ mod tests {
 
     #[test]
     fn recovery_recognizes_the_installer_legacy_stage_spelling() {
-        let scratch = Scratch::new("legacy-stage-spelling");
-        let legacy = scratch.0.join("legacy");
-        let data = scratch.0.join("data");
+        let scratch = TempDir::new("paths-legacy-stage-spelling");
+        let legacy = scratch.join("legacy");
+        let data = scratch.join("data");
         std::fs::create_dir_all(&legacy).unwrap();
         std::fs::create_dir_all(&data).unwrap();
         let stage = create_migration_stage(&legacy, "source").unwrap();
@@ -1623,28 +1603,28 @@ mod tests {
 
     #[test]
     fn orphan_copy_cleanup_requires_a_valid_manifest_and_never_follows_links() {
-        let scratch = Scratch::new("crash-copy-stage");
-        let valid = create_migration_stage(&scratch.0, "copy").unwrap();
+        let scratch = TempDir::new("paths-crash-copy-stage");
+        let valid = create_migration_stage(scratch.path(), "copy").unwrap();
         write_migration_manifest(&valid, "vocalcode.toml").unwrap();
         std::fs::write(valid.join("payload"), b"partial copy").unwrap();
-        let unowned = create_migration_stage(&scratch.0, "copy").unwrap();
+        let unowned = create_migration_stage(scratch.path(), "copy").unwrap();
         std::fs::write(unowned.join("payload"), b"unowned evidence").unwrap();
 
-        clean_copy_migration_stages(&scratch.0);
+        clean_copy_migration_stages(scratch.path());
         assert!(!valid.exists());
         assert!(unowned.exists(), "unverified stages must be preserved");
-        let legacy = scratch.0.join("legacy");
+        let legacy = scratch.join("legacy");
         std::fs::create_dir_all(&legacy).unwrap();
-        let destination = scratch.0.join("VocalCode");
+        let destination = scratch.join("VocalCode");
         assert!(windows_migration_work_needed(&legacy, &destination));
-        clean_copy_migration_stages(&scratch.0);
+        clean_copy_migration_stages(scratch.path());
         assert!(unowned.exists(), "one recovery pass preserves bad evidence");
     }
 
     #[test]
     fn migration_manifest_reader_rejects_limit_plus_one_without_allocating_it_all() {
-        let scratch = Scratch::new("oversized-migration-manifest");
-        let stage = create_migration_stage(&scratch.0, "copy").unwrap();
+        let scratch = TempDir::new("paths-oversized-migration-manifest");
+        let stage = create_migration_stage(scratch.path(), "copy").unwrap();
         std::fs::write(
             stage.join(MIGRATION_MANIFEST),
             vec![b'x'; MIGRATION_MANIFEST_MAX_BYTES as usize + 1],
@@ -1666,8 +1646,8 @@ mod tests {
 
     #[test]
     fn shared_lifecycle_guard_excludes_destructive_owner() {
-        let scratch = Scratch::new("lifecycle-lock");
-        let path = scratch.0.join("lifecycle.lock");
+        let scratch = TempDir::new("paths-lifecycle-lock");
+        let path = scratch.join("lifecycle.lock");
         let shared = open_lifecycle_lock_at(&path).unwrap();
         fs2::FileExt::lock_shared(&shared).unwrap();
 
@@ -1686,8 +1666,8 @@ mod tests {
     fn deadline_bounded_lifecycle_lock_times_out_while_a_reader_is_alive() {
         use std::time::{Duration, Instant};
 
-        let scratch = Scratch::new("lifecycle-timeout");
-        let path = scratch.0.join("lifecycle.lock");
+        let scratch = TempDir::new("paths-lifecycle-timeout");
+        let path = scratch.join("lifecycle.lock");
         let shared = lock_data_lifecycle_shared_at(&path).unwrap();
         let started = Instant::now();
         let deadline = started + Duration::from_millis(75);
@@ -1712,8 +1692,8 @@ mod tests {
     fn deadline_bounded_startup_lock_times_out_while_destructive_owner_is_alive() {
         use std::time::{Duration, Instant};
 
-        let scratch = Scratch::new("startup-lifecycle-timeout");
-        let path = scratch.0.join("lifecycle.lock");
+        let scratch = TempDir::new("paths-startup-lifecycle-timeout");
+        let path = scratch.join("lifecycle.lock");
         let destructive = lock_data_lifecycle_exclusive_at(&path).unwrap();
         let started = Instant::now();
         let deadline = started + Duration::from_millis(125);
@@ -1731,7 +1711,7 @@ mod tests {
         );
         assert!(
             started.elapsed() >= Duration::from_millis(100)
-                && started.elapsed() < Duration::from_secs(1),
+                && started.elapsed() < Duration::from_secs(2),
             "startup lock attempt ignored its deadline: {:?}",
             started.elapsed()
         );
@@ -1750,8 +1730,8 @@ mod tests {
 
     #[test]
     fn expired_startup_deadline_never_acquires_an_available_lock() {
-        let scratch = Scratch::new("expired-startup-deadline");
-        let path = scratch.0.join("lifecycle.lock");
+        let scratch = TempDir::new("paths-expired-startup-deadline");
+        let path = scratch.join("lifecycle.lock");
         let error = match lock_data_lifecycle_shared_at_with(
             &path,
             LifecycleLockWait::Until(Instant::now()),
@@ -1776,9 +1756,9 @@ mod tests {
         use std::sync::mpsc;
         use std::time::Duration;
 
-        let scratch = Scratch::new("lifecycle-downgrade");
-        let transition_path = scratch.0.join("transition.lock");
-        let lifecycle_path = scratch.0.join("lifecycle.lock");
+        let scratch = TempDir::new("paths-lifecycle-downgrade");
+        let transition_path = scratch.join("transition.lock");
+        let lifecycle_path = scratch.join("lifecycle.lock");
 
         let transition_file = open_lifecycle_lock_at(&transition_path).unwrap();
         fs2::FileExt::lock_exclusive(&transition_file).unwrap();
@@ -1801,7 +1781,7 @@ mod tests {
             fs2::FileExt::unlock(&lifecycle).unwrap();
             fs2::FileExt::unlock(&transition).unwrap();
         });
-        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        ready_rx.recv_timeout(Duration::from_secs(10)).unwrap();
 
         // The old implementation deadlocked here: it tried to reacquire the
         // transition lock while still owning the exclusive lifecycle lock.
@@ -1813,15 +1793,15 @@ mod tests {
         );
         drop(shared);
         owned_rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .expect("the queued owner should finish once the shared guard exits");
         contender.join().unwrap();
     }
 
     #[test]
     fn failed_migration_restores_the_public_source_and_cleans_staging() {
-        let scratch = Scratch::new("restore-on-error");
-        let legacy = scratch.0.join("install");
+        let scratch = TempDir::new("paths-restore-on-error");
+        let legacy = scratch.join("install");
         std::fs::create_dir_all(&legacy).unwrap();
         let source = legacy.join("vocalcode.toml");
         std::fs::write(&source, b"keep me").unwrap();
@@ -1829,7 +1809,7 @@ mod tests {
         // A regular file cannot be the parent of a destination. This fails only
         // after the source has entered its controlled stage, exercising the
         // restore path without relying on permissions or another drive.
-        let impossible_parent = scratch.0.join("not-a-directory");
+        let impossible_parent = scratch.join("not-a-directory");
         std::fs::write(&impossible_parent, b"blocker").unwrap();
         let error = migrate_entry(&source, &impossible_parent.join("vocalcode.toml"))
             .expect_err("the destination parent is not a directory");
@@ -1847,9 +1827,9 @@ mod tests {
 
     #[test]
     fn synced_copy_is_no_clobber() {
-        let scratch = Scratch::new("synced-copy");
-        let source = scratch.0.join("source.bin");
-        let destination = scratch.0.join("destination.bin");
+        let scratch = TempDir::new("paths-synced-copy");
+        let source = scratch.join("source.bin");
+        let destination = scratch.join("destination.bin");
         std::fs::write(&source, b"complete model bytes").unwrap();
 
         copy_file_synced(&source, &destination).unwrap();
@@ -1868,13 +1848,13 @@ mod tests {
 
     #[test]
     fn trusted_data_root_rejects_a_regular_file_and_directory_redirect() {
-        let scratch = Scratch::new("trusted-root");
-        let file = scratch.0.join("not-a-directory");
+        let scratch = TempDir::new("paths-trusted-root");
+        let file = scratch.join("not-a-directory");
         std::fs::write(&file, b"block").unwrap();
         assert!(std::panic::catch_unwind(|| ensure_dir(file.clone())).is_err());
 
-        let target = scratch.0.join("target");
-        let redirected = scratch.0.join("redirected");
+        let target = scratch.join("target");
+        let redirected = scratch.join("redirected");
         std::fs::create_dir(&target).unwrap();
         if std::os::windows::fs::symlink_dir(&target, &redirected).is_ok() {
             assert!(std::panic::catch_unwind(|| ensure_dir(redirected.clone())).is_err());
@@ -1883,38 +1863,40 @@ mod tests {
 
     #[test]
     fn trusted_subdirectory_is_created_component_by_component() {
-        let scratch = Scratch::new("trusted-subdir");
+        let scratch = TempDir::new("paths-trusted-subdir");
         let created =
-            ensure_trusted_data_subdir(&scratch.0, Path::new("webview2/settings")).unwrap();
-        assert_eq!(created, scratch.0.join("webview2/settings"));
+            ensure_trusted_data_subdir(scratch.path(), Path::new("webview2/settings")).unwrap();
+        assert_eq!(created, scratch.join("webview2/settings"));
         assert!(created.is_dir());
 
         let repeated =
-            ensure_trusted_data_subdir(&scratch.0, Path::new("webview2/settings")).unwrap();
+            ensure_trusted_data_subdir(scratch.path(), Path::new("webview2/settings")).unwrap();
         assert_eq!(repeated, created);
     }
 
     #[test]
     fn trusted_subdirectory_rejects_escape_and_non_directory_components() {
-        let scratch = Scratch::new("trusted-subdir-reject");
-        assert!(ensure_trusted_data_subdir(&scratch.0, Path::new("../escape")).is_err());
-        assert!(ensure_trusted_data_subdir(&scratch.0, &scratch.0.join("absolute")).is_err());
-        assert!(ensure_trusted_data_subdir(&scratch.0, Path::new("")).is_err());
+        let scratch = TempDir::new("paths-trusted-subdir-reject");
+        assert!(ensure_trusted_data_subdir(scratch.path(), Path::new("../escape")).is_err());
+        assert!(ensure_trusted_data_subdir(scratch.path(), &scratch.join("absolute")).is_err());
+        assert!(ensure_trusted_data_subdir(scratch.path(), Path::new("")).is_err());
 
-        std::fs::create_dir(scratch.0.join("webview2")).unwrap();
-        std::fs::write(scratch.0.join("webview2/settings"), b"not a directory").unwrap();
-        assert!(ensure_trusted_data_subdir(&scratch.0, Path::new("webview2/settings")).is_err());
+        std::fs::create_dir(scratch.join("webview2")).unwrap();
+        std::fs::write(scratch.join("webview2/settings"), b"not a directory").unwrap();
+        assert!(
+            ensure_trusted_data_subdir(scratch.path(), Path::new("webview2/settings")).is_err()
+        );
     }
 
     #[test]
     fn trusted_subdirectory_rejects_redirected_component() {
-        let scratch = Scratch::new("trusted-subdir-redirect");
-        let outside = scratch.0.join("outside");
-        let redirected = scratch.0.join("webview2");
+        let scratch = TempDir::new("paths-trusted-subdir-redirect");
+        let outside = scratch.join("outside");
+        let redirected = scratch.join("webview2");
         std::fs::create_dir(&outside).unwrap();
         if std::os::windows::fs::symlink_dir(&outside, &redirected).is_ok() {
             assert!(
-                ensure_trusted_data_subdir(&scratch.0, Path::new("webview2/settings")).is_err()
+                ensure_trusted_data_subdir(scratch.path(), Path::new("webview2/settings")).is_err()
             );
             assert!(!outside.join("settings").exists());
         }

@@ -248,17 +248,9 @@ pub(crate) fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn scratch() -> PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-workflow-migration-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&base).unwrap();
-        base
+    use crate::test_support::TempDir;
+    fn scratch() -> TempDir {
+        TempDir::new("workflow-migration")
     }
     #[test]
     fn legacy_opt_in_migrates_once_without_modifying_legacy_or_limits() {
@@ -281,7 +273,6 @@ mod tests {
         assert!(!current.diagnostics);
         assert_eq!(current.max_entries, 0);
         assert_eq!(current.max_bytes, 0);
-        std::fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn legacy_false_missing_and_invalid_never_enable_or_overwrite_preferences() {
@@ -305,12 +296,10 @@ mod tests {
                 std::fs::read_to_string(base.join("vocalcode.toml")).unwrap(),
                 source
             );
-            std::fs::remove_dir_all(base).unwrap();
         }
         let base = scratch();
         assert!(!load(&base).unwrap().1.diagnostics);
         assert!(!path(&base).unwrap().exists());
-        std::fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn migration_failure_and_concurrent_explicit_choice_are_preserved() {
@@ -336,7 +325,6 @@ mod tests {
         std::fs::write(path(&base).unwrap(), b"invalid").unwrap();
         assert!(load(&base).is_err());
         assert_eq!(std::fs::read(path(&base).unwrap()).unwrap(), b"invalid");
-        std::fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn chinese_opt_in_is_independent_and_inherits_only_its_own_app_override() {
@@ -408,15 +396,7 @@ mod tests {
 
     #[test]
     fn preference_save_is_revision_bound_and_applies_only_after_persistence() {
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-workflow-test-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        std::fs::create_dir(&base).unwrap();
+        let base = TempDir::new("workflow-test");
         let status = crate::webui::RuntimeStatus::default();
         let before = handle(&base, &status, &json!({"op":"load"}), None).unwrap();
         let mut prefs = before["preferences"].clone();
@@ -436,6 +416,5 @@ mod tests {
             json!({"op":"save","revision":before["revision"],"preferences":Preferences::default()});
         assert!(handle(&base, &status, &bad, None).is_err());
         assert_eq!(load(&base).unwrap().1.cleanup, Cleanup::Original);
-        std::fs::remove_dir_all(base).unwrap();
     }
 }

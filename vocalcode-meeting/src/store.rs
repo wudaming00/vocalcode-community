@@ -466,14 +466,11 @@ fn replace_file(source: &Path, destination: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     use crate::{AudioRetention, AudioSource, Speaker};
 
-    fn test_store(label: &str) -> (PathBuf, MeetingStore) {
-        let root = std::env::temp_dir().join(format!(
-            "vocalcode-meeting-{label}-{}-{}",
-            process::id(),
-            NONCE.fetch_add(1, Ordering::Relaxed)
-        ));
+    fn test_store(label: &str) -> (TempDir, MeetingStore) {
+        let root = TempDir::new(&format!("meeting-{label}"));
         let store = MeetingStore::open(&root).unwrap();
         (root, store)
     }
@@ -512,7 +509,7 @@ mod tests {
 
     #[test]
     fn create_append_save_and_reload() {
-        let (root, store) = test_store("roundtrip");
+        let (_root, store) = test_store("roundtrip");
         let mut meeting = create(&store);
         store.append_segment(&meeting.id, &segment(1)).unwrap();
         meeting.segment_count = 1;
@@ -524,12 +521,11 @@ mod tests {
         assert_eq!(loaded.status, MeetingStatus::Completed);
         assert_eq!(loaded.segments, vec![segment(1)]);
         assert_eq!(store.list().unwrap()[0].segment_count, 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn completed_transcript_can_be_atomically_post_processed() {
-        let (root, store) = test_store("replace-transcript");
+        let (_root, store) = test_store("replace-transcript");
         let meeting = create(&store);
         store.append_segment(&meeting.id, &segment(1)).unwrap();
         store.append_segment(&meeting.id, &segment(2)).unwrap();
@@ -541,12 +537,11 @@ mod tests {
         let loaded = store.load(&meeting.id).unwrap();
         assert_eq!(loaded.segments, vec![segment(2)]);
         assert_eq!(loaded.segment_count, 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn listing_uses_metadata_and_load_reconciles_a_crash_after_jsonl_fsync() {
-        let (root, store) = test_store("metadata-list");
+        let (_root, store) = test_store("metadata-list");
         let meeting = create(&store);
         store.append_segment(&meeting.id, &segment(1)).unwrap();
         // Simulate power loss before meeting.json was updated. Listing stays
@@ -556,7 +551,6 @@ mod tests {
         let loaded = store.load(&meeting.id).unwrap();
         assert_eq!(loaded.segment_count, 1);
         assert_eq!(loaded.segments, vec![segment(1)]);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -569,12 +563,11 @@ mod tests {
         file.write_all(b"{\"id\":2").unwrap();
         file.sync_all().unwrap();
         assert_eq!(store.load(&meeting.id).unwrap().segments.len(), 1);
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn recovers_recording_and_processing_states() {
-        let (root, store) = test_store("recovery");
+        let (_root, store) = test_store("recovery");
         let meeting = create(&store);
         let recovered = store
             .recover_interrupted(meeting.started_at_ms + 5_000)
@@ -584,6 +577,5 @@ mod tests {
             store.load(&meeting.id).unwrap().status,
             MeetingStatus::Interrupted
         );
-        fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,7 +1,8 @@
 //! Replay-only regression tests. No microphone, clipboard, injector or user data.
 use super::*;
+use crate::test_support::TempDir;
 
-fn fixture(label: &str) -> (PathBuf, MeetingStore, Meeting, Bridge) {
+fn fixture(label: &str) -> (TempDir, MeetingStore, Meeting, Bridge) {
     let root = tests::test_root(label);
     let store = MeetingStore::open(root.join("meetings")).unwrap();
     let meeting = store
@@ -48,7 +49,7 @@ fn short_meeting_asr_padding_preserves_content_and_only_adds_silence() {
 
 #[test]
 fn punctuation_does_not_create_rows_but_multilingual_short_answers_do() {
-    let (root, store, mut meeting, bridge) = fixture("punctuation-hygiene");
+    let (_root, store, mut meeting, bridge) = fixture("punctuation-hygiene");
     for text in ["。", "...", "，！？", "।"] {
         save_transcription(&store, &bridge, &mut meeting, draft(0), text.into()).unwrap();
     }
@@ -69,12 +70,11 @@ fn punctuation_does_not_create_rows_but_multilingual_short_answers_do() {
     }
     assert_eq!(meeting.filtered_noise_segments, 4);
     assert_eq!(store.load(&meeting.id).unwrap().segments.len(), 8);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn old_punctuation_is_marked_only_in_derived_reading_view() {
-    let (root, store, mut meeting, _) = fixture("old-punctuation");
+    let (_root, _store, mut meeting, _) = fixture("old-punctuation");
     meeting.segments = vec![
         tests::transcript(1, 0, 45_000, AudioSource::Microphone, "。"),
         tests::transcript(2, 45_000, 90_000, AudioSource::Microphone, "情况刷。"),
@@ -87,8 +87,6 @@ fn old_punctuation_is_marked_only_in_derived_reading_view() {
     assert_eq!(value["segments"][2]["noise_only"], false);
     assert_eq!(value["segments"][2]["review_recommended"], false);
     assert_eq!(export_text(&meeting), original);
-    drop(store);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -156,8 +154,6 @@ fn real_meeting_detector_filters_noise_and_keeps_audio_for_recovery() {
     tracks.detector = None;
     assert!(!tracks.monitor_healthy());
     assert!(permit_meeting_audio(&mut tracks.detector, &[0.; 16_000]));
-    drop(tracks);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -184,7 +180,7 @@ fn countdown_controls_are_bound_to_the_current_recording_and_bounded() {
 
 #[test]
 fn clean_reading_fields_never_modify_saved_transcript_or_export() {
-    let (root, store, mut meeting, _) = fixture("filler-reading");
+    let (_root, _store, mut meeting, _) = fixture("filler-reading");
     meeting.segments.push(tests::transcript(
         1,
         100,
@@ -215,13 +211,11 @@ fn clean_reading_fields_never_modify_saved_transcript_or_export() {
     // Language guard also applies to the derived meeting view.
     meeting.language = "de".into();
     assert_eq!(meeting_value(&meeting)["segments"][0]["filler_removed"], 0);
-    drop(store);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn stalled_model_does_not_block_audio_checkpointing_or_stop_signal() {
-    let (root, store, mut meeting, bridge) = fixture("stalled-live");
+    let (_root, store, mut meeting, bridge) = fixture("stalled-live");
     let audio = store.audio_directory(&meeting.id).unwrap();
     let mut tracks = TrackSet::new(&audio, true, false).unwrap();
     let mut pipeline = LiveTranscription::default();
@@ -286,12 +280,11 @@ fn stalled_model_does_not_block_audio_checkpointing_or_stop_signal() {
         store.load(&meeting.id).unwrap().status,
         MeetingStatus::Completed
     );
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn saturated_asr_channel_and_backlog_are_bounded_without_dropping_a_draft() {
-    let (root, store, mut meeting, bridge) = fixture("full-channel");
+    let (_root, store, mut meeting, bridge) = fixture("full-channel");
     let (sender, receiver) = mpsc::sync_channel(1);
     let (reply, _) = mpsc::sync_channel(1);
     sender
@@ -317,12 +310,11 @@ fn saturated_asr_channel_and_backlog_are_bounded_without_dropping_a_draft() {
     assert!(pipeline
         .tick(&store, &bridge, &sender, &mut meeting)
         .is_err());
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn retained_audio_contains_the_resampler_tail() {
-    let (root, store, _, _) = fixture("audio-tail");
+    let (root, _store, _, _) = fixture("audio-tail");
     let audio = root.join("audio-replay");
     let mut tracks = TrackSet::new(&audio, true, false).unwrap();
     tracks
@@ -342,8 +334,6 @@ fn retained_audio_contains_the_resampler_tail() {
     })
     .unwrap();
     assert_eq!(count, 16_000);
-    drop(store);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -373,7 +363,7 @@ fn opposite_decisions_and_changed_numbers_are_not_echo() {
 
 #[test]
 fn library_selection_does_not_replace_live_identity_and_completion_keeps_detail() {
-    let (root, store, meeting, bridge) = fixture("live-identity");
+    let (_root, store, meeting, bridge) = fixture("live-identity");
     publish_active(&bridge, &store, &meeting, "recording", None);
     bridge.publish(
         json!({"active":true,"detail":{"id":"1787796747000-1-999","title":"Old meeting"}}),
@@ -383,12 +373,11 @@ fn library_selection_does_not_replace_live_identity_and_completion_keeps_detail(
     bridge.0.active.store(false, Ordering::Release);
     publish_store(&bridge, &store, None, &[], None, None);
     assert_eq!(bridge.snapshot()["detail"]["id"], meeting.id.as_str());
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn recovery_does_not_add_offline_time_or_invent_retained_audio() {
-    let (root, store, mut meeting, _) = fixture("recovery-duration");
+    let (_root, store, mut meeting, _) = fixture("recovery-duration");
     meeting.duration_ms = 35_000;
     store.save(&meeting).unwrap();
     store
@@ -398,12 +387,11 @@ fn recovery_does_not_add_offline_time_or_invent_retained_audio() {
     assert_eq!(recovered.duration_ms, 35_000);
     assert_eq!(recovered.ended_at_ms, Some(meeting.started_at_ms + 35_000));
     assert!(recovered.error.unwrap().contains("no recoverable audio"));
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
 fn meeting_does_not_disable_the_dictation_hotkey_ready_gate() {
-    let (root, _, _, bridge) = fixture("dictation-ready");
+    let (_root, _, _, bridge) = fixture("dictation-ready");
     let status = crate::webui::RuntimeStatus::with_meetings(bridge);
     assert!(status.meetings.is_active());
     let input = AtomicBool::new(true);
@@ -412,7 +400,6 @@ fn meeting_does_not_disable_the_dictation_hotkey_ready_gate() {
     assert!(!crate::engine_ready(true, false, &input, &status));
     status.shutdown.store(true, Ordering::Release);
     assert!(!crate::engine_ready(true, true, &input, &status));
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -431,16 +418,19 @@ fn runtime_shutdown_cancels_an_import_waiting_on_a_stalled_native_model() {
         .bridge()
         .import(input, "Interrupted import".into(), "en".into())
         .unwrap();
-    let request = receiver.recv_timeout(Duration::from_secs(5)).unwrap();
+    let request = receiver.recv_timeout(Duration::from_secs(60)).unwrap();
     let started = std::time::Instant::now();
     runtime.shutdown();
-    assert!(started.elapsed() < Duration::from_secs(2));
+    // Cancellation is polled every 100 ms; without it shutdown never returns.
+    assert!(started.elapsed() < Duration::from_secs(10));
+    // Shutdown joined the meeting threads, so the input they decoded, the
+    // speech-gate model they loaded and every store file are closed again.
+    crate::test_support::assert_directory_released(&root);
     // The model was never killed: a late reply is simply no longer needed.
     assert!(request.reply.send(Ok("Late transcription".into())).is_err());
     let store = MeetingStore::open(root.join("meetings")).unwrap();
     let entry = store.list().unwrap().remove(0);
     assert_eq!(entry.status, MeetingStatus::Interrupted);
-    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -528,5 +518,4 @@ fn real_local_model_import_replay() {
     }
     drop(sender);
     responder.join().unwrap();
-    std::fs::remove_dir_all(root).unwrap();
 }

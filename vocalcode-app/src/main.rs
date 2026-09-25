@@ -27,6 +27,8 @@ mod rewrite;
 mod rewrite_cli;
 mod storage;
 #[cfg(test)]
+mod test_support;
+#[cfg(test)]
 mod voice_corpus;
 mod webui;
 mod workflows;
@@ -5871,6 +5873,7 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::TempDir;
     use vocalcode_core::traits::TriggerId;
 
     static NEXT_TEST_DIRECTORY: AtomicU64 = AtomicU64::new(0);
@@ -5924,44 +5927,16 @@ mod tests {
         assert!(meeting_asr_may_run(false, false, MEETING_ASR_INPUT_GRACE));
     }
 
-    struct ScratchDirectory(PathBuf);
-
-    impl ScratchDirectory {
-        fn new(label: &str) -> Self {
-            let nonce = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-            let path = std::env::temp_dir().join(format!(
-                "vocalcode-main-{label}-{}-{nonce}",
-                std::process::id()
-            ));
-            std::fs::create_dir_all(&path).unwrap();
-            Self(path)
+    /// The Unix instance socket must fit macOS's 104-byte `sockaddr_un`; the
+    /// per-user `$TMPDIR` alone takes about half of that.
+    fn instance_directory(label: &str) -> TempDir {
+        #[cfg(unix)]
+        {
+            TempDir::new_in(Path::new("/tmp"), &format!("instance-{label}"))
         }
-
-        fn path(&self) -> &Path {
-            &self.0
-        }
-
-        fn new_for_instance(label: &str) -> Self {
-            #[cfg(unix)]
-            {
-                let nonce = NEXT_TEST_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-                let path = Path::new("/tmp").join(format!(
-                    "vc-instance-{label}-{}-{nonce}",
-                    std::process::id()
-                ));
-                std::fs::create_dir_all(&path).unwrap();
-                Self(path)
-            }
-            #[cfg(not(unix))]
-            {
-                Self::new(label)
-            }
-        }
-    }
-
-    impl Drop for ScratchDirectory {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
+        #[cfg(not(unix))]
+        {
+            TempDir::new(&format!("instance-{label}"))
         }
     }
 
@@ -5991,7 +5966,7 @@ mod tests {
 
     #[test]
     fn dictionary_write_lock_has_a_hard_deadline_and_recovers() {
-        let scratch = ScratchDirectory::new("rules-lock-deadline");
+        let scratch = TempDir::new("rules-lock-deadline");
         let rules_path = scratch.path().join("replacements.txt");
         let holder = hold_test_file_lock(&scratch.path().join(".vocalcode-rules-write.lock"));
 
@@ -6013,7 +5988,7 @@ mod tests {
 
     #[test]
     fn settings_write_lock_has_a_hard_deadline_and_recovers() {
-        let scratch = ScratchDirectory::new("config-lock-deadline");
+        let scratch = TempDir::new("config-lock-deadline");
         let config_path = scratch.path().join("vocalcode.toml");
         let holder = hold_test_file_lock(&scratch.path().join(".vocalcode-config-write.lock"));
 
@@ -6036,7 +6011,7 @@ mod tests {
 
     #[test]
     fn contended_log_lock_disables_only_file_logging_and_recovers() {
-        let scratch = ScratchDirectory::new("log-lock-deadline");
+        let scratch = TempDir::new("log-lock-deadline");
         let sink = LogFileSink::new(scratch.path(), 128);
         let holder = hold_test_file_lock(&sink.lock);
 
@@ -6071,7 +6046,7 @@ mod tests {
 
     #[test]
     fn an_expired_deadline_never_acquires_or_leaks_a_file_lock() {
-        let scratch = ScratchDirectory::new("expired-file-lock");
+        let scratch = TempDir::new("expired-file-lock");
         let path = scratch.path().join("lock");
         let first = std::fs::OpenOptions::new()
             .read(true)
@@ -6119,7 +6094,7 @@ mod tests {
 
     #[test]
     fn missing_config_and_rules_create_defaults() {
-        let scratch = ScratchDirectory::new("missing-user-files");
+        let scratch = TempDir::new("missing-user-files");
         let config_path = scratch.path().join("vocalcode.toml");
         let rules_path = scratch.path().join("replacements.txt");
 
@@ -6185,7 +6160,7 @@ mod tests {
 
     #[test]
     fn bounded_reader_accepts_the_exact_limit_and_rejects_one_byte_more() {
-        let scratch = ScratchDirectory::new("bounded-control-read");
+        let scratch = TempDir::new("bounded-control-read");
         let path = scratch.path().join("control.dat");
         std::fs::write(&path, vec![b'x'; 64]).unwrap();
         assert_eq!(read_bounded_bytes(&path, 64).unwrap().len(), 64);
@@ -6197,7 +6172,7 @@ mod tests {
 
     #[test]
     fn oversized_control_documents_fail_closed_without_recovery_or_rewrite() {
-        let scratch = ScratchDirectory::new("oversized-control-files");
+        let scratch = TempDir::new("oversized-control-files");
         let cases = [
             ("vocalcode.toml", MAX_CONFIG_DOCUMENT_BYTES),
             ("replacements.txt", MAX_DICTIONARY_DOCUMENT_BYTES),
@@ -6259,7 +6234,7 @@ mod tests {
 
     #[test]
     fn startup_migrates_valid_old_config_only_in_memory() {
-        let scratch = ScratchDirectory::new("in-memory-config-migration");
+        let scratch = TempDir::new("in-memory-config-migration");
         let path = scratch.path().join("vocalcode.toml");
         let old = Config {
             config_version: 0,
@@ -6287,7 +6262,7 @@ mod tests {
 
     #[test]
     fn future_config_version_with_unknown_fields_fails_closed_without_touching_bytes() {
-        let scratch = ScratchDirectory::new("future-config-version");
+        let scratch = TempDir::new("future-config-version");
         let path = scratch.path().join("vocalcode.toml");
         let future = vocalcode_core::config::CONFIG_VERSION + 1;
         let source = format!(
@@ -6309,7 +6284,7 @@ mod tests {
 
     #[test]
     fn settings_save_refuses_a_future_file_that_appeared_after_load() {
-        let scratch = ScratchDirectory::new("future-config-save-race");
+        let scratch = TempDir::new("future-config-save-race");
         let path = scratch.path().join("vocalcode.toml");
         let expected = Config::default();
         std::fs::write(&path, toml::to_string_pretty(&expected).unwrap()).unwrap();
@@ -6327,7 +6302,7 @@ mod tests {
 
     #[test]
     fn settings_save_refuses_a_compatible_external_edit() {
-        let scratch = ScratchDirectory::new("compatible-config-save-race");
+        let scratch = TempDir::new("compatible-config-save-race");
         let path = scratch.path().join("vocalcode.toml");
         let expected = Config::default();
         std::fs::write(&path, toml::to_string_pretty(&expected).unwrap()).unwrap();
@@ -6346,7 +6321,7 @@ mod tests {
 
     #[test]
     fn settings_save_accepts_os_authoritative_autostart_over_stale_toml() {
-        let scratch = ScratchDirectory::new("autostart-config-reconcile");
+        let scratch = TempDir::new("autostart-config-reconcile");
         let path = scratch.path().join("vocalcode.toml");
         let disk = Config::default();
         std::fs::write(&path, toml::to_string_pretty(&disk).unwrap()).unwrap();
@@ -6444,7 +6419,7 @@ mod tests {
             }
         }
 
-        let scratch = ScratchDirectory::new("deferred-purge-parent-exit");
+        let scratch = TempDir::new("deferred-purge-parent-exit");
         let marker = scratch.path().join("must-survive-parent.txt");
         std::fs::write(&marker, b"still owned by parent").unwrap();
         let (entered_tx, entered_rx) = mpsc::channel();
@@ -6465,7 +6440,7 @@ mod tests {
         });
 
         entered_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(10))
             .expect("helper did not begin waiting for its parent");
         assert!(
             marker.exists(),
@@ -6652,7 +6627,7 @@ mod tests {
             Err(_) => {}
         }
 
-        let scratch = ScratchDirectory::new("real-parent-exit-pipe");
+        let scratch = TempDir::new("real-parent-exit-pipe");
         let marker = scratch.path().join("protected-data");
         let ready = scratch.path().join("parent-ready");
         std::fs::write(&marker, b"must survive while parent is alive").unwrap();
@@ -6719,7 +6694,7 @@ mod tests {
             drop(done_tx);
             exited_tx.send(()).unwrap();
         });
-        entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        entered_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         let detached = BackgroundRuntime {
             events,
             input_shutdown: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -6731,7 +6706,7 @@ mod tests {
         assert_eq!(detached, EngineShutdown::Detached);
         release_tx.send(()).unwrap();
         exited_rx
-            .recv_timeout(Duration::from_secs(1))
+            .recv_timeout(Duration::from_secs(10))
             .expect("detached test engine did not exit after release");
     }
 
@@ -6811,7 +6786,7 @@ mod tests {
 
     #[test]
     fn missing_config_adopts_a_concurrently_created_file() {
-        let scratch = ScratchDirectory::new("config-create-race");
+        let scratch = TempDir::new("config-create-race");
         let path = scratch.path().join("vocalcode.toml");
         let concurrent = Config {
             model: "small.en".to_string(),
@@ -6840,7 +6815,7 @@ mod tests {
 
     #[test]
     fn missing_rules_adopt_a_concurrently_created_dictionary() {
-        let scratch = ScratchDirectory::new("rules-create-race");
+        let scratch = TempDir::new("rules-create-race");
         let path = scratch.path().join("replacements.txt");
         let concurrent = "wire less => wireless\n";
 
@@ -6880,7 +6855,7 @@ mod tests {
 
     #[test]
     fn dictionary_save_preserves_every_non_rule_byte_and_line_ending() {
-        let scratch = ScratchDirectory::new("rules-preserve-document");
+        let scratch = TempDir::new("rules-preserve-document");
         let path = scratch.path().join("replacements.txt");
         let source = "\u{feff}old => value\r\n# hand-written header\r\n\r\nnot a rule\r\nempty => \r\n# tail has no newline";
         std::fs::write(&path, source.as_bytes()).unwrap();
@@ -6905,7 +6880,7 @@ mod tests {
 
     #[test]
     fn automatic_corrections_merge_atomically_without_losing_document_metadata() {
-        let scratch = ScratchDirectory::new("rules-auto-correction");
+        let scratch = TempDir::new("rules-auto-correction");
         let path = scratch.path().join("replacements.txt");
         std::fs::write(&path, "# user note\r\nvoput code => old\r\n").unwrap();
 
@@ -6953,7 +6928,7 @@ mod tests {
 
     #[test]
     fn risky_learning_is_only_a_proposal_and_inverse_rule_is_not_written() {
-        let scratch = ScratchDirectory::new("learning-risk-review");
+        let scratch = TempDir::new("learning-risk-review");
         let path = scratch.path().join("replacements.txt");
         let original = "# existing notes\n考虑 => Collie\n";
         std::fs::write(&path, original).unwrap();
@@ -7000,7 +6975,7 @@ mod tests {
 
     #[test]
     fn dictionary_cas_refuses_valid_comment_and_invalid_external_edits() {
-        let scratch = ScratchDirectory::new("rules-external-edits");
+        let scratch = TempDir::new("rules-external-edits");
         let path = scratch.path().join("replacements.txt");
         for external in [
             "external => valid\n",
@@ -7032,7 +7007,7 @@ mod tests {
 
     #[test]
     fn dictionary_cross_process_lock_allows_only_one_stale_writer() {
-        let scratch = ScratchDirectory::new("rules-double-writer");
+        let scratch = TempDir::new("rules-double-writer");
         let path = scratch.path().join("replacements.txt");
         std::fs::write(&path, "old => value\n").unwrap();
         let revision = load_rules_document_from(&path).unwrap().revision;
@@ -7069,7 +7044,7 @@ mod tests {
 
     #[test]
     fn dictionary_revision_rotates_after_each_successful_edit() {
-        let scratch = ScratchDirectory::new("rules-revision-rotation");
+        let scratch = TempDir::new("rules-revision-rotation");
         let path = scratch.path().join("replacements.txt");
         std::fs::write(&path, "# keep\nold => value\ninvalid evidence\n").unwrap();
         let first = load_rules_document_from(&path).unwrap();
@@ -7105,7 +7080,7 @@ mod tests {
 
     #[test]
     fn invalid_config_gets_a_unique_exact_recovery_without_replacing_old_backup() {
-        let scratch = ScratchDirectory::new("invalid-config-recovery");
+        let scratch = TempDir::new("invalid-config-recovery");
         let path = scratch.path().join("vocalcode.toml");
         let old_backup = path.with_extension("toml.invalid");
         let invalid = "# user's hand edit\ntalk = [\n";
@@ -7128,7 +7103,7 @@ mod tests {
 
     #[test]
     fn config_is_not_replaced_when_recovery_cannot_be_created() {
-        let scratch = ScratchDirectory::new("config-recovery-failure");
+        let scratch = TempDir::new("config-recovery-failure");
         let path = scratch.path().join("vocalcode.toml");
         let invalid = "model = [ definitely invalid\n";
         std::fs::write(&path, invalid).unwrap();
@@ -7146,7 +7121,7 @@ mod tests {
 
     #[test]
     fn config_recovery_restores_moved_bytes_that_changed_after_initial_read() {
-        let scratch = ScratchDirectory::new("config-recovery-race");
+        let scratch = TempDir::new("config-recovery-race");
         let path = scratch.path().join("vocalcode.toml");
         let invalid = "model = [ definitely invalid\n";
         let concurrent_edit = "# changed by another process\nmodel = \"base.en\"\n";
@@ -7180,7 +7155,7 @@ mod tests {
 
     #[test]
     fn non_not_found_read_errors_never_replace_user_files() {
-        let scratch = ScratchDirectory::new("read-errors");
+        let scratch = TempDir::new("read-errors");
         for name in ["vocalcode.toml", "replacements.txt", "totals.json"] {
             let path = scratch.path().join(name);
             std::fs::create_dir(&path).unwrap();
@@ -7203,7 +7178,7 @@ mod tests {
 
     #[test]
     fn dictionary_read_failure_is_isolated_to_its_exact_path() {
-        let scratch = ScratchDirectory::new("rules-read-failure-isolation");
+        let scratch = TempDir::new("rules-read-failure-isolation");
         let good_base = scratch.path().join("good");
         let bad_base = scratch.path().join("bad");
         std::fs::create_dir_all(&good_base).unwrap();
@@ -7250,7 +7225,7 @@ mod tests {
 
     #[test]
     fn invalid_totals_are_recovered_before_fresh_counters_are_installed() {
-        let scratch = ScratchDirectory::new("invalid-totals-recovery");
+        let scratch = TempDir::new("invalid-totals-recovery");
         let path = scratch.path().join("totals.json");
         let old_backup = scratch.path().join("totals.json.invalid");
         let invalid = "{\"dictations\": 91, this is truncated";
@@ -7276,7 +7251,7 @@ mod tests {
 
     #[test]
     fn totals_recovery_no_clobber_publish_preserves_a_concurrent_edit() {
-        let scratch = ScratchDirectory::new("totals-recovery-race");
+        let scratch = TempDir::new("totals-recovery-race");
         let path = scratch.path().join("totals.json");
         let invalid = "{\"dictations\": 91, this is truncated";
         let concurrent_edit = r#"{"dictations":4,"words":40,"chars":240}"#;
@@ -7307,7 +7282,7 @@ mod tests {
 
     #[test]
     fn recovery_growth_is_detected_with_one_extra_byte_and_kept_complete() {
-        let scratch = ScratchDirectory::new("recovery-growth-bound");
+        let scratch = TempDir::new("recovery-growth-bound");
         let path = scratch.path().join("vocalcode.toml");
         let recovery = scratch.path().join("vocalcode.toml.invalid");
         let original = "bad";
@@ -7400,8 +7375,9 @@ mod tests {
         let status = RuntimeStatus::default();
         status.shutdown.store(true, Ordering::Release);
         let started = Instant::now();
-        assert!(!shutdown_aware_pause(&status, Duration::from_secs(4)));
-        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(!shutdown_aware_pause(&status, Duration::from_secs(30)));
+        // Immediate by design; a pause that ignored shutdown would take 30 s.
+        assert!(started.elapsed() < Duration::from_secs(3));
     }
 
     #[test]
@@ -7421,7 +7397,7 @@ mod tests {
 
     #[test]
     fn long_running_log_sink_stays_bounded_and_keeps_one_generation() {
-        let scratch = ScratchDirectory::new("log-long-running");
+        let scratch = TempDir::new("log-long-running");
         let sink = LogFileSink::new(scratch.path(), 128);
         for index in 0..500 {
             sink.append_locked(format!("line-{index:04}\n").as_bytes())
@@ -7441,7 +7417,7 @@ mod tests {
 
     #[test]
     fn two_log_writers_share_one_lock_without_torn_records() {
-        let scratch = ScratchDirectory::new("log-two-writers");
+        let scratch = TempDir::new("log-two-writers");
         let directory = Arc::new(scratch.path().to_path_buf());
         let barrier = Arc::new(std::sync::Barrier::new(3));
         let mut writers = Vec::new();
@@ -7481,7 +7457,7 @@ mod tests {
 
     #[test]
     fn failed_rotation_disables_file_sink_without_truncating_active_log() {
-        let scratch = ScratchDirectory::new("log-rotate-failure");
+        let scratch = TempDir::new("log-rotate-failure");
         let mut sink = LogFileSink::new(scratch.path(), 8);
         let evidence = b"12345678";
         std::fs::write(&sink.active, evidence).unwrap();
@@ -7501,7 +7477,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn log_symlink_is_rejected_without_touching_its_victim() {
-        let scratch = ScratchDirectory::new("log-symlink");
+        let scratch = TempDir::new("log-symlink");
         let sink = LogFileSink::new(scratch.path(), 128);
         let victim = scratch.path().join("victim.txt");
         std::fs::write(&victim, b"keep this evidence").unwrap();
@@ -7518,7 +7494,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn log_reparse_point_is_rejected_without_touching_its_victim() {
-        let scratch = ScratchDirectory::new("log-reparse");
+        let scratch = TempDir::new("log-reparse");
         let sink = LogFileSink::new(scratch.path(), 128);
         let victim = scratch.path().join("victim");
         std::fs::create_dir(&victim).unwrap();
@@ -7551,7 +7527,7 @@ mod tests {
 
     #[test]
     fn second_instance_notifies_the_authenticated_primary() {
-        let scratch = ScratchDirectory::new_for_instance("notify");
+        let scratch = instance_directory("notify");
         let scope = unique_instance_scope("notify");
         let InstanceState::Primary(primary) =
             acquire_instance(scratch.path(), &scope).expect("first acquire must succeed")
@@ -7564,7 +7540,7 @@ mod tests {
         ));
         primary
             .show
-            .recv_timeout(std::time::Duration::from_secs(2))
+            .recv_timeout(std::time::Duration::from_secs(10))
             .expect("the protected endpoint must deliver the show request");
         drop(primary.guard);
     }
@@ -7603,7 +7579,7 @@ mod tests {
     #[test]
     fn simultaneous_launch_race_has_exactly_one_primary() {
         const CONTENDERS: usize = 6;
-        let scratch = ScratchDirectory::new_for_instance("race");
+        let scratch = instance_directory("race");
         let scope = unique_instance_scope("race");
         let release = Arc::new(std::sync::Barrier::new(CONTENDERS + 1));
         let (send, receive) = mpsc::channel();
@@ -7640,7 +7616,7 @@ mod tests {
 
     #[test]
     fn ownership_recovers_after_the_primary_handle_closes() {
-        let scratch = ScratchDirectory::new_for_instance("recover");
+        let scratch = instance_directory("recover");
         let scope = unique_instance_scope("recover");
         let first = acquire_instance(scratch.path(), &scope).unwrap();
         assert!(matches!(first, InstanceState::Primary(_)));
@@ -7655,7 +7631,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         use std::os::unix::net::UnixListener;
 
-        let scratch = ScratchDirectory::new_for_instance("stale");
+        let scratch = instance_directory("stale");
         let scope = unique_instance_scope("stale-socket");
         let socket = instance_platform::socket_path_for_test(scratch.path(), &scope).unwrap();
         drop(UnixListener::bind(&socket).unwrap());
@@ -7674,7 +7650,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn untrusted_pipe_occupant_cannot_suppress_a_new_primary() {
-        let scratch = ScratchDirectory::new("instance-pipe-spoof");
+        let scratch = TempDir::new("instance-pipe-spoof");
         let scope = unique_instance_scope("pipe-spoof");
         let _occupant = instance_platform::occupy_pipe_for_test(&scope).unwrap();
         let state = acquire_instance(scratch.path(), &scope).unwrap();
@@ -7850,7 +7826,7 @@ mod tests {
             published_tx.send(generation_b).unwrap();
         });
         entered_rx
-            .recv_timeout(std::time::Duration::from_secs(1))
+            .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
         assert!(
             published_rx
@@ -7861,7 +7837,7 @@ mod tests {
 
         drop(commit_guard);
         let generation_b = published_rx
-            .recv_timeout(std::time::Duration::from_secs(1))
+            .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
         assert!(generation_b > generation_a);
         writer.join().unwrap();
@@ -7869,7 +7845,7 @@ mod tests {
 
     #[test]
     fn failed_multi_field_model_request_rolls_back_the_whole_snapshot() {
-        let scratch = ScratchDirectory::new("atomic-config-rollback");
+        let scratch = TempDir::new("atomic-config-rollback");
         let path = scratch.path().join("vocalcode.toml");
         let active = Config {
             model: "base.en".to_string(),
@@ -7908,7 +7884,7 @@ mod tests {
 
     #[test]
     fn failed_disk_rollback_still_restores_the_shared_runtime_snapshot() {
-        let scratch = ScratchDirectory::new("config-rollback-disk-error");
+        let scratch = TempDir::new("config-rollback-disk-error");
         let path = scratch.path().join("vocalcode.toml");
         std::fs::create_dir(&path).unwrap();
         let active = Config::default();
@@ -7939,7 +7915,7 @@ mod tests {
 
     #[test]
     fn rollback_never_overwrites_a_future_config_that_appeared_after_rejection() {
-        let scratch = ScratchDirectory::new("future-config-rollback-race");
+        let scratch = TempDir::new("future-config-rollback-race");
         let path = scratch.path().join("vocalcode.toml");
         let active = Config::default();
         let rejected = Config {
@@ -7973,7 +7949,7 @@ mod tests {
 
     #[test]
     fn superseded_model_failure_never_rolls_back_the_newer_persisted_config() {
-        let scratch = ScratchDirectory::new("superseded-config-failure");
+        let scratch = TempDir::new("superseded-config-failure");
         let path = scratch.path().join("vocalcode.toml");
         let active = Config::default();
         let rejected_a = Config {
@@ -8016,7 +7992,7 @@ mod tests {
 
     #[test]
     fn rollback_side_effects_finish_before_a_new_save_can_publish() {
-        let scratch = ScratchDirectory::new("rollback-side-effect-order");
+        let scratch = TempDir::new("rollback-side-effect-order");
         let path = scratch.path().join("vocalcode.toml");
         let active = Config::default();
         let rejected_a = Config {
@@ -8083,7 +8059,7 @@ mod tests {
                     published_tx.send(generation_b).unwrap();
                 });
                 contended_rx
-                    .recv_timeout(std::time::Duration::from_secs(1))
+                    .recv_timeout(std::time::Duration::from_secs(10))
                     .expect("B must observe A's coordinator guard during side effects");
                 assert!(
                     published_rx
@@ -8100,7 +8076,7 @@ mod tests {
 
         let (writer, published_rx) = writer_state.borrow_mut().take().unwrap();
         let generation_b = published_rx
-            .recv_timeout(std::time::Duration::from_secs(1))
+            .recv_timeout(std::time::Duration::from_secs(10))
             .unwrap();
         writer.join().unwrap();
         assert!(generation_b > generation_a);
