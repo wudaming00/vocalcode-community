@@ -22,6 +22,8 @@ pub enum Layout {
     Auto,
     Words,
     Tsv,
+    /// VocalCode's own `replacements.txt`: `heard => written` per line.
+    Rules,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -164,6 +166,102 @@ fn csv(input: &str, delimiter: char) -> Result<Vec<Vec<String>>, String> {
     Ok(rows)
 }
 
+/// One line of the `replacements.txt` grammar, read exactly as the app reads
+/// its own file: split at the first `=>`, both sides trimmed and non-empty.
+/// `Ok(None)` is a blank line or a `#` comment.
+fn rule_line(line: &str) -> Result<Option<(String, String)>, ()> {
+    let line = line.trim();
+    if line.is_empty() || line.starts_with('#') {
+        return Ok(None);
+    }
+    let (heard, written) = line.split_once("=>").ok_or(())?;
+    let (heard, written) = (heard.trim(), written.trim());
+    if heard.is_empty() || written.is_empty() {
+        return Err(());
+    }
+    Ok(Some((heard.to_string(), written.to_string())))
+}
+
+/// Auto-detect a pasted or exported `replacements.txt`: every line that is not
+/// blank or a `#` comment contains `=>`, and at least one does. A CSV cell can
+/// never legitimately start a heard phrase with `#` or contain `=>` in it, so
+/// no input that previously imported as CSV changes meaning.
+fn looks_like_rules(input: &str) -> bool {
+    let mut rules = 0usize;
+    for line in input.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if !line.contains("=>") {
+            return false;
+        }
+        rules += 1;
+    }
+    rules > 0
+}
+
+fn rules(input: &str) -> Result<Vec<Vec<String>>, String> {
+    let mut rows = Vec::new();
+    for (index, line) in input.lines().enumerate() {
+        match rule_line(line) {
+            Ok(Some((heard, written))) => rows.push(vec![heard, written]),
+            Ok(None) => {}
+            Err(()) => {
+                return Err(format!(
+                    "Line {} is not a “heard => written” rule.",
+                    index + 1
+                ))
+            }
+        }
+        if rows.len() > MAX_IMPORT_ROWS {
+            return Err("Import allows at most 1,000 rows.".into());
+        }
+    }
+    Ok(rows)
+}
+
+/// The rules a previous VocalCode's `replacements.txt` actually applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RulesFile {
+    pub entries: Vec<Entry>,
+    /// Lines that app ignored too (no `=>`, an empty side) plus rules this
+    /// build refuses (for example control characters). Counted, never fatal:
+    /// one hand-edited typo must not strand the rest of someone's words.
+    pub ignored: usize,
+}
+
+/// Read a whole `replacements.txt` the way the app that wrote it read it.
+/// Unlike [`Layout::Rules`], which rejects a malformed pasted line so the
+/// person can fix it, this is for a file the person never sees here.
+pub fn parse_rules_file(input: &str) -> Result<RulesFile, String> {
+    if input.len() > MAX_IMPORT_BYTES {
+        return Err("Import is limited to 3 MiB.".into());
+    }
+    let mut result = RulesFile {
+        entries: Vec::new(),
+        ignored: 0,
+    };
+    for line in input.trim_start_matches('\u{feff}').lines() {
+        let Ok(rule) = rule_line(line) else {
+            result.ignored += 1;
+            continue;
+        };
+        let Some((name, text)) = rule else {
+            continue;
+        };
+        let entry = Entry { name, text };
+        if validate(Kind::Dictionary, &entry).is_err() {
+            result.ignored += 1;
+            continue;
+        }
+        result.entries.push(entry);
+        if result.entries.len() > MAX_IMPORT_ROWS {
+            return Err("Import allows at most 1,000 rows.".into());
+        }
+    }
+    Ok(result)
+}
+
 /// Header removal is explicit: a legitimate dictionary entry named "word" or
 /// "name" must never disappear because of heuristic header detection.
 pub fn parse(input: &str, kind: Kind, csv_header: bool) -> Result<Vec<Entry>, String> {
@@ -224,9 +322,15 @@ pub fn parse_with_layout(
         if kind != Kind::Dictionary {
             return Err("Snippets use JSON; dictionary words use CSV or plain lines.".into());
         }
+        let layout = if layout == Layout::Auto && looks_like_rules(input) {
+            Layout::Rules
+        } else {
+            layout
+        };
         let mut rows = match layout {
             Layout::Auto => csv(input, ',')?,
             Layout::Tsv => csv(input, '\t')?,
+            Layout::Rules => rules(input)?,
             Layout::Words => input
                 .lines()
                 .filter(|line| !line.trim().is_empty())
@@ -234,7 +338,9 @@ pub fn parse_with_layout(
                 .take(MAX_IMPORT_ROWS + 2)
                 .collect(),
         };
-        if csv_header && !rows.is_empty() {
+        // `#` comments already carry the header of a rules file; dropping the
+        // first rule because a CSV checkbox was left on would lose a word.
+        if csv_header && layout != Layout::Rules && !rows.is_empty() {
             rows.remove(0);
         }
         rows.into_iter()
@@ -405,11 +511,94 @@ mod tests {
             "\"unclosed",
             "a,b\nc,\"multi\nline\"",
             "#a,b",
-            "a=>b,c",
+            "a=>b\nc,d",
+            "=>b",
+            "a=>",
+            "# only a comment\n",
             "\"a\"oops,b",
         ] {
             assert!(parse(text, Kind::Dictionary, false).is_err(), "{text}");
         }
+    }
+
+    /// The shape of the app's own `replacements.txt` and the built-in
+    /// `default_replacements.txt`: `#` comments, blank lines, column-aligned
+    /// `heard => written` pairs, and the first `=>` as the only separator.
+    const RULES_DOCUMENT: &str =
+        "\u{feff}# VocalCode built-in recognition-correction dictionary.\r\n\
+        #\r\n\
+        # To turn one off, map it to itself (e.g. `cloud code => cloud code`).\r\n\
+        \r\n\
+        # --- the product itself ---\r\n\
+        wol cold cold       => VocalCode\r\n\
+        vocal code          => VocalCode\r\n\
+        \r\n\
+        foo, bar            => Foo, Bar\r\n\
+        arrow               => =>\r\n\
+        cloud code          => cloud code\r\n";
+
+    #[test]
+    fn replacements_file_rules_import_by_detection_and_explicit_layout() {
+        let expected = vec![
+            entry("wol cold cold", "VocalCode"),
+            entry("vocal code", "VocalCode"),
+            entry("foo, bar", "Foo, Bar"),
+            entry("arrow", "=>"),
+            entry("cloud code", "cloud code"),
+        ];
+        assert_eq!(
+            parse(RULES_DOCUMENT, Kind::Dictionary, false).unwrap(),
+            expected
+        );
+        // A left-on CSV header checkbox must not eat the first rule.
+        assert_eq!(
+            parse_with_layout(RULES_DOCUMENT, Kind::Dictionary, true, Layout::Rules).unwrap(),
+            expected
+        );
+        assert_eq!(
+            parse("a=>b,c", Kind::Dictionary, false).unwrap(),
+            vec![entry("a", "b,c")]
+        );
+        // Explicit rules refuse a typo and name the line to fix.
+        let error = parse_with_layout(
+            "# header\ncollie => Collie\ncollie Collie",
+            Kind::Dictionary,
+            false,
+            Layout::Rules,
+        )
+        .unwrap_err();
+        assert!(error.contains("Line 3"), "{error}");
+        assert!(parse_with_layout("a => b", Kind::Snippets, false, Layout::Rules).is_err());
+        // Plain CSV and word lists keep their exact meaning.
+        assert_eq!(
+            parse("collie,Collie", Kind::Dictionary, false).unwrap(),
+            vec![entry("collie", "Collie")]
+        );
+    }
+
+    #[test]
+    fn previous_replacements_file_counts_ignored_lines_instead_of_failing() {
+        let file = parse_rules_file(&format!(
+            "{RULES_DOCUMENT}no separator here\nempty side =>\nbell => ring\u{7}\n"
+        ))
+        .unwrap();
+        assert_eq!(file.entries.len(), 5);
+        assert_eq!(file.entries[3], entry("arrow", "=>"));
+        assert_eq!(file.ignored, 3);
+        let bell = parse_rules_file("bell\u{7} => ring\n").unwrap();
+        assert!(bell.entries.is_empty());
+        assert_eq!(bell.ignored, 1);
+        // The untouched template has nothing to import, and that is not an error.
+        let template = parse_rules_file("# One rule per line: heard => written\n").unwrap();
+        assert_eq!(
+            template,
+            RulesFile {
+                entries: vec![],
+                ignored: 0
+            }
+        );
+        assert!(parse_rules_file(&"a => b\n".repeat(MAX_IMPORT_ROWS + 1)).is_err());
+        assert!(parse_rules_file(&"x".repeat(MAX_IMPORT_BYTES + 1)).is_err());
     }
     #[test]
     fn snippet_arrays_preserve_content_not_metadata() {

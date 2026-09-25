@@ -1616,6 +1616,119 @@ fn create_download_temp(path: &Path) -> Result<(PathBuf, File), String> {
     ))
 }
 
+/// What copying the previous VocalCode's downloaded models found or did.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub(crate) struct PreviousModels {
+    /// Installed after verification or, when only counting, ready to copy.
+    pub files: usize,
+    pub bytes: u64,
+    /// Present in the other folder with the wrong size or hash. Never used.
+    pub invalid: usize,
+    /// This installation was downloading that model at the time; left to it.
+    pub busy: usize,
+}
+
+/// How long the import waits for a model directory that a download holds.
+const PREVIOUS_MODEL_LOCK_WAIT: Duration = Duration::from_secs(2);
+
+/// Copy model files from the previous VocalCode's `models` folder, so moving
+/// to this edition does not mean downloading the same gigabyte again. Only
+/// names in this build's manifest are opened, only where this installation
+/// has no file of that name, and each copy is published through the same
+/// hash-verified install as a download; a copy that fails verification is
+/// discarded. With `apply == false` nothing is created: this only counts the
+/// files whose size matches.
+pub(crate) fn import_previous_models(
+    base: &Path,
+    previous: &Path,
+    apply: bool,
+) -> Result<PreviousModels, String> {
+    let mut summary = PreviousModels::default();
+    let mut models = artifact_manifest()?.iter().collect::<Vec<_>>();
+    models.sort_by(|left, right| left.0.cmp(right.0));
+    for (model_id, files) in models {
+        // Read-only: `ensure_plain_directory` would create it in the other
+        // app's folder.
+        let source = previous.join(model_id);
+        if !crate::paths::is_plain_directory(&source) {
+            continue;
+        }
+        let local = base.join("models").join(model_id);
+        let mut wanted = Vec::new();
+        let mut names = files.iter().collect::<Vec<_>>();
+        names.sort_by(|left, right| left.0.cmp(right.0));
+        for (name, expected) in names {
+            if std::fs::symlink_metadata(local.join(name)).is_ok() {
+                continue;
+            }
+            let Some(file) = open_plain_file_for_read(&source.join(name))? else {
+                continue;
+            };
+            let size = file
+                .metadata()
+                .map_err(|error| format!("inspect previous model file: {error}"))?
+                .len();
+            if size == expected.size {
+                wanted.push((name, expected));
+            } else {
+                summary.invalid += 1;
+            }
+        }
+        if wanted.is_empty() {
+            continue;
+        }
+        if !apply {
+            summary.files += wanted.len();
+            summary.bytes += wanted.iter().map(|(_, a)| a.size).sum::<u64>();
+            continue;
+        }
+        let directory = ensure_model_directory(base, model_id)?;
+        let token = CancellationToken::new();
+        let _lock = match ModelInstallLock::acquire_cancellable(
+            &directory,
+            &token,
+            PREVIOUS_MODEL_LOCK_WAIT,
+        ) {
+            Ok(lock) => lock,
+            Err(ModelPrepareError::TimedOut(_)) => {
+                summary.busy += 1;
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+        for (name, expected) in wanted {
+            let canonical = directory.join(name);
+            if destination_is_plain_or_missing(&canonical)? {
+                continue;
+            }
+            let Some(mut input) = open_plain_file_for_read(&source.join(name))? else {
+                continue;
+            };
+            let (tmp, mut output) = create_download_temp(&canonical)?;
+            let copied = std::io::copy(&mut input, &mut output)
+                .and_then(|_| output.sync_all())
+                .map_err(|error| format!("copy previous model file: {error}"));
+            drop(output);
+            let installed = copied.and_then(|()| {
+                install_verified_cancellable(&tmp, &canonical, expected, &token)
+                    .map_err(|error| error.to_string())
+            });
+            match installed {
+                Ok(()) => {
+                    summary.files += 1;
+                    summary.bytes += expected.size;
+                }
+                Err(error) => {
+                    let _ = remove_owned_residue(&tmp);
+                    log::warn!("previous model file {model_id}/{name} was not used: {error}");
+                    summary.invalid += 1;
+                }
+            }
+        }
+    }
+    Ok(summary)
+}
+
 #[derive(Clone, Copy)]
 struct DownloadPolicy {
     https_only: bool,
@@ -3366,5 +3479,54 @@ mod download_tests {
         let canonical = directory.path().join("model.onnx");
         assert!(artifact_is_valid(&canonical, &expected_bytes(VERIFIED)));
         assert!(exact_residues(&canonical).is_empty());
+    }
+
+    /// Previous-edition model files are counted by size, then installed only
+    /// after the same hash verification as a download. Set
+    /// VOCALCODE_QA_MODELS to also exercise a genuine file end to end.
+    #[test]
+    fn previous_model_files_are_hash_verified_and_never_overwrite() {
+        let directory = TestDirectory::new("previous-models");
+        let previous = directory.path().join("previous");
+        let base = directory.path().join("community");
+        std::fs::create_dir_all(previous.join("parakeet-tdt-v3")).unwrap();
+        std::fs::create_dir_all(previous.join("sensevoice")).unwrap();
+        std::fs::create_dir_all(&base).unwrap();
+        let tokens = artifact("parakeet-tdt-v3", "tokens.txt").unwrap();
+        // Right size, wrong bytes: only the hash can tell.
+        std::fs::write(
+            previous.join("parakeet-tdt-v3/tokens.txt"),
+            vec![b'x'; tokens.size as usize],
+        )
+        .unwrap();
+        std::fs::write(previous.join("sensevoice/tokens.txt"), b"truncated").unwrap();
+
+        let counted = import_previous_models(&base, &previous, false).unwrap();
+        assert_eq!((counted.files, counted.invalid), (1, 1));
+        assert!(
+            !base.join("models").exists(),
+            "counting must not create anything"
+        );
+
+        let imported = import_previous_models(&base, &previous, true).unwrap();
+        assert_eq!((imported.files, imported.invalid), (0, 2));
+        let local = base.join("models/parakeet-tdt-v3");
+        assert!(!local.join("tokens.txt").exists());
+        assert!(std::fs::read_dir(&local)
+            .unwrap()
+            .filter_map(Result::ok)
+            .all(|entry| entry.file_name().to_string_lossy().starts_with(".install")));
+
+        let Some(models) = std::env::var_os("VOCALCODE_QA_MODELS") else {
+            return;
+        };
+        let genuine = PathBuf::from(models).join("parakeet-tdt-v3/tokens.txt");
+        std::fs::copy(&genuine, previous.join("parakeet-tdt-v3/tokens.txt")).unwrap();
+        let imported = import_previous_models(&base, &previous, true).unwrap();
+        assert_eq!((imported.files, imported.bytes), (1, tokens.size));
+        assert!(artifact_is_valid(&local.join("tokens.txt"), tokens));
+        // An existing file is never replaced, even by a valid copy.
+        let again = import_previous_models(&base, &previous, true).unwrap();
+        assert_eq!(again.files, 0);
     }
 }

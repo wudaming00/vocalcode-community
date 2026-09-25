@@ -706,6 +706,23 @@
   .migration-row pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:150px;overflow:auto;font:inherit;font-size:13px;margin:6px 0}
   .migration-row small{color:var(--mut)}
   .migration-label{display:block;margin:12px 0 6px}
+  /* Previous-edition import: the one-time Home suggestion and its checklist. */
+  .home-legacy{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:11px;border:1px solid var(--amber-dim);border-radius:12px;background:rgba(238,138,62,.06);padding:12px 14px}
+  .home-legacy[hidden],#legacySection[hidden],#legacyLoginOff[hidden]{display:none}
+  .home-legacy-copy{flex:1 1 260px;min-width:0}
+  .home-legacy-copy b{display:block;color:var(--ink);font-size:13px;font-weight:650}
+  .home-legacy-copy span{display:block;margin-top:3px;color:var(--sub);font-size:12px;line-height:1.45}
+  .home-legacy-actions{display:flex;flex-wrap:wrap;gap:6px}
+  .legacy-parts{display:grid;gap:8px;padding:10px 13px 2px;border-top:1px solid var(--hair)}
+  .legacy-parts label{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;color:var(--ink);font-size:12.5px}
+  .legacy-parts small{color:var(--mut);overflow-wrap:anywhere}
+  .legacy-parts input{accent-color:var(--amber)}
+  .migration-tools.legacy-actions{margin:12px 13px 8px}
+  .legacy-message{margin:0 13px 10px;overflow-wrap:anywhere;color:var(--sub);font-size:12.5px;line-height:1.5}
+  #legacyImport:disabled,.legacy-parts input:disabled+span{opacity:.45;cursor:default}
+  .legacy-message:empty{display:none}
+  #legacyPath{overflow-wrap:anywhere}
+  #legacyLoginRow{border-top:1px solid var(--hair)}
   /* Writing page: voice commands, style and the local "Try it" preview. */
   /* The spoken phrases are the instructions, so they survive compact mode
      (which hides ordinary row descriptions). */
@@ -849,6 +866,11 @@
         <button id="permInput">Input Monitoring</button>
         <button id="permAx">Accessibility</button>
       </div>
+      <!-- The paid edition and this one each hook the talk key and type every
+           dictation. Re-checked every few seconds; clears once it quits. -->
+      <div class="perm" id="legacyRunning" role="status">
+        <span class="perm-txt">The previous VocalCode is running and will type twice — quit it.</span>
+      </div>
       <!-- TRIGGERS -->
       <!-- HOME -->
       <!-- Home leads with the reward — typing time avoided — then keeps the
@@ -870,6 +892,18 @@
             </div>
             <span class="home-keys" id="homeKey">…</span>
             <button type="button" class="ui-button act" data-go="triggers">Shortcuts <span aria-hidden="true">→</span></button>
+          </div>
+        </div>
+        <!-- Once, for someone arriving from the paid edition who has not
+             started over here yet. The import itself lives in Settings. -->
+        <div class="home-legacy" id="homeLegacy" hidden>
+          <div class="home-legacy-copy">
+            <b>Bring over your data from the previous VocalCode</b>
+            <span>Your dictionary, meetings and settings are still in its folder. Copy them here — that folder stays untouched.</span>
+          </div>
+          <div class="home-legacy-actions">
+            <button type="button" class="ui-button" id="homeLegacyReview">Review import</button>
+            <button type="button" class="setbtn ghost" id="homeLegacyDismiss">Not now</button>
           </div>
         </div>
         <div class="home-summary" id="stats">
@@ -1026,6 +1060,26 @@
               <span class="action-group"><span class="muted" id="dataSize">—</span><button id="revealData">Show in Finder</button><button id="purgeData">Remove…</button></span>
             </div>
           </div>
+          <div id="legacySection" hidden>
+            <div class="lbl">Previous VocalCode</div>
+            <div class="card">
+              <div class="row"><div class="k">Import from the previous VocalCode<small>Copies settings, dictionary, snippets, meetings and usage counts from the paid edition's folder. That folder is never changed, and entries you already have here win.</small><small id="legacyPath"></small></div>
+                <button type="button" class="setbtn" id="legacyScan">Check again</button>
+              </div>
+              <div class="legacy-parts" id="legacyParts">
+                <label><input type="checkbox" id="legacyPartSettings"/><span>Settings and app profiles</span><small id="legacyCountSettings"></small></label>
+                <label><input type="checkbox" id="legacyPartDictionary"/><span>Dictionary and snippets</span><small id="legacyCountDictionary"></small></label>
+                <label><input type="checkbox" id="legacyPartMeetings"/><span>Meetings</span><small id="legacyCountMeetings"></small></label>
+                <label><input type="checkbox" id="legacyPartStats"/><span>Usage counts</span><small id="legacyCountStats"></small></label>
+                <label><input type="checkbox" id="legacyPartModels"/><span>Downloaded models</span><small id="legacyCountModels"></small></label>
+              </div>
+              <div class="migration-tools legacy-actions"><button type="button" class="btn" id="legacyImport" disabled>Import</button></div>
+              <p id="legacyMessage" class="legacy-message" role="status" aria-live="polite"></p>
+              <div class="row" id="legacyLoginRow"><div class="k">Previous VocalCode at login<small id="legacyLoginNote">It still starts when you log in, so both apps would type every dictation.</small></div>
+                <button type="button" class="setbtn" id="legacyLoginOff">Turn off the previous VocalCode at login</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1111,7 +1165,7 @@
         <div class="card">
           <p class="fine">Import a file or paste a list copied from your other app’s dictionary screen. No account sign-in or upload. Wispr Flow has no built-in dictionary export, but a visible list may still be transferable. Direct screen/database adapters need version-specific verification and are not connected yet. This does not import subscriptions or private history.</p>
           <div class="migration-tools"><label for="migrationKind">Content</label><select id="migrationKind" class="field"><option value="dictionary">Dictionary</option><option value="snippets">Snippets</option></select><label><input type="checkbox" id="migrationHeader" /> CSV includes a header row</label></div>
-          <div class="migration-tools"><label for="migrationLayout">Input layout</label><select id="migrationLayout" class="field"><option value="auto">CSV / JSON file format</option><option value="words">Copied list: one word per line</option><option value="tsv">Copied table: tab-separated columns</option></select></div>
+          <div class="migration-tools"><label for="migrationLayout">Input layout</label><select id="migrationLayout" class="field"><option value="auto">CSV / JSON file format</option><option value="words">Copied list: one word per line</option><option value="tsv">Copied table: tab-separated columns</option><option value="rules">VocalCode rules: heard =&gt; written</option></select></div>
           <label class="migration-label" for="migrationText">Paste entries, or choose a file below</label>
           <textarea id="migrationText" class="migration-input" maxlength="3145728" spellcheck="false" placeholder="collie,Collie&#10;VocalCode"></textarea>
           <div class="migration-tools"><button type="button" class="setbtn" id="migrationPick">Choose file…</button><button type="button" class="setbtn" id="migrationPreview">Preview pasted entries</button><button type="button" class="setbtn" id="migrationExport">Export selected content…</button><button type="button" class="setbtn" id="migrationReload">Reload</button></div>
@@ -1480,6 +1534,52 @@
       "Text output":"文本输出",
       "Downloaded data":"已下载数据",
       "Models and settings":"模型和设置",
+      "The previous VocalCode is running and will type twice — quit it.":"旧版 VocalCode 仍在运行，每次听写都会被输入两遍——请退出旧版。",
+      "Bring over your data from the previous VocalCode":"把旧版 VocalCode 的数据搬过来",
+      "Your dictionary, meetings and settings are still in its folder. Copy them here — that folder stays untouched.":"你的词典、会议记录和设置还在旧版的文件夹里。复制到这里就能继续用，原文件夹不会有任何改动。",
+      "Review import":"查看可导入的内容",
+      "Previous VocalCode":"旧版 VocalCode",
+      "Import from the previous VocalCode":"从旧版 VocalCode 导入",
+      "Copies settings, dictionary, snippets, meetings and usage counts from the paid edition's folder. That folder is never changed, and entries you already have here win.":"从付费版的文件夹复制设置、词典、词块、会议记录和使用统计。原文件夹不会被改动；与这里已有的条目冲突时，以这里的为准。",
+      "Check again":"重新检查",
+      "Settings and app profiles":"设置和应用配置",
+      "Dictionary and snippets":"词典和词块",
+      "VocalCode rules: heard => written":"VocalCode 规则：听到的 => 要写成的",
+      "Usage counts":"使用统计",
+      "Downloaded models":"已下载的模型",
+      "Import":"导入",
+      "Previous VocalCode at login":"旧版 VocalCode 的开机自启",
+      "It still starts when you log in, so both apps would type every dictation.":"它仍会在登录时自动启动，届时两个应用会同时输入每一次听写。",
+      "Turn off the previous VocalCode at login":"关闭旧版 VocalCode 的开机自启",
+      "It does not start at login.":"它不会在登录时自动启动。",
+      "Found in {path}":"位置：{path}",
+      "{n} meetings":"{n} 场会议",
+      "{n} already imported":"{n} 场已导入",
+      "{n} still recording there":"{n} 场仍在旧版中录制",
+      "{n} MB — no need to download again":"{n} MB，无需重新下载",
+      "Found":"已找到",
+      "{n} rules":"{n} 条规则",
+      "{n} snippets":"{n} 个词块",
+      "Already added":"已经添加过",
+      "{n} dictations":"{n} 次听写",
+      "Nothing found":"未找到",
+      "Could not read: {list}":"无法读取：{list}",
+      "settings":"设置",
+      "app profiles":"应用配置",
+      "{n} new rules":"{n} 条新规则",
+      "{n} new snippets":"{n} 个新词块",
+      "usage counts":"使用统计",
+      "{n} model files":"{n} 个模型文件",
+      "Imported: {list}.":"已导入：{list}。",
+      "Nothing new to import.":"没有需要导入的新内容。",
+      "{n} of your rules differ from the previous ones; yours were kept.":"有 {n} 条规则和旧版不同，已保留你在这里的写法。",
+      "The previous VocalCode's folder was not changed.":"旧版 VocalCode 的文件夹没有任何改动。",
+      "Not imported: {list}":"未导入：{list}",
+      "Its login entry starts a different program, so it was left alone.":"它的自启项指向别的程序，因此没有改动。",
+      "The previous VocalCode will no longer start at login.":"旧版 VocalCode 不会再开机自启了。",
+      "Checking the previous VocalCode's folder…":"正在检查旧版 VocalCode 的文件夹…",
+      "Choose at least one thing to import.":"请至少选择一项要导入的内容。",
+      "Working locally…":"正在本机处理…",
       "Recording indicator":"录音指示器",
       "Desktop control bar":"桌面控制条",
       "A tiny 48 × 18 capsule. Hover for dictation, meetings, rewrite, history and settings. Hidden while idle in fullscreen apps; it never starts recording on hover.":"空闲时仅 48 × 18 的小胶囊；悬停可打开听写、会议、改写、历史和设置。全屏应用中空闲时自动隐藏，悬停不会开始录音。",
@@ -2177,6 +2277,52 @@
       "Text output":"Salida de texto",
       "Downloaded data":"Datos descargados",
       "Models and settings":"Modelos y ajustes",
+      "The previous VocalCode is running and will type twice — quit it.":"La versión anterior de VocalCode sigue abierta y escribirá todo dos veces: ciérrala.",
+      "Bring over your data from the previous VocalCode":"Trae tus datos de la versión anterior de VocalCode",
+      "Your dictionary, meetings and settings are still in its folder. Copy them here — that folder stays untouched.":"Tu diccionario, tus reuniones y tus ajustes siguen en su carpeta. Cópialos aquí; esa carpeta no se toca.",
+      "Review import":"Revisar importación",
+      "Previous VocalCode":"Versión anterior de VocalCode",
+      "Import from the previous VocalCode":"Importar de la versión anterior de VocalCode",
+      "Copies settings, dictionary, snippets, meetings and usage counts from the paid edition's folder. That folder is never changed, and entries you already have here win.":"Copia ajustes, diccionario, fragmentos, reuniones y estadísticas de uso desde la carpeta de la edición de pago. Esa carpeta nunca se modifica y, si algo ya existe aquí, se conserva lo de aquí.",
+      "Check again":"Volver a comprobar",
+      "Settings and app profiles":"Ajustes y perfiles de apps",
+      "Dictionary and snippets":"Diccionario y fragmentos",
+      "VocalCode rules: heard => written":"Reglas de VocalCode: oído => escrito",
+      "Usage counts":"Estadísticas de uso",
+      "Downloaded models":"Modelos descargados",
+      "Import":"Importar",
+      "Previous VocalCode at login":"La versión anterior al iniciar sesión",
+      "It still starts when you log in, so both apps would type every dictation.":"Sigue abriéndose al iniciar sesión, así que ambas apps escribirían cada dictado.",
+      "Turn off the previous VocalCode at login":"Desactivar el inicio de la versión anterior",
+      "It does not start at login.":"No se abre al iniciar sesión.",
+      "Found in {path}":"Encontrada en {path}",
+      "{n} meetings":"{n} reuniones",
+      "{n} already imported":"{n} ya importadas",
+      "{n} still recording there":"{n} aún grabándose allí",
+      "{n} MB — no need to download again":"{n} MB, sin volver a descargarlos",
+      "Found":"Encontrados",
+      "{n} rules":"{n} reglas",
+      "{n} snippets":"{n} fragmentos",
+      "Already added":"Ya añadidas",
+      "{n} dictations":"{n} dictados",
+      "Nothing found":"No se encontró nada",
+      "Could not read: {list}":"No se pudo leer: {list}",
+      "settings":"ajustes",
+      "app profiles":"perfiles de apps",
+      "{n} new rules":"{n} reglas nuevas",
+      "{n} new snippets":"{n} fragmentos nuevos",
+      "usage counts":"estadísticas de uso",
+      "{n} model files":"{n} archivos de modelo",
+      "Imported: {list}.":"Importado: {list}.",
+      "Nothing new to import.":"No hay nada nuevo que importar.",
+      "{n} of your rules differ from the previous ones; yours were kept.":"{n} de tus reglas difieren de las anteriores; se conservaron las tuyas.",
+      "The previous VocalCode's folder was not changed.":"La carpeta de la versión anterior no se ha modificado.",
+      "Not imported: {list}":"No importado: {list}",
+      "Its login entry starts a different program, so it was left alone.":"Su entrada de inicio abre otro programa, así que no se tocó.",
+      "The previous VocalCode will no longer start at login.":"La versión anterior ya no se abrirá al iniciar sesión.",
+      "Checking the previous VocalCode's folder…":"Comprobando la carpeta de la versión anterior…",
+      "Choose at least one thing to import.":"Elige al menos una cosa para importar.",
+      "Working locally…":"Procesando en este dispositivo…",
       "Recording indicator":"Indicador de grabación",
       "Classic":"Clásico",
       "Mini":"Mini",
@@ -2834,6 +2980,52 @@
       "Text output":"Sortie de texte",
       "Downloaded data":"Données téléchargées",
       "Models and settings":"Modèles et réglages",
+      "The previous VocalCode is running and will type twice — quit it.":"L'ancien VocalCode est toujours ouvert et écrira tout deux fois : quittez-le.",
+      "Bring over your data from the previous VocalCode":"Récupérez vos données de l'ancien VocalCode",
+      "Your dictionary, meetings and settings are still in its folder. Copy them here — that folder stays untouched.":"Votre dictionnaire, vos réunions et vos réglages sont toujours dans son dossier. Copiez-les ici ; ce dossier reste intact.",
+      "Review import":"Voir l'import",
+      "Previous VocalCode":"Ancien VocalCode",
+      "Import from the previous VocalCode":"Importer depuis l'ancien VocalCode",
+      "Copies settings, dictionary, snippets, meetings and usage counts from the paid edition's folder. That folder is never changed, and entries you already have here win.":"Copie réglages, dictionnaire, extraits, réunions et statistiques d'utilisation depuis le dossier de l'édition payante. Ce dossier n'est jamais modifié et, en cas de doublon, ce que vous avez déjà ici l'emporte.",
+      "Check again":"Vérifier à nouveau",
+      "Settings and app profiles":"Réglages et profils d'apps",
+      "Dictionary and snippets":"Dictionnaire et extraits",
+      "VocalCode rules: heard => written":"Règles VocalCode : entendu => écrit",
+      "Usage counts":"Statistiques d'utilisation",
+      "Downloaded models":"Modèles téléchargés",
+      "Import":"Importer",
+      "Previous VocalCode at login":"L'ancien VocalCode à l'ouverture de session",
+      "It still starts when you log in, so both apps would type every dictation.":"Il se lance toujours à l'ouverture de session, et les deux apps écriraient alors chaque dictée.",
+      "Turn off the previous VocalCode at login":"Désactiver le lancement de l'ancien VocalCode",
+      "It does not start at login.":"Il ne se lance pas à l'ouverture de session.",
+      "Found in {path}":"Trouvé dans {path}",
+      "{n} meetings":"{n} réunions",
+      "{n} already imported":"{n} déjà importées",
+      "{n} still recording there":"{n} encore en cours d'enregistrement là-bas",
+      "{n} MB — no need to download again":"{n} Mo, sans les retélécharger",
+      "Found":"Trouvés",
+      "{n} rules":"{n} règles",
+      "{n} snippets":"{n} extraits",
+      "Already added":"Déjà ajoutées",
+      "{n} dictations":"{n} dictées",
+      "Nothing found":"Rien trouvé",
+      "Could not read: {list}":"Lecture impossible : {list}",
+      "settings":"réglages",
+      "app profiles":"profils d'apps",
+      "{n} new rules":"{n} nouvelles règles",
+      "{n} new snippets":"{n} nouveaux extraits",
+      "usage counts":"statistiques d'utilisation",
+      "{n} model files":"{n} fichiers de modèle",
+      "Imported: {list}.":"Importé : {list}.",
+      "Nothing new to import.":"Rien de nouveau à importer.",
+      "{n} of your rules differ from the previous ones; yours were kept.":"{n} de vos règles diffèrent des anciennes ; les vôtres ont été conservées.",
+      "The previous VocalCode's folder was not changed.":"Le dossier de l'ancien VocalCode n'a pas été modifié.",
+      "Not imported: {list}":"Non importé : {list}",
+      "Its login entry starts a different program, so it was left alone.":"Son entrée de démarrage lance un autre programme ; elle n'a pas été modifiée.",
+      "The previous VocalCode will no longer start at login.":"L'ancien VocalCode ne se lancera plus à l'ouverture de session.",
+      "Checking the previous VocalCode's folder…":"Vérification du dossier de l'ancien VocalCode…",
+      "Choose at least one thing to import.":"Choisissez au moins un élément à importer.",
+      "Working locally…":"Traitement local…",
       "Recording indicator":"Indicateur d’enregistrement",
       "Classic":"Classique",
       "Mini":"Mini",
@@ -3491,6 +3683,52 @@
       "Text output":"Textausgabe",
       "Downloaded data":"Heruntergeladene Daten",
       "Models and settings":"Modelle und Einstellungen",
+      "The previous VocalCode is running and will type twice — quit it.":"Das bisherige VocalCode läuft noch und tippt alles doppelt – beenden Sie es.",
+      "Bring over your data from the previous VocalCode":"Daten aus dem bisherigen VocalCode übernehmen",
+      "Your dictionary, meetings and settings are still in its folder. Copy them here — that folder stays untouched.":"Ihr Wörterbuch, Ihre Besprechungen und Einstellungen liegen noch in seinem Ordner. Kopieren Sie sie hierher – der Ordner bleibt unverändert.",
+      "Review import":"Import ansehen",
+      "Previous VocalCode":"Bisheriges VocalCode",
+      "Import from the previous VocalCode":"Aus dem bisherigen VocalCode importieren",
+      "Copies settings, dictionary, snippets, meetings and usage counts from the paid edition's folder. That folder is never changed, and entries you already have here win.":"Kopiert Einstellungen, Wörterbuch, Textbausteine, Besprechungen und Nutzungszahlen aus dem Ordner der kostenpflichtigen Edition. Dieser Ordner wird nie verändert, und bei Überschneidungen gilt, was Sie hier schon haben.",
+      "Check again":"Erneut prüfen",
+      "Settings and app profiles":"Einstellungen und App-Profile",
+      "Dictionary and snippets":"Wörterbuch und Textbausteine",
+      "VocalCode rules: heard => written":"VocalCode-Regeln: gehört => geschrieben",
+      "Usage counts":"Nutzungszahlen",
+      "Downloaded models":"Heruntergeladene Modelle",
+      "Import":"Importieren",
+      "Previous VocalCode at login":"Bisheriges VocalCode beim Anmelden",
+      "It still starts when you log in, so both apps would type every dictation.":"Es startet weiterhin beim Anmelden – dann würden beide Apps jedes Diktat tippen.",
+      "Turn off the previous VocalCode at login":"Autostart des bisherigen VocalCode ausschalten",
+      "It does not start at login.":"Es startet nicht beim Anmelden.",
+      "Found in {path}":"Gefunden in {path}",
+      "{n} meetings":"{n} Besprechungen",
+      "{n} already imported":"{n} bereits importiert",
+      "{n} still recording there":"{n} werden dort noch aufgenommen",
+      "{n} MB — no need to download again":"{n} MB, ohne erneuten Download",
+      "Found":"Gefunden",
+      "{n} rules":"{n} Regeln",
+      "{n} snippets":"{n} Textbausteine",
+      "Already added":"Bereits übernommen",
+      "{n} dictations":"{n} Diktate",
+      "Nothing found":"Nichts gefunden",
+      "Could not read: {list}":"Nicht lesbar: {list}",
+      "settings":"Einstellungen",
+      "app profiles":"App-Profile",
+      "{n} new rules":"{n} neue Regeln",
+      "{n} new snippets":"{n} neue Textbausteine",
+      "usage counts":"Nutzungszahlen",
+      "{n} model files":"{n} Modelldateien",
+      "Imported: {list}.":"Importiert: {list}.",
+      "Nothing new to import.":"Nichts Neues zu importieren.",
+      "{n} of your rules differ from the previous ones; yours were kept.":"{n} Ihrer Regeln weichen von den bisherigen ab; Ihre wurden behalten.",
+      "The previous VocalCode's folder was not changed.":"Der Ordner des bisherigen VocalCode wurde nicht verändert.",
+      "Not imported: {list}":"Nicht importiert: {list}",
+      "Its login entry starts a different program, so it was left alone.":"Sein Autostart-Eintrag startet ein anderes Programm und wurde daher nicht angetastet.",
+      "The previous VocalCode will no longer start at login.":"Das bisherige VocalCode startet nicht mehr beim Anmelden.",
+      "Checking the previous VocalCode's folder…":"Ordner des bisherigen VocalCode wird geprüft…",
+      "Choose at least one thing to import.":"Wählen Sie mindestens einen Bereich zum Importieren.",
+      "Working locally…":"Wird lokal verarbeitet…",
       "Recording indicator":"Aufnahmeanzeige",
       "Classic":"Klassisch",
       "Mini":"Mini",
@@ -5109,6 +5347,7 @@
     migrationRequest("load");
     workflowRequest("load");
     calendarRequest("load");
+    legacyRequest("scan");
     if(c.dict_error) toast(t(c.dict_error));
     // Before applyLangOnce: the text-node pass is one-shot and rewrites in
     // place, so a later value would arrive after every static string was final.
@@ -5251,6 +5490,7 @@
     if(s.model) document.getElementById("stModel").textContent = s.model.split(" · ")[0];
     // permissions_ok is always true off macOS, so this banner never shows there.
     document.getElementById("perm").classList.toggle("on", s.permissions_ok===false);
+    document.getElementById("legacyRunning").classList.toggle("on", s.legacy_running===true);
     const pill=document.getElementById("pill");
     pill.classList.toggle("live", !!s.listening);
     pill.classList.remove("error");
@@ -6210,6 +6450,130 @@
   migrationEl("snippetSearch").oninput=renderSnippets;
   migrationEl("snippetAdd").onclick=()=>{migrationClearPreview();migrationEl("migrationKind").value="snippets";migrationEl("migrationLayout").value="auto";migrationRequest("preview",{kind:"snippets",layout:"auto",text:JSON.stringify([{name:migrationEl("snippetName").value,text:migrationEl("snippetText").value}])});};
   send({type:"ready"});
+
+  // PREVIOUS EDITION IMPORT. Copy-only, from the paid VocalCode's folder: the
+  // host opens nothing there but an allow-list and never writes to it. Settings
+  // come back as a snapshot and go through the ordinary save, so they are
+  // validated, applied and, if refused, rolled back like any click here.
+  let legacyBusy=false, legacyId=0, legacyScanData=null, legacyDismissQueued=false, legacyHomeClosed=false;
+  const legacyEl=id=>document.getElementById(id);
+  const LEGACY_PARTS=[["settings","Settings"],["dictionary","Dictionary"],["meetings","Meetings"],["stats","Stats"],["models","Models"]];
+  // Counts go into translated templates rather than being glued to a label,
+  // so each language can put the number where its grammar wants it.
+  function tn(text,n){return t(text).split("{n}").join(String(n));}
+  function tl(text,list){return t(text).split("{list}").join(list);}
+  function legacyControls(){
+    const found=!!(legacyScanData&&legacyScanData.available);
+    let chosen=false;
+    LEGACY_PARTS.forEach(function(part){
+      const box=legacyEl("legacyPart"+part[1]);
+      box.disabled=legacyBusy||!found||box.dataset.empty==="true";
+      if(box.checked&&!box.disabled)chosen=true;
+    });
+    legacyEl("legacyImport").disabled=legacyBusy||!chosen;
+    legacyEl("legacyScan").disabled=legacyBusy;
+    legacyEl("legacyLoginOff").disabled=legacyBusy;
+  }
+  function legacyRequest(op,extra){
+    if(legacyBusy)return false;
+    legacyBusy=true;legacyControls();
+    if(!send(Object.assign({type:"legacy_import",op:op,id:++legacyId},extra||{}))){legacyBusy=false;legacyControls();return false;}
+    return true;
+  }
+  function legacyRenderLogin(on){
+    legacyEl("legacyLoginOff").hidden=!on;
+    legacyEl("legacyLoginNote").textContent=t(on?"It still starts when you log in, so both apps would type every dictation.":"It does not start at login.");
+  }
+  function legacyRenderScan(d){
+    legacyScanData=d;
+    legacyEl("legacySection").hidden=!(d.available||d.login);
+    legacyEl("legacyPath").textContent=d.available&&d.path?t("Found in {path}").split("{path}").join(d.path):"";
+    legacyRenderLogin(d.login===true);
+    const meetings=[d.meetings?tn("{n} meetings",d.meetings):"",d.meetings_present?tn("{n} already imported",d.meetings_present):"",d.meetings_in_progress?tn("{n} still recording there",d.meetings_in_progress):""].filter(Boolean).join(" · ");
+    const models=d.models&&d.models.files?tn("{n} MB — no need to download again",Math.max(1,Math.round(d.models.bytes/1048576))):"";
+    const parts={
+      settings:[!d.settings,d.settings?t("Found"):""],
+      dictionary:[!(d.rules||d.snippets),[d.rules?tn("{n} rules",d.rules):"",d.snippets?tn("{n} snippets",d.snippets):""].filter(Boolean).join(" · ")],
+      meetings:[!d.meetings,meetings],
+      stats:[!d.stats||d.stats_imported===true,d.stats_imported?t("Already added"):d.stats?tn("{n} dictations",d.stats.dictations||0):""],
+      models:[!models,models]
+    };
+    LEGACY_PARTS.forEach(function(part){
+      const box=legacyEl("legacyPart"+part[1]),state=parts[part[0]];
+      box.dataset.empty=String(state[0]);
+      // Models are optional: a copy is only worth it to skip a download.
+      box.checked=!state[0]&&part[0]!=="models";
+      legacyEl("legacyCount"+part[1]).textContent=state[1]||(state[0]?t("Nothing found"):"");
+    });
+    const problems=Array.isArray(d.problems)?d.problems:[];
+    legacyEl("legacyMessage").textContent=problems.length?tl("Could not read: {list}",problems.join(" ")):"";
+    const worthIt=!!(d.settings||d.rules||d.snippets||d.meetings||(d.stats&&!d.stats_imported));
+    // A scan that was already in flight must not bring back a card just closed.
+    legacyEl("homeLegacy").hidden=legacyHomeClosed||!(d.available&&d.community_empty&&!d.answered&&worthIt);
+  }
+  function legacySummary(d){
+    const done=[];
+    if(d.settings)done.push(t("settings"));
+    if(d.workflows==="imported")done.push(t("app profiles"));
+    if(d.dictionary&&d.dictionary.added)done.push(tn("{n} new rules",d.dictionary.added));
+    if(d.snippets&&d.snippets.added)done.push(tn("{n} new snippets",d.snippets.added));
+    if(d.meetings&&d.meetings.copied)done.push(tn("{n} meetings",d.meetings.copied));
+    if(d.stats&&!d.stats.already)done.push(t("usage counts"));
+    if(d.models&&d.models.files)done.push(tn("{n} model files",d.models.files));
+    // "·" rather than a comma: it reads the same in every language here.
+    let text=done.length?tl("Imported: {list}.",done.join(" · ")):t("Nothing new to import.");
+    if(d.dictionary&&d.dictionary.conflicts)text+=" "+tn("{n} of your rules differ from the previous ones; yours were kept.",d.dictionary.conflicts);
+    text+=" "+t("The previous VocalCode's folder was not changed.");
+    const errors=(Array.isArray(d.errors)?d.errors:[]).concat(d.stats&&d.stats.warning?[d.stats.warning]:[]);
+    if(errors.length)text+=" "+tl("Not imported: {list}",errors.join(" "));
+    return text;
+  }
+  function legacyApply(d){
+    if(d.settings&&typeof d.settings==="object"){
+      Object.keys(d.settings).forEach(function(key){cfg[key]=cloneCfg(d.settings[key]);});
+      renderConfigState();save(true);
+    }
+    if(d.state)migrationRequest("load");
+    if(d.workflows==="imported")workflowRequest("load");
+  }
+  window.vocalcodeLegacyImportResult=function(result){
+    if(!result||result.id!==legacyId)return;
+    legacyBusy=false;
+    const d=result.data||{};
+    if(!result.ok){legacyEl("legacyMessage").textContent=String(result.message||"");}
+    else if(result.op==="scan")legacyRenderScan(d);
+    else if(result.op==="import"){
+      legacyEl("legacyMessage").textContent=legacySummary(d);
+      legacyHomeClosed=true;legacyEl("homeLegacy").hidden=true;
+      legacyApply(d);
+      LEGACY_PARTS.forEach(function(part){legacyEl("legacyPart"+part[1]).checked=false;});
+    }else if(result.op==="disable_login"){
+      const r=d.login_result||{};
+      legacyEl("legacyMessage").textContent=t(r.run==="kept"?"Its login entry starts a different program, so it was left alone.":"The previous VocalCode will no longer start at login.");
+      legacyRenderLogin(d.login===true);
+    }
+    legacyControls();
+    if(legacyDismissQueued&&!legacyBusy){legacyDismissQueued=false;legacyRequest("dismiss");}
+  };
+  LEGACY_PARTS.forEach(function(part){legacyEl("legacyPart"+part[1]).onchange=legacyControls;});
+  legacyEl("legacyScan").onclick=function(){if(legacyRequest("scan"))legacyEl("legacyMessage").textContent=t("Checking the previous VocalCode's folder…");};
+  legacyEl("legacyImport").onclick=function(){
+    const parts={};let any=false;
+    LEGACY_PARTS.forEach(function(part){const box=legacyEl("legacyPart"+part[1]);parts[part[0]]=box.checked&&!box.disabled;any=any||parts[part[0]];});
+    if(!any){legacyEl("legacyMessage").textContent=t("Choose at least one thing to import.");return;}
+    if(legacyRequest("import",{parts:parts}))legacyEl("legacyMessage").textContent=t("Working locally…");
+  };
+  legacyEl("legacyLoginOff").onclick=function(){if(legacyRequest("disable_login"))legacyEl("legacyMessage").textContent=t("Working locally…");};
+  legacyEl("homeLegacyReview").onclick=function(){
+    showPanel("behaviour",true);
+    const tab=document.querySelector('[data-settings-tab="system"]');if(tab)tab.click();
+    const section=legacyEl("legacySection");if(section&&section.scrollIntoView)section.scrollIntoView({block:"start"});
+  };
+  legacyEl("homeLegacyDismiss").onclick=function(){
+    legacyHomeClosed=true;legacyEl("homeLegacy").hidden=true;
+    if(!legacyRequest("dismiss"))legacyDismissQueued=true;
+  };
+  // END PREVIOUS EDITION IMPORT
 
   // Translating twice cannot work: `applyLang` rewrites text nodes in place, so
   // the second pass would be looking up French text in a German dictionary and

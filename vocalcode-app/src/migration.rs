@@ -67,7 +67,13 @@ fn read_snippets(path: &Path) -> Result<(String, Vec<Entry>), String> {
         Err(error) => return Err(error.to_string()),
     };
     let revision = format!("{:x}", Sha256::digest(&bytes));
-    let text = std::str::from_utf8(&bytes)
+    Ok((revision, snippet_document(&bytes)?))
+}
+
+/// Validate a stored `snippets.json` envelope and every entry in it. Also
+/// used for the previous VocalCode's copy, which has the same format.
+pub(crate) fn snippet_document(bytes: &[u8]) -> Result<Vec<Entry>, String> {
+    let text = std::str::from_utf8(bytes)
         .map_err(|_| "Snippet file is not UTF-8. It was left untouched.")?;
     // An exported empty collection is valid even though an import must add at
     // least one row. Validate the envelope and every stored entry on load.
@@ -83,7 +89,7 @@ fn read_snippets(path: &Path) -> Result<(String, Vec<Entry>), String> {
     for entry in &doc.entries {
         format::validate(Kind::Snippets, entry)?;
     }
-    Ok((revision, doc.entries))
+    Ok(doc.entries)
 }
 
 pub(crate) fn snapshot(base: &Path, kind: Kind) -> Result<(String, Vec<Entry>), String> {
@@ -102,7 +108,12 @@ pub(crate) fn snapshot(base: &Path, kind: Kind) -> Result<(String, Vec<Entry>), 
     }
 }
 
-fn save(base: &Path, kind: Kind, expected: &str, entries: &[Entry]) -> Result<String, String> {
+pub(crate) fn save(
+    base: &Path,
+    kind: Kind,
+    expected: &str,
+    entries: &[Entry],
+) -> Result<String, String> {
     for entry in entries {
         format::validate(kind, entry)?;
     }
@@ -135,7 +146,10 @@ fn save(base: &Path, kind: Kind, expected: &str, entries: &[Entry]) -> Result<St
     }
 }
 
-fn publish_runtime(base: &Path, status: &crate::webui::RuntimeStatus) -> Result<Value, String> {
+pub(crate) fn publish_runtime(
+    base: &Path,
+    status: &crate::webui::RuntimeStatus,
+) -> Result<Value, String> {
     let mut state = json!({});
     let mut warnings = Vec::new();
     // Independent collections: a damaged snippet file must not turn a committed
@@ -468,6 +482,29 @@ mod tests {
         assert_eq!(snapshot(&dir, Kind::Dictionary).unwrap().1, entries);
         std::fs::remove_dir_all(dir).unwrap();
     }
+    #[test]
+    fn a_pasted_replacements_file_previews_as_rules() {
+        let dir = test_dir();
+        let status = crate::webui::RuntimeStatus::default();
+        let text = "# VocalCode — your own recognition fixes.\n\
+                    # One rule per line:  heard text => what to write\n\
+                    collie      => Collie\n\
+                    lang chain  => LangChain\n";
+        for layout in [Value::Null, json!("rules")] {
+            let mut request = json!({"op":"preview","kind":"dictionary","text":text});
+            if !layout.is_null() {
+                request["layout"] = layout;
+            }
+            let preview = handle(&dir, &status, &request, None, None).unwrap();
+            assert_eq!(preview["preview"]["added"], 2, "{request}");
+            assert_eq!(
+                preview["preview"]["rows"][1]["entry"],
+                json!({"name":"lang chain","text":"LangChain"})
+            );
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn snippets_survive_reload_and_stale_writes_fail() {
         let dir = test_dir();

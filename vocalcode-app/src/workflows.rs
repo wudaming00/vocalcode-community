@@ -189,6 +189,32 @@ fn migrate_legacy_with(
         }
     }
 }
+/// Adopt the previous VocalCode's `workflows.json` when this installation has
+/// never saved its own. Its app profiles and cleanup choices carry over;
+/// encrypted diagnostics do not. Their key stayed with the other app, and
+/// turning on text recording here needs its own, visible opt-in. Returns
+/// false, changing nothing, when a local file already exists.
+pub(crate) fn import_previous(
+    base: &Path,
+    status: &crate::webui::RuntimeStatus,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    let mut prefs: Preferences = serde_json::from_slice(bytes)
+        .map_err(|_| "The previous workflow settings could not be read.")?;
+    prefs.diagnostics = false;
+    prefs.validate()?;
+    let target = path(base)?;
+    let _guard = crate::lock_rules_writes(&target)?;
+    let bytes = serde_json::to_vec_pretty(&prefs).map_err(|e| e.to_string())?;
+    match crate::storage::atomic_write_new(&target, &bytes) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Ok(false),
+        Err(e) => return Err(e.to_string()),
+    }
+    *status.workflows.lock().unwrap_or_else(|p| p.into_inner()) = prefs;
+    Ok(true)
+}
+
 pub(crate) fn handle(
     base: &Path,
     status: &crate::webui::RuntimeStatus,

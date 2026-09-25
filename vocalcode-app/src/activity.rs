@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use jiff::civil::Date;
 
 const MAX_DAYS: usize = 400;
-const MAX_FILE_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_FILE_BYTES: usize = 256 * 1024;
 /// Twelve full weeks, Monday-aligned, ending with the current week.
 const HEAT_WEEKS: i64 = 12;
 /// Speaking-rate window, and the least speech it will report a rate for.
@@ -95,12 +95,39 @@ impl Activity {
         // One dictation is at most ten minutes; clamp so a clock or driver
         // glitch cannot poison the speaking rate for a month.
         day.speech_ms = day.speech_ms.saturating_add(speech_ms.min(15 * 60 * 1000));
+        self.trim();
+    }
+
+    fn trim(&mut self) {
         while self.days.len() > MAX_DAYS {
             let Some(oldest) = self.days.keys().next().cloned() else {
                 break;
             };
             self.days.remove(&oldest);
         }
+    }
+
+    /// Add another installation's days to these, day by day. Both sets are
+    /// counts of different dictations, so a shared day is the sum. Keys that
+    /// are not calendar dates are ignored rather than stored. Returns the
+    /// number of days that carried counts.
+    pub fn merge(&mut self, other: &Activity) -> usize {
+        let mut merged = 0;
+        for (text, counts) in &other.days {
+            if text.parse::<Date>().is_err() || counts.dictations == 0 {
+                continue;
+            }
+            let day = self.days.entry(text.clone()).or_default();
+            day.dictations = day.dictations.saturating_add(counts.dictations);
+            day.words = day.words.saturating_add(counts.words);
+            day.speech_ms = day.speech_ms.saturating_add(counts.speech_ms);
+            merged += 1;
+        }
+        if merged > 0 {
+            self.version = 1;
+            self.trim();
+        }
+        merged
     }
 
     fn day(&self, date: Date) -> Option<&Day> {
@@ -268,6 +295,38 @@ impl Store {
         }
     }
 
+    /// Whether any day has been counted on this installation.
+    pub fn is_empty(&self) -> bool {
+        self.inner
+            .lock()
+            .map(|inner| inner.activity.days.is_empty())
+            .unwrap_or(false)
+    }
+
+    /// Merge the previous VocalCode's activity and write the result. Refused
+    /// when this session could not read its own file: saving a merge over a
+    /// guessed empty history would destroy the real one.
+    pub fn merge_imported(&self, other: &Activity) -> Result<usize, String> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| "Activity is unavailable.".to_string())?;
+        let path = match (&inner.path, inner.writable) {
+            (Some(path), true) => path.clone(),
+            _ => return Err("This installation's activity file could not be read, so nothing was merged into it.".into()),
+        };
+        let mut next = inner.activity.clone();
+        let days = next.merge(other);
+        if days == 0 {
+            return Ok(0);
+        }
+        let bytes = serde_json::to_vec(&next).map_err(|error| error.to_string())?;
+        crate::storage::atomic_write(&path, bytes).map_err(|error| error.to_string())?;
+        inner.activity = next;
+        inner.cached = None;
+        Ok(days)
+    }
+
     /// Insights for the status payload. Recomputed after a new dictation and
     /// at most once a minute otherwise, so a streak rolls over at midnight.
     pub fn snapshot(&self) -> serde_json::Value {
@@ -353,6 +412,78 @@ mod tests {
         assert_eq!(a.insights(today).words_per_minute, Some(150));
         // Speech older than the window does not count.
         assert_eq!(a.insights(d("2026-11-30")).words_per_minute, None);
+    }
+
+    #[test]
+    fn another_installations_days_add_up_and_stay_bounded() {
+        let mut here = Activity::default();
+        here.record(d("2026-09-02"), 7, 3_000);
+        let mut previous = Activity::default();
+        previous.record(d("2026-09-01"), 30, 9_000);
+        previous.record(d("2026-09-02"), 5, 2_000);
+        previous.days.insert("not a date".into(), Day::default());
+        previous.days.insert(
+            "2026-09-03".into(),
+            Day {
+                dictations: 0,
+                words: 99,
+                speech_ms: 0,
+            },
+        );
+        assert_eq!(here.merge(&previous), 2);
+        assert_eq!(here.days.len(), 2);
+        assert_eq!(
+            here.days["2026-09-02"],
+            Day {
+                dictations: 2,
+                words: 12,
+                speech_ms: 5_000
+            }
+        );
+        let mut long = Activity::default();
+        let mut date = d("2024-01-01");
+        for _ in 0..MAX_DAYS {
+            long.record(date, 1, 1_000);
+            date = date.tomorrow().unwrap();
+        }
+        here.merge(&long);
+        assert_eq!(here.days.len(), MAX_DAYS);
+        assert!(here.days.contains_key("2026-09-02"), "newest days are kept");
+    }
+
+    #[test]
+    fn imported_activity_is_saved_but_never_over_an_unreadable_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "vocalcode-activity-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut previous = Activity::default();
+        previous.record(d("2026-09-01"), 30, 9_000);
+
+        let store = Store::default();
+        assert!(store.merge_imported(&previous).is_err(), "never loaded");
+        store.load(&dir);
+        assert!(store.is_empty());
+        assert_eq!(store.merge_imported(&previous), Ok(1));
+        assert!(!store.is_empty());
+        let saved: Activity =
+            serde_json::from_slice(&std::fs::read(dir.join("activity.json")).unwrap()).unwrap();
+        assert_eq!(saved.days["2026-09-01"].words, 30);
+
+        std::fs::write(dir.join("activity.json"), b"damaged").unwrap();
+        let damaged = Store::default();
+        damaged.load(&dir);
+        assert!(damaged.merge_imported(&previous).is_err());
+        assert_eq!(
+            std::fs::read(dir.join("activity.json")).unwrap(),
+            b"damaged"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

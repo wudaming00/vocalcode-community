@@ -356,6 +356,9 @@ pub struct RuntimeStatus {
     writing_preview: Mutex<Option<Value>>,
     calendar_in_progress: AtomicBool,
     calendar_result: Mutex<Option<Value>>,
+    /// Copy-only import from the previous VocalCode's data folder.
+    legacy_import_in_progress: AtomicBool,
+    legacy_import_result: Mutex<Option<Value>>,
     pub(crate) calendar_cancel: AtomicBool,
     pub(crate) calendar_snapshot: Mutex<crate::calendar::ReminderSnapshot>,
     /// A word arriving from the macOS Services menu, handed to the page once.
@@ -1020,6 +1023,7 @@ enum IpcSingleFlight {
     Migration,
     Workflow,
     Calendar,
+    LegacyImport,
 }
 
 impl IpcSingleFlight {
@@ -1031,6 +1035,7 @@ impl IpcSingleFlight {
             Self::Migration => &status.migration_in_progress,
             Self::Workflow => &status.workflow_in_progress,
             Self::Calendar => &status.calendar_in_progress,
+            Self::LegacyImport => &status.legacy_import_in_progress,
         }
     }
 }
@@ -2031,7 +2036,7 @@ fn correction_result_payload(result: &CorrectionResult, include_changes: bool) -
     })
 }
 
-fn config_snapshot_for_page(config: &Config) -> Value {
+pub(crate) fn config_snapshot_for_page(config: &Config) -> Value {
     serde_json::json!({
         "talk": config.talk.iter().map(trigger_to_code).collect::<Vec<_>>(),
         "send": config.send.iter().map(trigger_to_code).collect::<Vec<_>>(),
@@ -2144,6 +2149,14 @@ fn push_status(
     {
         let _ = webview.evaluate_script(&format!("window.vocalcodeMigrationResult({result})"));
     }
+    if let Some(result) = status
+        .legacy_import_result
+        .lock()
+        .ok()
+        .and_then(|mut result| result.take())
+    {
+        let _ = webview.evaluate_script(&format!("window.vocalcodeLegacyImportResult({result})"));
+    }
     // Finished key-captures from the global hook → hand each to JS. Drain the
     // queue: one-per-tick delivery staggered a hint and its answer across
     // separate wakeups, which read as the prompt lagging behind the hand.
@@ -2198,6 +2211,8 @@ fn push_status(
         "meeting_transcribing": status.meetings.is_transcribing(),
         "onboarded": status.onboarded.load(Ordering::Relaxed),
         "permissions_ok": status.permissions_ok.load(Ordering::Relaxed),
+        // Both editions would type every dictation; say so while it is true.
+        "legacy_running": crate::legacy_import::previous_edition_running_cached(),
         "totals": status.totals.lock().ok().map(|t| serde_json::json!({
             "dictations": t.dictations, "words": t.words, "chars": t.chars })),
         "insights": status.activity.snapshot(),
@@ -2629,6 +2644,38 @@ fn handle_ipc(
                 *worker_status.migration_result.lock().unwrap() = Some(value);
             }) {
                 *status.migration_result.lock().unwrap() =
+                    Some(serde_json::json!({"id":request_id,"ok":false,"message":error}));
+            }
+        }
+        Some("legacy_import") => {
+            let Some(single_flight) =
+                IpcSingleFlightReset::claim(status, IpcSingleFlight::LegacyImport)
+            else {
+                return;
+            };
+            let base = base.to_path_buf();
+            let worker_status = status.clone();
+            let request_id = v["id"].clone();
+            if let Err(error) = spawn_service_worker(status, "vocalcode-legacy-import", move || {
+                let result = crate::legacy_import::handle(&base, &worker_status, &v);
+                let value = match result {
+                    Ok(data) => {
+                        serde_json::json!({"id":v["id"],"op":v["op"],"ok":true,"data":data})
+                    }
+                    Err(error) => {
+                        serde_json::json!({"id":v["id"],"op":v["op"],"ok":false,"message":error})
+                    }
+                };
+                drop(single_flight);
+                *worker_status
+                    .legacy_import_result
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) = Some(value);
+            }) {
+                *status
+                    .legacy_import_result
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) =
                     Some(serde_json::json!({"id":request_id,"ok":false,"message":error}));
             }
         }
@@ -4288,6 +4335,11 @@ fn write_windows_autostart_value(command: &str) -> Result<(), String> {
 
 #[cfg(windows)]
 fn delete_windows_autostart_value() -> Result<(), String> {
+    delete_windows_run_value(crate::community::AUTOSTART_NAME)
+}
+
+#[cfg(windows)]
+fn delete_windows_run_value(name: &str) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
     use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
@@ -4296,7 +4348,7 @@ fn delete_windows_autostart_value() -> Result<(), String> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let value = std::ffi::OsStr::new(crate::community::AUTOSTART_NAME)
+    let value = std::ffi::OsStr::new(name)
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -4313,6 +4365,11 @@ fn delete_windows_autostart_value() -> Result<(), String> {
 
 #[cfg(windows)]
 fn query_autostart_command() -> Option<String> {
+    query_windows_run_value(crate::community::AUTOSTART_NAME)
+}
+
+#[cfg(windows)]
+fn query_windows_run_value(name: &str) -> Option<String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
     use windows_sys::Win32::System::Registry::{
@@ -4323,7 +4380,7 @@ fn query_autostart_command() -> Option<String> {
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
-    let value_name = std::ffi::OsStr::new(crate::community::AUTOSTART_NAME)
+    let value_name = std::ffi::OsStr::new(name)
         .encode_wide()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -4397,6 +4454,89 @@ pub(crate) fn autostart_enabled() -> bool {
         }
     };
     run_matches || legacy_exists
+}
+
+/// The paid edition's Run value name and executable. The community edition's
+/// own entry is `AUTOSTART_NAME` and is never touched by the functions below.
+#[cfg(windows)]
+const PREVIOUS_AUTOSTART_NAME: &str = "VocalCode";
+#[cfg(windows)]
+const PREVIOUS_EXECUTABLE: &str = "VocalCode.exe";
+
+/// Whether a Run command line starts the previous edition's executable. A
+/// value with the same name that launches anything else is somebody else's.
+#[cfg(any(windows, test))]
+fn run_command_starts(command: &str, executable: &str) -> bool {
+    let command = command.trim();
+    let program = if let Some(quoted) = command.strip_prefix('"') {
+        quoted.split('"').next().unwrap_or_default()
+    } else {
+        // Unquoted: the path runs through the first ".exe" that ends a token.
+        let lower = command.to_ascii_lowercase();
+        let mut end = None;
+        let mut from = 0;
+        while let Some(found) = lower[from..].find(".exe") {
+            let stop = from + found + 4;
+            if lower[stop..].chars().next().is_none_or(char::is_whitespace) {
+                end = Some(stop);
+                break;
+            }
+            from = stop;
+        }
+        match end {
+            Some(end) => &command[..end],
+            None => return false,
+        }
+    };
+    Path::new(program.trim())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.eq_ignore_ascii_case(executable))
+}
+
+/// Whether the previous VocalCode is set to start at login: its Run value
+/// pointing at its executable, or its pre-0.4.20 Startup shortcut.
+#[cfg(windows)]
+pub(crate) fn previous_edition_autostart() -> bool {
+    if !crate::community::ENABLED {
+        return false;
+    }
+    query_windows_run_value(PREVIOUS_AUTOSTART_NAME)
+        .is_some_and(|command| run_command_starts(&command, PREVIOUS_EXECUTABLE))
+        || windows_startup_directory().is_ok_and(|startup| startup.join("VocalCode.lnk").is_file())
+}
+
+/// Stop the previous VocalCode from starting at login, on an explicit click
+/// only: never automatically, at startup or from an installer. Its Run value
+/// is removed only when it launches `VocalCode.exe`; its old Startup shortcut
+/// by name, exactly as that edition's own settings did when turned off.
+#[cfg(windows)]
+pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
+    if !crate::community::ENABLED {
+        return Err("Only the community edition manages the previous VocalCode.".into());
+    }
+    let mut run = "absent";
+    if let Some(command) = query_windows_run_value(PREVIOUS_AUTOSTART_NAME) {
+        if run_command_starts(&command, PREVIOUS_EXECUTABLE) {
+            delete_windows_run_value(PREVIOUS_AUTOSTART_NAME)?;
+            run = "removed";
+        } else {
+            run = "kept";
+        }
+    }
+    let startup = windows_startup_directory()?;
+    let shortcut = startup.join("VocalCode.lnk");
+    let shortcut = match std::fs::remove_file(&shortcut) {
+        Ok(()) => "removed",
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "absent",
+        Err(error) => {
+            return Err(format!(
+                "remove the previous VocalCode's Startup shortcut {}: {error}",
+                shortcut.display()
+            ))
+        }
+    };
+    Ok(serde_json::json!({"run": run, "shortcut": shortcut}))
 }
 
 #[cfg(target_os = "macos")]
@@ -4530,6 +4670,72 @@ pub(crate) fn autostart_enabled() -> bool {
     };
     output.status.success()
         && String::from_utf8_lossy(&output.stdout).trim() == exe.to_string_lossy().as_ref()
+}
+
+/// The paid edition's LaunchAgent label, which is also its bundle identifier.
+#[cfg(target_os = "macos")]
+pub(crate) const PREVIOUS_BUNDLE_ID: &str = "app.vocalcode.VocalCode";
+
+#[cfg(target_os = "macos")]
+fn previous_launch_agent() -> Result<PathBuf, String> {
+    Ok(macos_home_directory()?
+        .join("Library")
+        .join("LaunchAgents")
+        .join(format!("{PREVIOUS_BUNDLE_ID}.plist")))
+}
+
+/// Whether the previous VocalCode has a login LaunchAgent.
+#[cfg(target_os = "macos")]
+pub(crate) fn previous_edition_autostart() -> bool {
+    crate::community::ENABLED && previous_launch_agent().is_ok_and(|plist| plist.is_file())
+}
+
+/// Stop the previous VocalCode from starting at login, on an explicit click
+/// only. Mirrors that edition's own "launch at login" off switch: boot the
+/// agent out of launchd, then remove its plist. Booting out an agent that
+/// launchd started also quits that copy, which is what the person wants.
+#[cfg(target_os = "macos")]
+pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
+    if !crate::community::ENABLED {
+        return Err("Only the community edition manages the previous VocalCode.".into());
+    }
+    let plist = previous_launch_agent()?;
+    let uid = unsafe { libc_getuid() };
+    let service = format!("gui/{uid}/{PREVIOUS_BUNDLE_ID}");
+    let loaded = launch_agent_loaded(&service);
+    if loaded {
+        launchctl_checked(
+            ["bootout", service.as_str()],
+            "unload the previous VocalCode's LaunchAgent",
+        )?;
+    }
+    let agent = match std::fs::remove_file(&plist) {
+        Ok(()) => "removed",
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if loaded {
+                "removed"
+            } else {
+                "absent"
+            }
+        }
+        Err(error) => {
+            return Err(format!(
+                "remove the previous VocalCode's LaunchAgent {}: {error}",
+                plist.display()
+            ))
+        }
+    };
+    Ok(serde_json::json!({"agent": agent}))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(crate) fn previous_edition_autostart() -> bool {
+    false
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
+    Err("The previous VocalCode did not run on this platform.".into())
 }
 
 #[cfg(target_os = "macos")]
@@ -10772,5 +10978,52 @@ mod purge_tests {
         purge_app_data(&d).unwrap();
         assert!(upper.exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+#[cfg(test)]
+mod previous_edition_tests {
+    use super::run_command_starts;
+
+    #[test]
+    fn only_a_run_command_that_starts_the_previous_executable_matches() {
+        for command in [
+            r#""C:\Program Files\VocalCode\VocalCode.exe""#,
+            r#""C:\Users\Ana Li\AppData\Local\Programs\VocalCode\vocalcode.EXE" --hidden"#,
+            r"C:\Program Files\VocalCode\VocalCode.exe",
+            r"C:\Program Files\VocalCode\VocalCode.exe --hidden",
+        ] {
+            assert!(run_command_starts(command, "VocalCode.exe"), "{command}");
+        }
+        for command in [
+            r#""C:\Users\Ana\AppData\Local\Programs\VocalCode Community\VocalCodeCommunity.exe""#,
+            r#""C:\Tools\NotVocalCode.exe""#,
+            r"C:\VocalCode.exe.bak\other.exe",
+            "",
+            "VocalCode",
+        ] {
+            assert!(!run_command_starts(command, "VocalCode.exe"), "{command}");
+        }
+    }
+
+    /// Turning the other app's login item off is a click, never a side effect:
+    /// only the explicit import request may reach it.
+    #[test]
+    fn the_previous_login_item_is_only_removed_by_an_explicit_request() {
+        let webui = include_str!("webui.rs");
+        let main = include_str!("main.rs");
+        let import = include_str!("legacy_import.rs");
+        // Built so that this test's own source does not match itself.
+        let name = concat!("disable_previous_", "edition_autostart(");
+        let definition = concat!("fn disable_previous_", "edition_autostart(");
+        assert!(!main.contains(name));
+        assert_eq!(
+            webui.matches(name).count(),
+            webui.matches(definition).count(),
+            "webui.rs may define it but must not call it"
+        );
+        assert_eq!(import.matches(name).count(), 1);
+        let call = import.find(name).unwrap();
+        assert!(import[call.saturating_sub(200)..call].contains("op == \"disable_login\""));
     }
 }
