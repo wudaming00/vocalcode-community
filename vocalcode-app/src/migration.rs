@@ -299,19 +299,9 @@ pub(crate) fn handle(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn test_dir() -> PathBuf {
-        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!(
-            "vocalcode-migration-{}-{stamp}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        ));
-        std::fs::create_dir(&dir).unwrap();
-        dir
+    use crate::test_support::TempDir;
+    fn test_dir() -> TempDir {
+        TempDir::new("migration")
     }
 
     // Explicit local replay only: never embed personal vocabulary in fixtures or
@@ -404,7 +394,6 @@ mod tests {
                 "local migration replay: kind={kind:?}, source_rows={}, added={}, preview/commit/duplicate/undo passed",
                 incoming.len(), expected.added
             );
-            std::fs::remove_dir_all(dir).unwrap();
         }
     }
     #[test]
@@ -466,7 +455,6 @@ mod tests {
         )
         .is_err());
         assert_eq!(snapshot(&dir, Kind::Dictionary).unwrap().1, entries);
-        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn snippets_survive_reload_and_stale_writes_fail() {
@@ -483,7 +471,6 @@ mod tests {
         assert!(save(&dir, Kind::Snippets, "absent", &[]).is_err());
         save(&dir, Kind::Snippets, &revision, &[]).unwrap();
         assert!(snapshot(&dir, Kind::Snippets).unwrap().1.is_empty());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -513,7 +500,6 @@ mod tests {
         )
         .is_err());
         assert_eq!(snapshot(&dir, Kind::Dictionary).unwrap().1, entries);
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -542,7 +528,6 @@ mod tests {
         assert_eq!(result["state"]["warnings"].as_array().unwrap().len(), 1);
         assert!(result["state"].get("snippets").is_none());
         assert_eq!(std::fs::read(&path).unwrap(), b"broken JSON");
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -560,6 +545,5 @@ mod tests {
         )
         .is_err());
         assert!(export_destination(&nested, &dir.join("out.json")).is_ok());
-        std::fs::remove_dir_all(dir).unwrap();
     }
 }

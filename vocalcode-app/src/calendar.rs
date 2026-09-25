@@ -740,11 +740,7 @@ mod tests {
     }
     #[test]
     fn deleting_meeting_removes_only_its_association() {
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-calendar-delete-test-{}",
-            random_token().unwrap()
-        ));
-        std::fs::create_dir(&base).unwrap();
+        let base = crate::test_support::TempDir::new("calendar-delete-test");
         let store = vocalcode_meeting::MeetingStore::open(base.join("meetings")).unwrap();
         let meeting = store
             .create(vocalcode_meeting::NewMeeting {
@@ -767,16 +763,11 @@ mod tests {
         assert!(!association.exists());
         assert!(unrelated.exists());
         assert!(store.load(&meeting.id).is_err());
-        std::fs::remove_dir_all(base).unwrap();
     }
     #[cfg(windows)]
     #[test]
     fn persisted_authorization_is_encrypted_and_absent_from_ui_snapshot() {
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-calendar-test-{}",
-            random_token().unwrap()
-        ));
-        std::fs::create_dir(&base).unwrap();
+        let base = crate::test_support::TempDir::new("calendar-test");
         let connection = Connection {
             client_id: "test.apps.googleusercontent.com".into(),
             client_secret: "private-client-secret".into(),
@@ -796,7 +787,6 @@ mod tests {
                 .refresh_token,
             "private-refresh-token"
         );
-        std::fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn oauth_uses_pkce_readonly_scope_and_exact_state() {

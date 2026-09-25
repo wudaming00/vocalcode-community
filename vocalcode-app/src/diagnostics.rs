@@ -419,14 +419,9 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn windows_records_are_encrypted_and_restore_with_unicode() {
-        let base = std::env::temp_dir().join(format!(
-            "vocalcode-diag-test-{}-{}",
-            std::process::id(),
-            SERIAL.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&base).unwrap();
+        let base = crate::test_support::TempDir::new("diag-test");
         let status = Arc::new(crate::webui::RuntimeStatus::default());
-        let writer = Writer::start(base.clone(), status.clone()).unwrap();
+        let writer = Writer::start(base.to_path_buf(), status.clone()).unwrap();
         let prefs = crate::workflows::Preferences {
             diagnostics: true,
             max_entries: 1,
@@ -451,6 +446,8 @@ mod tests {
             )
             .unwrap();
         drop(writer);
+        // Dropping the writer joins its thread: no record file is left open.
+        crate::test_support::assert_directory_released(&base);
         assert_eq!(recent(&base).unwrap()[0].text, "私密 words");
         assert_eq!(
             recent(&base).unwrap()[0].recognition.as_deref(),
@@ -468,6 +465,5 @@ mod tests {
         let encrypted = std::fs::read(&files(&base).unwrap()[0].1).unwrap();
         assert!(!String::from_utf8_lossy(&encrypted).contains("words"));
         assert_eq!(export(&base, &base.join("test.jsonl")).unwrap(), 1);
-        std::fs::remove_dir_all(base).unwrap();
     }
 }

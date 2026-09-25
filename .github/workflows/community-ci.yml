@@ -4,9 +4,13 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+# A newer push to a pull request supersedes its older run. Every other run
+# (main pushes, manual dispatches) gets a group of its own, so it is neither
+# cancelled nor displaced while pending: the release preflight requires a
+# successful push run on the exact commit being released.
 concurrency:
-  group: community-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: community-${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
 env:
@@ -33,7 +37,17 @@ jobs:
           tar -xzf "$SCAN_TOOL_DIR/gitleaks.tar.gz" -C "$SCAN_TOOL_DIR" gitleaks
           "$SCAN_TOOL_DIR/gitleaks" dir "$GITHUB_WORKSPACE" --redact=100 --no-banner
       - name: Install pinned dependency auditor
-        run: cargo install cargo-audit --version 0.22.2 --locked
+        shell: bash
+        run: |
+          set -euo pipefail
+          AUDIT_TOOL_DIR="$RUNNER_TEMP/vocalcode-cargo-audit"
+          mkdir -p "$AUDIT_TOOL_DIR"
+          curl --fail --location --retry 3 --output "$AUDIT_TOOL_DIR/cargo-audit.tgz" \
+            https://github.com/rustsec/rustsec/releases/download/cargo-audit%2Fv0.22.2/cargo-audit-x86_64-unknown-linux-musl-v0.22.2.tgz
+          printf '%s  %s\n' 7fb9497f8594b389e5fce5ef9b92db08432996895b2e0c5a0167a69ed445c428 "$AUDIT_TOOL_DIR/cargo-audit.tgz" | sha256sum --check -
+          tar -xzf "$AUDIT_TOOL_DIR/cargo-audit.tgz" -C "$AUDIT_TOOL_DIR" --strip-components=1 cargo-audit-x86_64-unknown-linux-musl-v0.22.2/cargo-audit
+          "$AUDIT_TOOL_DIR/cargo-audit" audit --version
+          echo "$AUDIT_TOOL_DIR" >> "$GITHUB_PATH"
       - name: Audit Cargo.lock (warnings remain visible)
         run: cargo audit
   test:
@@ -72,12 +86,24 @@ jobs:
           echo "LIBCLANG_PATH=$CLANG_LIBRARY_DIR" >> "$GITHUB_ENV"
       - name: Pinned Rust
         run: rustup show
+      # Restores the registry and third-party build outputs; workspace and
+      # vendored crates (sherpa-onnx, rdev) are always rebuilt from source.
+      # The action already hashes the lockfile and toolchain into its key; the
+      # explicit key keeps that visible. Only main saves, so a pull request
+      # can read main's cache but never write one that main would restore.
+      - name: Cache Cargo registry and dependency builds
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Formatting
         run: cargo fmt --all -- --check
-      - name: Workspace tests
-        run: cargo test --workspace --all-targets --locked --features vocalcode-app/community
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked --features vocalcode-app/community -- -D warnings
+      - name: Developer diagnostics build (never packaged)
+        run: cargo check -p vocalcode-app --all-targets --locked --features diagnostic-cli
+      - name: Workspace tests
+        run: cargo test --workspace --all-targets --locked --features vocalcode-app/community
       - name: Community UI contracts
         run: node --test packaging/community/test-community-ui.mjs
       - name: Synthetic replay metric contracts (no models or audio devices)

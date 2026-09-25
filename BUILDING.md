@@ -119,6 +119,11 @@ It uses standard GitHub-hosted `windows-2025`, `macos-15` (Apple silicon), and
 `ubuntu-24.04` runners, not the maintainer's own machines. Windows/macOS jobs
 test, lint and build unsigned executables; the Linux job audits dependencies
 and scans checked-out files for secrets without building the desktop app.
+A newer push to a pull request cancels that pull request's older run; runs on
+`main` are never cancelled, because a signed release requires a successful
+push run on its exact commit. Third-party dependency builds are cached from
+`main` only, keyed on `Cargo.lock` and `rust-toolchain.toml`; workspace and
+vendored crates are always rebuilt.
 
 Non-PR builds retain unsigned developer artifacts for three days. These are
 not signed installers or a macOS `.app` bundle. Keep runtime libraries next to

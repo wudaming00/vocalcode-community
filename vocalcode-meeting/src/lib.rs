@@ -15,6 +15,8 @@ pub mod quality;
 mod search;
 mod store;
 mod summary;
+#[cfg(test)]
+mod test_support;
 
 pub use audio::{
     decode_audio_file, AudioBlock, AudioChunk, AudioDecoderInfo, ChunkedPcmWriter,

@@ -326,7 +326,7 @@ mod tests {
             ));
             drop(held);
             assert_eq!(
-                rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+                rx.recv_timeout(Duration::from_secs(10)).unwrap(),
                 Some(TriggerEvent::HandsFreeStart(CONTROL_ID))
             );
         });

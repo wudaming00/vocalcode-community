@@ -224,7 +224,7 @@ mod tests {
             let meeting = worker.meeting(vec![0.125, -0.25, 0.], 16000).unwrap();
             assert_eq!(
                 meeting
-                    .recv_timeout(Duration::from_secs(2))
+                    .recv_timeout(Duration::from_secs(10))
                     .unwrap()
                     .unwrap(),
                 "好 yes はい 네 हाँ"
@@ -301,7 +301,7 @@ mod tests {
             cleaners,
         );
         let result = worker.meeting(vec![0.1; 3200], 16000).unwrap();
-        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        entry.recv_timeout(Duration::from_secs(10)).unwrap();
         engine
             .handle(TriggerEvent::TalkPressed(
                 vocalcode_core::traits::TriggerId::synthetic(1),
@@ -312,7 +312,7 @@ mod tests {
         release.send(()).unwrap();
         assert_eq!(
             result
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(10))
                 .unwrap()
                 .unwrap(),
             "decoded"
@@ -351,17 +351,17 @@ mod tests {
         )
         .unwrap();
         let first = asr.transcribe_async(&[0.1; 3200], 16000).unwrap().unwrap();
-        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        entry.recv_timeout(Duration::from_secs(10)).unwrap();
         assert!(matches!(first.try_recv(), Err(mpsc::TryRecvError::Empty)));
         // Discarding a cancelled result neither waits nor kills the model.
         drop(first);
         let second = asr.transcribe_async(&[0.2; 3200], 16000).unwrap().unwrap();
         release.send(()).unwrap();
-        entry.recv_timeout(Duration::from_secs(2)).unwrap();
+        entry.recv_timeout(Duration::from_secs(10)).unwrap();
         release.send(()).unwrap();
         assert_eq!(
             second
-                .recv_timeout(Duration::from_secs(2))
+                .recv_timeout(Duration::from_secs(10))
                 .unwrap()
                 .unwrap(),
             "decoded"

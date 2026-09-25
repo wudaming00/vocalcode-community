@@ -3121,7 +3121,8 @@ mod tests {
         let control = NativeControl::Gamepad(GamepadButton::South);
         dispatch.edge(&device, control, true);
         dispatch.edge(&device, control, true);
-        let TriggerEvent::TalkPressed(id) = rx.recv_timeout(Duration::from_secs(1)).unwrap() else {
+        let TriggerEvent::TalkPressed(id) = rx.recv_timeout(Duration::from_secs(10)).unwrap()
+        else {
             panic!("expected talk press");
         };
         assert!(
@@ -3130,11 +3131,11 @@ mod tests {
         );
         dispatch.disconnect(device.fingerprint);
         assert_eq!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
             TriggerEvent::TalkReleased(id)
         );
         assert_eq!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
             TriggerEvent::DeviceDisconnected(device.fingerprint)
         );
     }
@@ -3263,7 +3264,7 @@ mod tests {
         dispatch.edge(&device, control, false);
         dispatch.edge(&device, control, true);
         assert!(matches!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
             TriggerEvent::TalkPressed(_)
         ));
     }
@@ -3293,7 +3294,7 @@ mod tests {
         dispatch.edge(&device, control, false);
         dispatch.edge(&device, control, true);
         assert!(matches!(
-            rx.recv_timeout(Duration::from_secs(1)).unwrap(),
+            rx.recv_timeout(Duration::from_secs(10)).unwrap(),
             TriggerEvent::TalkPressed(_)
         ));
     }

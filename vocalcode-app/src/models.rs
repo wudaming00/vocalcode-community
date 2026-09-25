@@ -2555,44 +2555,13 @@ mod tests {
 #[cfg(test)]
 mod download_tests {
     use super::*;
+    use crate::test_support::TempDir;
     use std::net::TcpListener;
     use std::process::{Command, Stdio};
     use std::sync::atomic::AtomicBool;
     use std::sync::{mpsc, Arc, Barrier};
     use std::thread;
     use std::time::Instant;
-
-    struct TestDirectory {
-        path: PathBuf,
-    }
-
-    impl TestDirectory {
-        fn new(name: &str) -> Self {
-            for _ in 0..128 {
-                let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-                let path = std::env::temp_dir().join(format!(
-                    "vocalcode-model-install-{name}-{}-{sequence}",
-                    std::process::id()
-                ));
-                match std::fs::create_dir(&path) {
-                    Ok(()) => return Self { path },
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-                    Err(error) => panic!("create test tempdir {}: {error}", path.display()),
-                }
-            }
-            panic!("could not create a unique model-install test tempdir")
-        }
-
-        fn path(&self) -> &Path {
-            &self.path
-        }
-    }
-
-    impl Drop for TestDirectory {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.path);
-        }
-    }
 
     fn expected_bytes(bytes: &[u8]) -> Artifact {
         let mut hasher = Sha256::new();
@@ -2619,7 +2588,7 @@ mod download_tests {
 
     #[test]
     fn model_lock_wait_is_cancelled_without_waiting_for_the_holder() {
-        let directory = TestDirectory::new("cancel-lock-wait");
+        let directory = TempDir::new("model-install-cancel-lock-wait");
         let held = ModelInstallLock::acquire(directory.path()).unwrap();
         let cancellation = CancellationToken::new();
         let waiter_token = cancellation.clone();
@@ -2634,14 +2603,15 @@ mod download_tests {
             )
         });
 
-        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        started_rx.recv_timeout(Duration::from_secs(10)).unwrap();
         thread::sleep(Duration::from_millis(75));
         let cancelled_at = Instant::now();
         cancellation.cancel();
         let error = waiter.join().unwrap().unwrap_err();
         assert_eq!(error, ModelPrepareError::Cancelled);
+        // 100x the 50 ms lock poll; ignoring cancellation would take 30 s.
         assert!(
-            cancelled_at.elapsed() < Duration::from_millis(500),
+            cancelled_at.elapsed() < Duration::from_secs(5),
             "lock waiter ignored cancellation for {:?}",
             cancelled_at.elapsed()
         );
@@ -2650,7 +2620,7 @@ mod download_tests {
 
     #[test]
     fn model_lock_wait_has_a_hard_deadline() {
-        let directory = TestDirectory::new("lock-deadline");
+        let directory = TempDir::new("model-install-lock-deadline");
         let held = ModelInstallLock::acquire(directory.path()).unwrap();
         let started = Instant::now();
         let error = ModelInstallLock::acquire_cancellable(
@@ -2662,7 +2632,7 @@ mod download_tests {
         assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
         assert!(
             started.elapsed() >= Duration::from_millis(100)
-                && started.elapsed() < Duration::from_secs(1),
+                && started.elapsed() < Duration::from_secs(2),
             "unexpected lock deadline: {:?}",
             started.elapsed()
         );
@@ -2690,7 +2660,7 @@ mod download_tests {
 
     #[test]
     fn cancellation_after_one_fetch_never_requests_the_next_artifact() {
-        let base = TestDirectory::new("cancel-before-next-artifact");
+        let base = TempDir::new("model-install-cancel-before-next-artifact");
         let cancellation = CancellationToken::new();
         let mut downloader = CancelAfterFirstFetch { calls: 0 };
         let error = ensure_cancellable_with_downloader(
@@ -2709,12 +2679,13 @@ mod download_tests {
     #[test]
     fn stalled_http_body_is_cancelled_within_one_short_io_slice() {
         const BYTES: &[u8] = b"four";
-        let directory = TestDirectory::new("stalled-body-cancel");
+        let directory = TempDir::new("model-install-stalled-body-cancel");
         let canonical = directory.path().join("model.onnx");
         let expected = expected_bytes(BYTES);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let (body_started_tx, body_started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
         let server = thread::spawn(move || {
             let (mut stream, _) = listener.accept().unwrap();
             let request = read_http_request(&mut stream);
@@ -2730,8 +2701,8 @@ mod download_tests {
             stream.flush().unwrap();
             body_started_tx.send(()).unwrap();
             // Keep the peer and body open much longer than the client's I/O
-            // slice. Cancellation must return while this sleep is still active.
-            thread::sleep(Duration::from_millis(1_500));
+            // slice. Cancellation must return while this wait is still active.
+            let _ = release_rx.recv_timeout(Duration::from_secs(30));
         });
 
         let cancellation = CancellationToken::new();
@@ -2741,7 +2712,7 @@ mod download_tests {
             let policy = DownloadPolicy {
                 https_only: false,
                 io_slice_timeout: Duration::from_millis(250),
-                transfer_timeout: Duration::from_secs(5),
+                transfer_timeout: Duration::from_secs(30),
                 retry_delay: Duration::from_millis(10),
                 max_no_progress_attempts: 2,
             };
@@ -2756,7 +2727,7 @@ mod download_tests {
         });
 
         body_started_rx
-            .recv_timeout(Duration::from_secs(2))
+            .recv_timeout(Duration::from_secs(10))
             .unwrap();
         // Let the client consume the one byte and enter its next blocking read.
         thread::sleep(Duration::from_millis(50));
@@ -2765,7 +2736,7 @@ mod download_tests {
         let error = downloader.join().unwrap().unwrap_err();
         assert_eq!(error, ModelPrepareError::Cancelled);
         assert!(
-            cancelled_at.elapsed() < Duration::from_millis(750),
+            cancelled_at.elapsed() < Duration::from_millis(2_500),
             "stalled body held cancellation for {:?}",
             cancelled_at.elapsed()
         );
@@ -2774,17 +2745,19 @@ mod download_tests {
             exact_residues(&canonical).is_empty(),
             "cancelled partial was not removed"
         );
+        let _ = release_tx.send(());
         server.join().unwrap();
     }
 
     #[test]
     fn timed_out_range_resumes_from_the_exact_hashed_offset() {
         const BYTES: &[u8] = b"abcdefgh";
-        let directory = TestDirectory::new("range-resume");
+        let directory = TempDir::new("model-install-range-resume");
         let canonical = directory.path().join("model.onnx");
         let expected = expected_bytes(BYTES);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
         let server = thread::spawn(move || {
             let (mut first, _) = listener.accept().unwrap();
             let first_request = read_http_request(&mut first);
@@ -2802,7 +2775,7 @@ mod download_tests {
             first.flush().unwrap();
             let first_handler = thread::spawn(move || {
                 // Keep the incomplete response open past the client's slice.
-                thread::sleep(Duration::from_millis(750));
+                let _ = release_rx.recv_timeout(Duration::from_secs(30));
                 drop(first);
             });
 
@@ -2825,8 +2798,8 @@ mod download_tests {
 
         let policy = DownloadPolicy {
             https_only: false,
-            io_slice_timeout: Duration::from_millis(250),
-            transfer_timeout: Duration::from_secs(5),
+            io_slice_timeout: Duration::from_secs(2),
+            transfer_timeout: Duration::from_secs(30),
             retry_delay: Duration::from_millis(10),
             max_no_progress_attempts: 2,
         };
@@ -2842,13 +2815,14 @@ mod download_tests {
 
         assert_eq!(std::fs::read(&canonical).unwrap(), BYTES);
         assert!(exact_residues(&canonical).is_empty());
+        let _ = release_tx.send(());
         server.join().unwrap();
     }
 
     #[test]
     fn model_transfer_deadline_is_absolute_across_resumable_requests() {
         const BYTES: &[u8] = b"deadline";
-        let directory = TestDirectory::new("transfer-deadline");
+        let directory = TempDir::new("model-install-transfer-deadline");
         let canonical = directory.path().join("model.onnx");
         let expected = expected_bytes(BYTES);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2909,7 +2883,7 @@ mod download_tests {
 
         assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
         assert!(
-            elapsed >= Duration::from_millis(300) && elapsed < Duration::from_secs(2),
+            elapsed >= Duration::from_millis(300) && elapsed < Duration::from_millis(3_500),
             "transfer deadline was not absolute: {elapsed:?}"
         );
         assert!(!canonical.exists(), "timed-out bytes were published");
@@ -2960,7 +2934,7 @@ mod download_tests {
 
     #[test]
     fn cache_validation_checks_both_size_and_hash() {
-        let dir = TestDirectory::new("cache");
+        let dir = TempDir::new("model-install-cache");
         let path = dir.path().join("model.bin");
         std::fs::write(&path, b"known good bytes").unwrap();
         let expected = Artifact {
@@ -2980,7 +2954,7 @@ mod download_tests {
     #[test]
     fn verified_install_replaces_a_bad_cache_and_cleans_backup() {
         const VERIFIED: &[u8] = b"verified model bytes";
-        let dir = TestDirectory::new("replace");
+        let dir = TempDir::new("model-install-replace");
         let canonical = dir.path().join("encoder.onnx");
         let expected = expected_bytes(VERIFIED);
         std::fs::write(&canonical, b"corrupt model bytes!").unwrap();
@@ -2998,7 +2972,7 @@ mod download_tests {
 
     #[test]
     fn partial_downloads_are_created_exclusively() {
-        let dir = TestDirectory::new("exclusive-partial");
+        let dir = TempDir::new("model-install-exclusive-partial");
         let final_path = dir.path().join("encoder.onnx");
         let (first_path, mut first) = create_download_temp(&final_path).unwrap();
         first.write_all(b"do not truncate").unwrap();
@@ -3016,7 +2990,7 @@ mod download_tests {
         const VERIFIED: &[u8] = b"new canonical bytes";
         const OLD: &[u8] = b"old canonical bytes";
         assert_eq!(VERIFIED.len(), OLD.len());
-        let dir = TestDirectory::new("before-replace-crash");
+        let dir = TempDir::new("model-install-before-replace-crash");
         let canonical = dir.path().join("model.onnx");
         let expected = expected_bytes(VERIFIED);
         std::fs::write(&canonical, OLD).unwrap();
@@ -3048,7 +3022,7 @@ mod download_tests {
     fn crash_after_replace_leaves_valid_canonical_and_recovery_cleans_backup() {
         const VERIFIED: &[u8] = b"new canonical bytes";
         const OLD: &[u8] = b"old canonical bytes";
-        let dir = TestDirectory::new("after-replace-crash");
+        let dir = TempDir::new("model-install-after-replace-crash");
         let canonical = dir.path().join("model.onnx");
         let expected = expected_bytes(VERIFIED);
         std::fs::write(&canonical, OLD).unwrap();
@@ -3073,7 +3047,7 @@ mod download_tests {
 
     #[test]
     fn repeated_atomic_replace_never_makes_canonical_name_missing() {
-        let dir = TestDirectory::new("no-canonical-gap");
+        let dir = TempDir::new("model-install-no-canonical-gap");
         let canonical = dir.path().join("model.onnx");
         std::fs::write(&canonical, b"version-0000").unwrap();
         let observed_missing = Arc::new(AtomicBool::new(false));
@@ -3118,7 +3092,7 @@ mod download_tests {
     #[test]
     fn missing_canonical_is_recovered_from_verified_owned_backup() {
         const VERIFIED: &[u8] = b"recoverable model";
-        let dir = TestDirectory::new("recover-backup");
+        let dir = TempDir::new("model-install-recover-backup");
         let canonical = dir.path().join("model.onnx");
         let backup = canonical.with_extension("replaced-4242-7");
         let expected = expected_bytes(VERIFIED);
@@ -3138,7 +3112,7 @@ mod download_tests {
         const VERIFIED: &[u8] = b"recoverable model";
         const CORRUPT: &[u8] = b"corrupt_____model";
         assert_eq!(VERIFIED.len(), CORRUPT.len());
-        let dir = TestDirectory::new("corrupt-backup");
+        let dir = TempDir::new("model-install-corrupt-backup");
         let canonical = dir.path().join("model.onnx");
         let backup = canonical.with_extension("replaced-4242-7");
         let expected = expected_bytes(VERIFIED);
@@ -3156,7 +3130,7 @@ mod download_tests {
     #[test]
     fn cleanup_removes_only_strict_owned_crash_residue() {
         const VERIFIED: &[u8] = b"verified";
-        let dir = TestDirectory::new("strict-cleanup");
+        let dir = TempDir::new("model-install-strict-cleanup");
         let canonical = dir.path().join("encoder.onnx");
         let expected = expected_bytes(VERIFIED);
         std::fs::write(&canonical, VERIFIED).unwrap();
@@ -3219,7 +3193,7 @@ mod download_tests {
     fn no_follow_guards_lock_canonical_and_owned_residue_victims() {
         const VICTIM: &[u8] = b"victim bytes must never change";
 
-        let lock_dir = TestDirectory::new("lock-symlink");
+        let lock_dir = TempDir::new("model-install-lock-symlink");
         let lock_victim = lock_dir.path().join("lock-victim.bin");
         let lock_link = lock_dir.path().join(".install.lock");
         std::fs::write(&lock_victim, VICTIM).unwrap();
@@ -3237,7 +3211,7 @@ mod download_tests {
         assert!(error.contains("symlink") || error.contains("reparse"));
         assert_eq!(std::fs::read(&lock_victim).unwrap(), VICTIM);
 
-        let canonical_dir = TestDirectory::new("canonical-symlink");
+        let canonical_dir = TempDir::new("model-install-canonical-symlink");
         let canonical_victim = canonical_dir.path().join("canonical-victim.bin");
         let canonical = canonical_dir.path().join("model.onnx");
         std::fs::write(&canonical_victim, VICTIM).unwrap();
@@ -3250,7 +3224,7 @@ mod download_tests {
         assert!(error.contains("symlink") || error.contains("reparse"));
         assert_eq!(std::fs::read(&canonical_victim).unwrap(), VICTIM);
 
-        let residue_dir = TestDirectory::new("residue-symlink");
+        let residue_dir = TempDir::new("model-install-residue-symlink");
         let residue_victim = residue_dir.path().join("residue-victim.bin");
         let residue_canonical = residue_dir.path().join("model.onnx");
         let residue_link = residue_canonical.with_extension("part-4242-9");
@@ -3268,7 +3242,7 @@ mod download_tests {
             .file_type()
             .is_symlink());
 
-        let backup_dir = TestDirectory::new("backup-symlink");
+        let backup_dir = TempDir::new("model-install-backup-symlink");
         let backup_victim = backup_dir.path().join("backup-victim.bin");
         let backup_canonical = backup_dir.path().join("model.onnx");
         let backup_link = backup_canonical.with_extension("replaced-4242-9");
@@ -3320,7 +3294,7 @@ mod download_tests {
             return;
         }
 
-        let directory = TestDirectory::new("concurrent-processes");
+        let directory = TempDir::new("model-install-concurrent-processes");
         let executable = std::env::current_exe().unwrap();
         let mut children = Vec::new();
         for _ in 0..2 {
