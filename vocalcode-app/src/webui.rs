@@ -3189,6 +3189,14 @@ fn handle_ipc(
             ),
             _ => log::warn!("capture: page sent a key with no code"),
         },
+        // The page put a prompt away unanswered: first run left the key step
+        // with the capture still open. Left waiting, the hook would take the
+        // next bindable key or button pressed anywhere as the answer.
+        Some("capture_cancel") => {
+            if capture.cancel() {
+                log::info!("capture: page withdrew the pending capture");
+            }
+        }
         // The talk key held in one of this window's own text fields — first
         // run's "Try it" box among them. The same foreground deafness as
         // `capture_key` means the hook never hears it; the platform layer drops
@@ -9340,6 +9348,12 @@ mod webui_copy_contract_tests {
         assert!(html.contains("document.querySelectorAll('[data-cap=\"'+which+'\"]')"));
         assert!(!html.contains("frTalkHint"));
         assert!(!html.contains("getElementById(which+\"Cap\")"));
+        // Leaving that step withdraws a capture still waiting there, on both
+        // sides, or the next key pressed anywhere becomes a talk key.
+        assert!(html.contains("if(step!==2) cancelPageCapture();"));
+        assert!(html.contains("send({type:\"capture_cancel\"})"));
+        assert!(production_rust.contains("Some(\"capture_cancel\")"));
+        assert!(production_rust.contains("if capture.cancel() {"));
 
         // Try it: a text box on this page that the talk key can dictate into
         // even though the hook is deaf while this window is in front.
@@ -9370,6 +9384,12 @@ mod webui_copy_contract_tests {
         ));
         let conflict = format!("\"{}\":", crate::workflows::REVISION_CONFLICT);
         assert_eq!(html.matches(&conflict).count(), 4);
+        // Only this refusal is answered with a reload, so the page must
+        // recognise the host's exact text.
+        assert!(html.contains(&format!(
+            "const WORKFLOW_REVISION_CONFLICT=\"{}\";",
+            crate::workflows::REVISION_CONFLICT
+        )));
     }
 
     #[test]

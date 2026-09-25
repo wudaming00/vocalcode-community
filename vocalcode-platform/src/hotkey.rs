@@ -774,7 +774,9 @@ impl CaptureShared {
         let Some(&(key, _)) = BINDABLE_KEYS.iter().find(|(_, name)| *name == web_code) else {
             return false;
         };
-        let input = RdevInput::Key(key);
+        // The hook's own mapping, so the identity matches whatever the hook
+        // would have recorded for this key.
+        let input = input_from_key(key);
         let id = input_id(input);
         if pressed && self.is_capturing() {
             return false;
@@ -2977,6 +2979,32 @@ mod tests {
         // And the next hold works again.
         assert!(capture.talk_from_page("ControlRight", true));
         assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
+    }
+
+    /// A hold started on one path may be ended on the other, so both must
+    /// name the key identically — for every key that can be bound, not just
+    /// the default.
+    #[test]
+    fn the_page_and_the_hook_name_every_bindable_key_alike() {
+        for &(key, name) in BINDABLE_KEYS {
+            let (hook, capture, triggers, ready, tx, rx) =
+                page_harness(vec![Trigger::Key(name.into())]);
+            for event in [EventType::KeyPress(key), EventType::KeyRelease(key)] {
+                assert!(
+                    dispatch_grabbed(&event, &hook, &capture, &triggers, &ready, &tx, false),
+                    "{name}"
+                );
+            }
+            let Ok(TriggerEvent::TalkPressed(from_hook)) = rx.try_recv() else {
+                panic!("{name}: the hook did not talk");
+            };
+            assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkReleased(_))));
+            assert!(capture.talk_from_page(name, true), "{name}");
+            let Ok(TriggerEvent::TalkPressed(from_page)) = rx.try_recv() else {
+                panic!("{name}: the page did not talk");
+            };
+            assert_eq!(from_page, from_hook, "{name}");
+        }
     }
 
     /// When the hook is being called it sees the key before the window does.

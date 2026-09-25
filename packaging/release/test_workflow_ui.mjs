@@ -394,3 +394,57 @@ test('custom rewrite instruction is required, travels with the request, and edit
 test('scratchpad offers translation and custom instructions',()=>{
   for(const option of ['value="translate_en"','value="translate_zh"','value="custom"','id="rewriteInstruction"']) assert.ok(html.includes(option),option);
 });
+test('a save refused for any other reason puts the saved values back at once and does not promise a reload',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  f.change('workflowDiagnostics',true);f.settle();
+  assert.equal(f.sent.at(-1).op,'save');
+  f.ctx.window.vocalcodeWorkflowResult({id:f.sent.at(-1).id,ok:false,message:'Secure storage is unavailable.'});
+  assert.equal(f.node('workflowDiagnostics').checked,false,'the control shows what is saved');
+  assert.equal(f.sent.at(-1).op,'save','nothing moved on disk, so nothing is read again');
+  assert.deepEqual(f.toasts,['Secure storage is unavailable.']);
+  assert.doesNotMatch(f.node('workflowMessage').textContent,/make the change again/);
+});
+test('after a conflict the controls show the saved values even if the reload fails',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  host.writeElsewhere({cleanup:'original'});
+  f.change('workflowFillers',true);f.settle();host.answer(f);
+  assert.equal(f.node('workflowFillers').checked,false);
+  assert.equal(f.sent.at(-1).op,'load');
+  f.ctx.window.vocalcodeWorkflowResult({id:f.sent.at(-1).id,ok:false,message:'Unreadable workflow settings; the file was left untouched.'});
+  assert.equal(f.node('workflowFillers').checked,false);
+});
+test('edits held behind a request that never answered are still saved',()=>{
+  const host=fakeHost();
+  const f=setup();f.load();host.answer(f);
+  f.node('rewriteSource').value='source';f.node('rewritePreview').onclick();
+  f.change('workflowFillers',true);f.settle();
+  assert.equal(f.sent.at(-1).op,'rewrite_preview');
+  const [watchdog]=[...f.timers.values()];watchdog();
+  assert.equal(f.sent.at(-1).op,'save');assert.equal(f.sent.at(-1).preferences.remove_fillers,true);
+  host.answer(f);assert.equal(host.stored.preferences.remove_fillers,true);
+});
+test('a first read that never answers drops edits instead of asking again forever',()=>{
+  const f=setup();f.load();
+  f.change('workflowFillers',true);f.settle();assert.equal(f.sent.length,1);
+  const [watchdog]=[...f.timers.values()];watchdog();
+  assert.equal(f.sent.length,1);assert.equal(f.toasts.length,1);
+  f.settle();assert.equal(f.sent.length,1);
+});
+test('an application profile cannot be added before the saved ones are known',()=>{
+  const host=fakeHost({...prefs,remove_fillers:false,chinese_fillers:false,profiles:[{app_id:'Word.exe',cleanup:'original',progressive:null,paste:null,remove_fillers:null,chinese_fillers:null}]});
+  const f=setup();f.load();
+  f.node('workflowApp').value='Code.exe';f.node('workflowAppCleanup').value='light';
+  for(const id of ['workflowAppLive','workflowAppPaste','workflowAppFillers','workflowAppChineseFillers'])f.node(id).value='inherit';
+  f.node('workflowAdd').onclick();f.settle();
+  assert.match(f.node('workflowMessage').textContent,/still loading/);
+  host.answer(f);assert.equal(f.sent.length,1,'nothing was queued to overwrite them');
+  f.node('workflowAdd').onclick();f.settle();host.answer(f);
+  assert.deepEqual(host.stored.preferences.profiles.map(p=>p.app_id),['Word.exe','Code.exe']);
+});
+test('the diagnostic export count is spoken in the interface language',()=>{
+  const f=setup();f.ctx.t=s=>s==='Exported {n} readable records. Keep the file private.'?'已导出 {n} 条可读记录。':s;
+  f.node('diagnosticExport').onclick();f.receive({exported:7});
+  assert.equal(f.node('diagnosticMessage').textContent,'已导出 7 条可读记录。');
+});

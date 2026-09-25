@@ -760,6 +760,7 @@
 .fr-keys{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin:0 auto 12px}
 .fr-keys .binds{justify-content:center;flex-wrap:wrap;overflow:visible;min-height:32px}
 .fr-keys .binds .keycap{min-width:120px;justify-content:space-between}
+.fr-keys .binds .keycap.held{border-color:var(--amber);color:var(--amber-2);box-shadow:0 0 0 3px rgba(238,138,62,.22)}
 .fr-note{max-width:500px;margin:0 auto 12px;padding:9px 12px;border:1px solid var(--amber-dim);border-radius:10px;background:rgba(238,138,62,.08);color:var(--amber-2);font-size:12px;line-height:1.45;text-align:center}
 .fr-note[hidden],.fr-dl[hidden],.fr-heard[hidden],.fr-keys[hidden]{display:none}
 .fr-try-keys{margin-top:-6px}
@@ -1462,15 +1463,16 @@
       "Dictation controls":"听写控制",
       "Choose the on-device model that matches what you speak.":"选择与你所说语言匹配的本地模型。",
       "Recognition model":"识别模型",
-      "Step 1 of 3 · Spoken language":"第 1 步，共 3 步 · 常用语言",
+      "Step 1 of 3 · Spoken language":"第 1/3 步 · 常用语言",
       "Choose below. Its speech model downloads while you set up your talk key.":"在下方选择。你设置说话键的同时，对应的语音模型就会开始下载。",
-      "Step 2 of 3 · Talk key":"第 2 步，共 3 步 · 说话键",
+      "Step 2 of 3 · Talk key":"第 2/3 步 · 说话键",
       "Hold the key you want to talk with":"选好按住说话的键",
       "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"按住说话键时 VocalCode 才会听，松开后把你说的话输入到光标处。已设置的键：",
       "Add another key":"添加其他按键",
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"很多笔记本键盘没有右 Ctrl 键。如果你的键盘也没有，请再添加一个按键。",
+      "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"现在只能用鼠标侧键说话。请再添加一个键盘按键，这样不接鼠标也能说话。",
       "You can change these at any time in Shortcuts.":"之后随时可以在“快捷键”中更改。",
-      "Step 3 of 3 · Try it":"第 3 步，共 3 步 · 试一试",
+      "Step 3 of 3 · Try it":"第 3/3 步 · 试一试",
       "Your words appear here":"你说的话会出现在这里",
       "Try dictating here":"在这里试试听写",
       "Skip for now":"暂时跳过",
@@ -1484,7 +1486,6 @@
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"欧洲语言偏好共用 Parakeet。中文和英文提供经过实测的 CPU 模型选择；印地语使用经过测试的 Qwen3-ASR 路由。推荐模型可以手动更改。",
       "Take the tour":"查看导览",
       "How to dictate":"如何听写",
-      "One simple flow — no mode or menu to open first.":"只需一条流程——无需先打开模式或菜单。",
       "Dictation flow":"听写流程",
       "where text should go":"文字要出现的位置",
       "using your talk control":"使用你的说话键",
@@ -1498,10 +1499,6 @@
       "Place the cursor, hold your talk control while speaking, then release to insert clean text.":"把光标放好，说话时按住说话键，松开后即可插入整理后的文字。",
       "Your shortcuts live here":"快捷键都在这里",
       "Change talk, send, or Teach a word controls here.":"在这里更改说话、发送或“教一个词”的控制键。",
-      "Choose what you speak":"选择你说的语言",
-      "VocalCode picks the matching on-device model automatically.":"VocalCode 会自动选择匹配的本地模型。",
-      "Fine-tune VocalCode here":"在这里精细调整 VocalCode",
-      "Audio, insertion, startup, updates, and app language all live in Settings.":"音频、文字插入、开机启动、更新和界面语言都在“设置”中。",
       "1 of 2 · Language":"第 1 步，共 2 步 · 语言",
       "What do you speak most?":"你最常说哪种语言？",
       "Choose directly below. VocalCode downloads only the on-device model this language needs; you can change it later.":"直接在下方选择。VocalCode 只下载这种语言所需的本地模型；之后可以随时更改。",
@@ -1694,21 +1691,23 @@
       "Global setting":"跟随全局设置",
       "On":"开启",
       "Keep":"保留",
-      "Add / replace profile":"添加或替换",
+      "Add / replace profile":"添加或替换应用配置",
       "Save encrypted text diagnostics on this device":"在本机保存加密的文字诊断记录",
       "Off by default. Stores raw recognition, cleaned/final text, model, application identity and timing; no audio or window titles. Account-encrypted on Windows; Keychain-protected encryption on macOS. Turning off stops new entries but keeps existing files.":"默认关闭。会保存原始识别文本、整理后的最终文本、模型、应用标识和耗时，不保存音频或窗口标题。Windows 上用当前账户加密，macOS 上用钥匙串保护的密钥加密。关闭后不再记录新条目，已有文件会保留。",
-      "Maximum entries":"最多条数",
+      "Maximum entries":"条数上限",
       "Maximum MiB":"最大容量（MiB）",
       "0 means unlimited. No age-based deletion. At the limit, earlier records are preserved and new diagnostics pause. Unlimited retention can fill your disk.":"0 表示不限制。不会按时间自动删除。达到上限后保留已有记录，并暂停记录新的诊断。不设上限可能会占满磁盘。",
       "Saved. Applies to the next dictation.":"已保存，下次听写时生效。",
       "Text history is on.":"文字记录已开启。",
       "Text history is off.":"文字记录已关闭。",
       "Saved records":"已保存记录",
+      "Exported {n} readable records. Keep the file private.":"已导出 {n} 条可读记录。请妥善保管此文件，不要外传。",
       "Latest":"最新一条",
       "none yet":"暂无",
-      "Workflow settings were changed elsewhere.":"工作流设置已在别处被修改。",
+      "Workflow settings were changed elsewhere.":"工作流设置已在其他地方更改。",
       "The saved settings were reloaded; make the change again.":"已重新载入保存的设置，请再改一次。",
       "Enter a whole number; 0 means unlimited.":"请输入整数，0 表示不限制。",
+      "Saved settings are still loading. Try again in a moment.":"已保存的设置还在载入，请稍后再试。",
       "Clean reading view":"清爽阅读版",
       "Original transcript":"原始转写稿",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"仅改变阅读显示：可能去除英文停顿词。已保存的转写稿与导出文件仍保留原文。",
@@ -1900,7 +1899,6 @@
       "Estimated from dictated characters at 200 characters per minute; this is not measured time saved.":"按每分钟 200 个字符根据听写字符数估算；这不是实际测量的节省时间。",
       "Model":"模型",
       "Get started":"开始使用",
-      "Hold your key and speak":"按住你的按键说话",
       "Works with most supported desktop text fields":"适用于大多数受支持的桌面文本框",
       "Change the key":"更换按键",
       "Your talk shortcut":"你的说话快捷键",
@@ -2209,6 +2207,7 @@
       "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode solo escucha mientras mantienes pulsada una tecla para hablar y luego escribe lo que dijiste donde está el cursor. Estas teclas ya están configuradas:",
       "Add another key":"Añadir otra tecla",
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Muchos portátiles no tienen Ctrl derecha. Si el tuyo no la tiene, añade otra tecla.",
+      "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Ahora solo puedes dictar con un botón lateral del ratón. Añade una tecla del teclado para poder hablar sin ese ratón.",
       "You can change these at any time in Shortcuts.":"Puedes cambiarlas cuando quieras en Atajos.",
       "Step 3 of 3 · Try it":"Paso 3 de 3 · Pruébalo",
       "Your words appear here":"Tus palabras aparecen aquí",
@@ -2224,7 +2223,6 @@
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Las preferencias europeas comparten Parakeet. Chino e inglés ofrecen opciones de CPU medidas; hindi usa la ruta Qwen3-ASR probada. Las recomendaciones se pueden cambiar.",
       "Take the tour":"Ver la guía",
       "How to dictate":"Cómo dictar",
-      "One simple flow — no mode or menu to open first.":"Un solo flujo: no hace falta abrir antes ningún modo ni menú.",
       "Dictation flow":"Flujo de dictado",
       "where text should go":"donde debe aparecer el texto",
       "using your talk control":"con tu control para hablar",
@@ -2238,10 +2236,6 @@
       "Place the cursor, hold your talk control while speaking, then release to insert clean text.":"Coloca el cursor, mantén pulsado el control mientras hablas y suéltalo para insertar texto limpio.",
       "Your shortcuts live here":"Tus atajos están aquí",
       "Change talk, send, or Teach a word controls here.":"Cambia aquí los controles para hablar, enviar o enseñar una palabra.",
-      "Choose what you speak":"Elige lo que hablas",
-      "VocalCode picks the matching on-device model automatically.":"VocalCode elige automáticamente el modelo local correspondiente.",
-      "Fine-tune VocalCode here":"Ajusta VocalCode aquí",
-      "Audio, insertion, startup, updates, and app language all live in Settings.":"El audio, la inserción, el inicio, las actualizaciones y el idioma de la app están en Ajustes.",
       "1 of 2 · Language":"1 de 2 · Idioma",
       "What do you speak most?":"¿Qué idioma hablas más?",
       "Choose directly below. VocalCode downloads only the on-device model this language needs; you can change it later.":"Elige directamente abajo. VocalCode descarga solo el modelo local que necesita este idioma; puedes cambiarlo después.",
@@ -2372,11 +2366,13 @@
       "Text history is on.":"El historial de texto está activado.",
       "Text history is off.":"El historial de texto está desactivado.",
       "Saved records":"Registros guardados",
+      "Exported {n} readable records. Keep the file private.":"Se exportaron {n} registros legibles. Guarda el archivo en privado.",
       "Latest":"Último",
       "none yet":"ninguno todavía",
       "Workflow settings were changed elsewhere.":"Los ajustes de flujo de trabajo se cambiaron en otro lugar.",
       "The saved settings were reloaded; make the change again.":"Se recargaron los ajustes guardados; vuelve a hacer el cambio.",
       "Enter a whole number; 0 means unlimited.":"Escribe un número entero; 0 significa sin límite.",
+      "Saved settings are still loading. Try again in a moment.":"Los ajustes guardados aún se están cargando. Inténtalo de nuevo en un momento.",
       "Clean reading view":"Vista de lectura limpia",
       "Original transcript":"Transcripción original",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Solo vista de lectura: puede eliminar muletillas en inglés. Las transcripciones guardadas y exportadas conservan el original.",
@@ -2564,7 +2560,6 @@
       "Estimated from dictated characters at 200 characters per minute; this is not measured time saved.":"Estimado a partir de los caracteres dictados a 200 caracteres por minuto; no es tiempo ahorrado medido.",
       "Model":"Modelo",
       "Get started":"Primeros pasos",
-      "Hold your key and speak":"Mantén tu tecla y habla",
       "Works with most supported desktop text fields":"Funciona con la mayoría de los campos de texto de escritorio compatibles",
       "Change the key":"Cambiar la tecla",
       "Your talk shortcut":"Tu atajo para hablar",
@@ -2909,6 +2904,7 @@
       "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode n’écoute que pendant que vous maintenez une touche de dictée, puis tape ce que vous avez dit à l’emplacement du curseur. Ces touches sont déjà configurées :",
       "Add another key":"Ajouter une autre touche",
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Beaucoup de claviers de portables n’ont pas de Ctrl droit. Si c’est le cas du vôtre, ajoutez une autre touche.",
+      "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Pour l’instant, seul un bouton latéral de la souris lance la dictée. Ajoutez une touche du clavier pour pouvoir parler sans cette souris.",
       "You can change these at any time in Shortcuts.":"Vous pouvez les modifier à tout moment dans Raccourcis.",
       "Step 3 of 3 · Try it":"Étape 3 sur 3 · Essayer",
       "Your words appear here":"Vos mots apparaissent ici",
@@ -2924,7 +2920,6 @@
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Les préférences européennes partagent Parakeet. Le chinois et l’anglais proposent des choix CPU mesurés ; l’hindi utilise la route Qwen3-ASR testée. Les recommandations peuvent être modifiées.",
       "Take the tour":"Voir la visite",
       "How to dictate":"Comment dicter",
-      "One simple flow — no mode or menu to open first.":"Un seul parcours : aucun mode ni menu à ouvrir d’abord.",
       "Dictation flow":"Parcours de dictée",
       "where text should go":"où le texte doit apparaître",
       "using your talk control":"avec votre commande de dictée",
@@ -2938,10 +2933,6 @@
       "Place the cursor, hold your talk control while speaking, then release to insert clean text.":"Placez le curseur, maintenez la commande pendant que vous parlez, puis relâchez-la pour insérer le texte nettoyé.",
       "Your shortcuts live here":"Vos raccourcis sont ici",
       "Change talk, send, or Teach a word controls here.":"Modifiez ici les commandes de dictée, d’envoi ou d’apprentissage d’un mot.",
-      "Choose what you speak":"Choisissez ce que vous parlez",
-      "VocalCode picks the matching on-device model automatically.":"VocalCode choisit automatiquement le modèle local correspondant.",
-      "Fine-tune VocalCode here":"Affinez VocalCode ici",
-      "Audio, insertion, startup, updates, and app language all live in Settings.":"L’audio, l’insertion, le démarrage, les mises à jour et la langue de l’app se trouvent dans Réglages.",
       "1 of 2 · Language":"1 sur 2 · Langue",
       "What do you speak most?":"Quelle langue parlez-vous le plus ?",
       "Choose directly below. VocalCode downloads only the on-device model this language needs; you can change it later.":"Choisissez directement ci-dessous. VocalCode ne télécharge que le modèle local requis par cette langue ; vous pourrez le changer ensuite.",
@@ -3072,11 +3063,13 @@
       "Text history is on.":"L’historique texte est activé.",
       "Text history is off.":"L’historique texte est désactivé.",
       "Saved records":"Enregistrements",
+      "Exported {n} readable records. Keep the file private.":"{n} enregistrements lisibles exportés. Gardez ce fichier privé.",
       "Latest":"Dernier",
       "none yet":"aucun pour l’instant",
       "Workflow settings were changed elsewhere.":"Les réglages de traitement ont été modifiés ailleurs.",
       "The saved settings were reloaded; make the change again.":"Les réglages enregistrés ont été rechargés ; refaites la modification.",
       "Enter a whole number; 0 means unlimited.":"Saisissez un nombre entier ; 0 signifie illimité.",
+      "Saved settings are still loading. Try again in a moment.":"Les réglages enregistrés sont encore en cours de chargement. Réessayez dans un instant.",
       "Clean reading view":"Vue de lecture épurée",
       "Original transcript":"Transcription originale",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Lecture uniquement : les hésitations anglaises peuvent être supprimées. Les transcriptions enregistrées et exportées restent originales.",
@@ -3264,7 +3257,6 @@
       "Estimated from dictated characters at 200 characters per minute; this is not measured time saved.":"Estimation calculée à partir des caractères dictés à 200 caractères par minute ; ce n’est pas un temps gagné mesuré.",
       "Model":"Modèle",
       "Get started":"Pour commencer",
-      "Hold your key and speak":"Maintenez votre touche et parlez",
       "Works with most supported desktop text fields":"Fonctionne avec la plupart des champs de texte de bureau pris en charge",
       "Change the key":"Changer de touche",
       "Your talk shortcut":"Votre raccourci pour parler",
@@ -3609,6 +3601,7 @@
       "VocalCode listens only while you hold a talk key, then types what you said where your cursor is. These keys are set up now:":"VocalCode hört nur zu, solange du eine Sprechtaste hältst, und tippt das Gesagte dann an der Cursorposition ein. Diese Tasten sind bereits eingerichtet:",
       "Add another key":"Weitere Taste hinzufügen",
       "Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.":"Viele Laptop-Tastaturen haben keine rechte Strg-Taste. Falls deine keine hat, füge eine andere Taste hinzu.",
+      "Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.":"Im Moment startet nur eine seitliche Maustaste das Diktat. Füge eine Tastaturtaste hinzu, damit du auch ohne diese Maus sprechen kannst.",
       "You can change these at any time in Shortcuts.":"Du kannst sie jederzeit unter Kurzbefehle ändern.",
       "Step 3 of 3 · Try it":"Schritt 3 von 3 · Ausprobieren",
       "Your words appear here":"Deine Worte erscheinen hier",
@@ -3624,7 +3617,6 @@
       "European preferences share Parakeet. Chinese and English offer measured CPU choices; Hindi uses the tested Qwen3-ASR route. Recommendations can be overridden.":"Europäische Einstellungen teilen Parakeet. Für Chinesisch und Englisch gibt es gemessene CPU-Optionen; Hindi nutzt die getestete Qwen3-ASR-Route. Empfehlungen können geändert werden.",
       "Take the tour":"Führung starten",
       "How to dictate":"So diktierst du",
-      "One simple flow — no mode or menu to open first.":"Ein einfacher Ablauf — zuvor muss kein Modus oder Menü geöffnet werden.",
       "Dictation flow":"Diktierablauf",
       "where text should go":"wo der Text erscheinen soll",
       "using your talk control":"mit deiner Sprechtaste",
@@ -3638,10 +3630,6 @@
       "Place the cursor, hold your talk control while speaking, then release to insert clean text.":"Setze den Cursor, halte beim Sprechen die Sprechtaste und lass sie los, um bereinigten Text einzufügen.",
       "Your shortcuts live here":"Hier sind deine Tastenkürzel",
       "Change talk, send, or Teach a word controls here.":"Ändere hier die Tasten für Sprechen, Senden oder Wort lernen.",
-      "Choose what you speak":"Wähle, was du sprichst",
-      "VocalCode picks the matching on-device model automatically.":"VocalCode wählt automatisch das passende lokale Modell.",
-      "Fine-tune VocalCode here":"Passe VocalCode hier an",
-      "Audio, insertion, startup, updates, and app language all live in Settings.":"Audio, Einfügen, Autostart, Updates und App-Sprache findest du in den Einstellungen.",
       "1 of 2 · Language":"1 von 2 · Sprache",
       "What do you speak most?":"Welche Sprache sprichst du am häufigsten?",
       "Choose directly below. VocalCode downloads only the on-device model this language needs; you can change it later.":"Wähle unten direkt aus. VocalCode lädt nur das lokale Modell für diese Sprache; du kannst sie später ändern.",
@@ -3772,11 +3760,13 @@
       "Text history is on.":"Textverlauf ist an.",
       "Text history is off.":"Textverlauf ist aus.",
       "Saved records":"Gespeicherte Einträge",
+      "Exported {n} readable records. Keep the file private.":"{n} lesbare Einträge exportiert. Bewahre die Datei vertraulich auf.",
       "Latest":"Neuester",
       "none yet":"noch keiner",
       "Workflow settings were changed elsewhere.":"Die Workflow-Einstellungen wurden an anderer Stelle geändert.",
       "The saved settings were reloaded; make the change again.":"Die gespeicherten Einstellungen wurden neu geladen; nimm die Änderung erneut vor.",
       "Enter a whole number; 0 means unlimited.":"Gib eine ganze Zahl ein; 0 bedeutet unbegrenzt.",
+      "Saved settings are still loading. Try again in a moment.":"Die gespeicherten Einstellungen werden noch geladen. Versuche es gleich noch einmal.",
       "Clean reading view":"Bereinigte Leseansicht",
       "Original transcript":"Originaltranskript",
       "Reading view only: English pause words may be removed. Saved transcripts and exports remain original.":"Nur Leseansicht: Englische Fülllaute können entfallen. Gespeicherte Transkripte und Exporte bleiben unverändert.",
@@ -3964,7 +3954,6 @@
       "Estimated from dictated characters at 200 characters per minute; this is not measured time saved.":"Aus den diktierten Zeichen bei 200 Zeichen pro Minute geschätzt; dies ist keine gemessene Zeitersparnis.",
       "Model":"Modell",
       "Get started":"Erste Schritte",
-      "Hold your key and speak":"Halte deine Taste gedrückt und sprich",
       "Works with most supported desktop text fields":"Funktioniert mit den meisten unterstützten Desktop-Textfeldern",
       "Change the key":"Taste ändern",
       "Your talk shortcut":"Dein Sprech-Kurzbefehl",
@@ -4435,6 +4424,7 @@
     list.forEach((code,i)=>{
       const chip=document.createElement("span");
       chip.className="keycap";
+      chip.dataset.code=code;
       chip.appendChild(document.createTextNode(labelFor(code)));
       const rm=document.createElement("button"); rm.type="button";
       rm.className="rm"; rm.textContent="×"; rm.title=t("Remove");
@@ -4488,6 +4478,18 @@
   let pageCaptureWhich=null;
   function armPageCapture(which){ pageCaptureWhich=which; }
   function disarmPageCapture(){ pageCaptureWhich=null; }
+  // Put away a capture whose prompt is leaving the screen — first run moving
+  // on from its key step. Left armed, it swallowed every key the page got and
+  // bound whichever bindable one came next: the Shift of a capital letter
+  // typed into "Try it" became a global talk key. The host answers with a
+  // cancellation, which puts the row back as it was.
+  function cancelPageCapture(){
+    const which=pageCaptureWhich;
+    if(!which) return;
+    disarmPageCapture();
+    send({type:"capture_cancel"});
+    showCap(which);
+  }
   window.addEventListener("keydown",function(e){
     if(!pageCaptureWhich) return;
     // Auto-repeat would answer the prompt again every 30 ms while a key is held.
@@ -4500,7 +4502,10 @@
   // never reached the hook, so it did nothing. The page forwards the edges; the
   // host drops this copy whenever the hook did see the key, so it cannot fire
   // twice. Only a focused text field counts: anywhere else the words have
-  // nowhere to go and a stray press would end up on the clipboard.
+  // nowhere to go and a stray press would end up on the clipboard. Windows
+  // only: that is where the hook goes deaf, and the only host that listens —
+  // on a Mac the event tap hears the key anyway, so a copy here would just
+  // swallow it.
   const pageTalkHeld=new Set();
   function pageTextFieldFocused(){
     const el=document.activeElement;
@@ -4509,9 +4514,14 @@
     return el.tagName==="INPUT" && /^(text|search|url|email|number)$/.test(el.type||"text");
   }
   window.addEventListener("keydown",function(e){
-    if(pageCaptureWhich || !e.code) return;
-    // Auto-repeat of a held talk key must not type into the field either.
-    if(pageTalkHeld.has(e.code)){ e.preventDefault(); return; }
+    if(pageCaptureWhich || !e.code || OS!=="windows") return;
+    if(pageTalkHeld.has(e.code)){
+      // Auto-repeat of a held talk key must not type into the field either.
+      if(e.repeat){ e.preventDefault(); return; }
+      // A fresh press of a key still marked held: it was released while focus
+      // was in another app, where the hook saw that and ended the hold.
+      pageTalkHeld.delete(e.code);
+    }
     if(e.repeat || bindList("talk").indexOf("key:"+e.code)<0 || !pageTextFieldFocused()) return;
     pageTalkHeld.add(e.code);
     e.preventDefault();
@@ -4522,8 +4532,11 @@
     send({type:"page_talk", code:code, pressed:false});
   }
   window.addEventListener("keyup",function(e){ releasePageTalk(e.code); }, true);
-  // A keyup that happens after focus has left this window never arrives here.
-  window.addEventListener("blur",function(){ Array.from(pageTalkHeld).forEach(releasePageTalk); });
+  // Nothing is released on blur. A keyup after focus has left this window
+  // never arrives here, but once another app is in front the hook hears the
+  // key again: it swallows the repeats as the same hold and ends it on the
+  // real keyup. Ending the hold here instead split one recording in two —
+  // the hook took the next repeat for a fresh press.
   // Escape is the one universal way out. During trigger capture it belongs to
   // the capture state machine; in the tiny Teach capsule it cancels the
   // capsule; everywhere else it minimises Settings immediately.
@@ -5158,6 +5171,9 @@
     // Status arrives many times a second while a model downloads. Re-showing
     // the step already on screen must not pull focus back to its title.
     if(step===onboardingStep && open===wasOpen) return;
+    // Only the key step shows a binding prompt. One still open as it goes
+    // would keep capturing, invisibly, whatever is pressed next.
+    if(step!==2) cancelPageCapture();
     onboardingStep=step;
     FIRST_RUN_STEPS.forEach(function(s,i){
       var el=s && document.getElementById(s.id);
@@ -5207,15 +5223,48 @@
   }
 
   // Right Ctrl is the keyboard half of the Windows default, and plenty of
-  // laptops have none. Say so while it is the only keyboard key that talks;
-  // a mouse button alone is no help to someone on a bare laptop. On a Mac the
-  // default has Right Option, and a Right Ctrl there was bound by pressing it.
+  // laptops have none. Say so while it is the only keyboard key that talks,
+  // until it is seen held here. On a Mac the default has Right Option, and a
+  // Right Ctrl there was bound by pressing it. With only mouse side buttons
+  // left, say that instead, on any platform: a bare laptop has none.
+  var firstRunKeysSeen={};
   function renderFirstRunKeyWarning(){
     var warn=document.getElementById("frTalkWarn");
     if(!warn) return;
-    var keys=bindList("talk").filter(function(code){ return code.indexOf("key:")===0; });
-    warn.hidden=!(OS!=="macos" && keys.length===1 && keys[0]==="key:ControlRight");
+    var talk=bindList("talk"), keys=talk.filter(function(code){ return code.indexOf("key:")===0; });
+    var msg="";
+    if(talk.length && talk.every(function(code){ return code==="mouse_x1" || code==="mouse_x2"; })){
+      msg="Right now only a mouse side button starts dictation. Add a keyboard key so you can talk without that mouse.";
+    }else if(OS!=="macos" && keys.length===1 && keys[0]==="key:ControlRight" && !firstRunKeysSeen["key:ControlRight"]){
+      msg="Many laptop keyboards have no Right Ctrl. If yours doesn't, add another key.";
+    }
+    warn.hidden=!msg;
+    if(msg) setTextIfChanged(warn,t(msg));
   }
+
+  // The step says "hold the key", so holding it has to show something. The
+  // hook hears nothing while this window is in front, but the page does: a
+  // talk key held here lights its chip. Mouse side buttons reach the page too
+  // whenever the hook lets them through (the model is not ready yet).
+  function lightFirstRunChips(code,on){
+    var cap=document.getElementById("frTalkCap");
+    Array.from(cap ? cap.children : []).forEach(function(chip){
+      if(chip.dataset && (code===null || chip.dataset.code===code)) chip.classList.toggle("held",on);
+    });
+  }
+  function markFirstRunKey(code,down){
+    if(!down){ lightFirstRunChips(code,false); return; }
+    if(onboardingStep!==2 || pageCaptureWhich || bindList("talk").indexOf(code)<0) return;
+    lightFirstRunChips(code,true);
+    if(!firstRunKeysSeen[code]){ firstRunKeysSeen[code]=true; renderFirstRunKeyWarning(); }
+  }
+  var FIRST_RUN_MOUSE={3:"mouse_x1",4:"mouse_x2"};
+  window.addEventListener("keydown",function(e){ if(!e.repeat && e.code) markFirstRunKey("key:"+e.code,true); });
+  window.addEventListener("keyup",function(e){ if(e.code) markFirstRunKey("key:"+e.code,false); });
+  window.addEventListener("mousedown",function(e){ if(FIRST_RUN_MOUSE[e.button]) markFirstRunKey(FIRST_RUN_MOUSE[e.button],true); });
+  window.addEventListener("mouseup",function(e){ if(FIRST_RUN_MOUSE[e.button]) markFirstRunKey(FIRST_RUN_MOUSE[e.button],false); });
+  // A key let go after focus has gone never reports its keyup here.
+  window.addEventListener("blur",function(){ lightFirstRunChips(null,false); });
 
   // Identity of the newest History entry. History holds every finished
   // dictation, so a new one is proof the whole path worked: the key reached
@@ -6398,6 +6447,9 @@
   // the host accepts at a time is free, then go out bound to the revision they
   // were made against. `workflowSending` is the part inside that request.
   let workflowEdits={},workflowSending=null,workflowSaveTimer=null,workflowNotice="";
+  // workflows.rs REVISION_CONFLICT, verbatim: the one refusal that means the
+  // saved settings moved underneath this page.
+  const WORKFLOW_REVISION_CONFLICT="Workflow settings were changed elsewhere.";
   const workflowEl=id=>document.getElementById(id);
   let rewriteBefore=null,rewriteAccepted=null,rewritePendingSource=null,rewriteCandidateSource=null;
   function rewriteSize(){const source=workflowEl("rewriteSource").value;workflowEl("rewriteSize").textContent=utf8Bytes(source)+" / 3000 "+t("UTF-8 bytes");return source.trim().length>0&&utf8Bytes(source)<=3000&&!source.includes("\0");}
@@ -6432,7 +6484,12 @@
   function workflowCommunicationFailed(id,message){if(id!==workflowId)return;workflowBusy=false;workflowId++;if(workflowWatchdog!==null)clearTimeout(workflowWatchdog);workflowWatchdog=null;rewritePendingSource=null;for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(message);
     // A save whose outcome is unknown: drop the edits and show what is really
     // saved. Reading is not a retry of the write.
-    if(workflowSending!==null){workflowSending=null;workflowEdits={};toast(t(message));workflowRequest("load");}}
+    if(workflowSending!==null){workflowSending=null;workflowEdits={};toast(t(message));workflowRequest("load");}
+    // A first read that never came has nothing to save against, as when it fails.
+    else if(workflowOp==="load"&&!workflowPrefs){if(Object.keys(workflowEdits).length){workflowEdits={};toast(t(message));}}
+    // Any other request that went unanswered was holding back edits made
+    // meanwhile; the result that would have sent them is not coming.
+    else if(workflowSaveTimer===null)flushWorkflowSave();}
   function workflowRequest(op,extra){
     if(workflowBusy)return; workflowBusy=true;
     const id=++workflowId;workflowOp=op;
@@ -6494,11 +6551,16 @@
       for(const target of ["workflowMessage","diagnosticMessage","rewriteMessage"])workflowEl(target).textContent=t(result.message);
       // A refused save (another writer rotated the revision, or a value the
       // host rejects) changed nothing on disk. Say so where it can be seen and
-      // put the controls back to what is saved; nothing is re-sent on its own.
+      // put the controls back to what is saved — now, not after a read that
+      // can fail too. Nothing is re-sent on its own. Only a conflict means the
+      // saved state moved, so only a conflict reads it again; any other
+      // refusal would just repeat if the same change were made again.
       if(workflowOp==="save"){
-        workflowSending=null;workflowEdits={};
-        workflowNotice=t(result.message)+" "+t("The saved settings were reloaded; make the change again.");
-        toast(workflowNotice);workflowRequest("load");
+        workflowSending=null;workflowEdits={};renderWorkflowPrefs();
+        if(result.message===WORKFLOW_REVISION_CONFLICT){
+          workflowNotice=t(result.message)+" "+t("The saved settings were reloaded; make the change again.");
+          toast(workflowNotice);workflowRequest("load");
+        }else toast(t(result.message));
       }else if(workflowOp==="load"&&!workflowPrefs&&Object.keys(workflowEdits).length){
         // Nothing readable to save against; say so rather than keep asking.
         workflowEdits={};toast(t(result.message));
@@ -6539,9 +6601,12 @@
       workflowEl("diagnosticPage").textContent=Math.floor(diagnosticOffset/20)+1+" / "+Math.max(1,Math.ceil(diagnosticTotal/20));
       workflowEl("diagnosticPrev").disabled=diagnosticOffset===0;workflowEl("diagnosticNext").disabled=diagnosticOffset+20>=diagnosticTotal;
     }
-    if("exported"in d)workflowEl("diagnosticMessage").textContent="Exported "+d.exported+" readable records. Keep the file private.";
+    if("exported"in d)workflowEl("diagnosticMessage").textContent=t("Exported {n} readable records. Keep the file private.").split("{n}").join(String(d.exported));
   }
-  workflowEl("workflowAdd").onclick=()=>{const app=workflowEl("workflowApp").value.trim();if(!app)return;const tri=id=>workflowEl(id).value==="inherit"?null:workflowEl(id).value==="true";const profiles=(workflowView().profiles||[]).filter(p=>p.app_id.toLowerCase()!==app.toLowerCase());profiles.push({app_id:app,cleanup:workflowEl("workflowAppCleanup").value,progressive:tri("workflowAppLive"),paste:tri("workflowAppPaste"),remove_fillers:tri("workflowAppFillers"),chinese_fillers:tri("workflowAppChineseFillers")});editWorkflow("profiles",profiles);renderWorkflowProfiles();};
+  // A profile list is replaced whole, so it can only be built on the saved one.
+  // Built before the first read arrived, it would erase every saved profile.
+  workflowEl("workflowAdd").onclick=()=>{const app=workflowEl("workflowApp").value.trim();if(!app)return;
+    if(!workflowPrefs){workflowEl("workflowMessage").textContent=t("Saved settings are still loading. Try again in a moment.");workflowRequest("load");return;}const tri=id=>workflowEl(id).value==="inherit"?null:workflowEl(id).value==="true";const profiles=(workflowView().profiles||[]).filter(p=>p.app_id.toLowerCase()!==app.toLowerCase());profiles.push({app_id:app,cleanup:workflowEl("workflowAppCleanup").value,progressive:tri("workflowAppLive"),paste:tri("workflowAppPaste"),remove_fillers:tri("workflowAppFillers"),chinese_fillers:tri("workflowAppChineseFillers")});editWorkflow("profiles",profiles);renderWorkflowProfiles();};
   workflowEl("workflowCleanup").onchange=()=>editWorkflow("cleanup",workflowEl("workflowCleanup").value);
   workflowEl("workflowFillers").onchange=()=>editWorkflow("remove_fillers",workflowEl("workflowFillers").checked);
   workflowEl("workflowChineseFillers").onchange=()=>editWorkflow("chinese_fillers",workflowEl("workflowChineseFillers").checked);
