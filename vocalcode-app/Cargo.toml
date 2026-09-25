@@ -60,8 +60,9 @@ block2 = "0.6.2"
 core-foundation = "0.10"
 # Raising the indicator above the menu bar and making it click-through needs
 # the NSWindow directly — tao exposes the pointer but no API for either.
+# NSRunningApplication tells whether the previous VocalCode is still running.
 objc2 = "0.6"
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSWindow"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSRunningApplication", "NSWindow"] }
 objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["AVCaptureDevice", "AVMediaFormat", "block2"] }
 # The trusted-time high-water mark is integrity-protected in the login
 # Keychain. A plaintext app-data value could simply be edited downward after a

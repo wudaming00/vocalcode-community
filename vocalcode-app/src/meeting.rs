@@ -57,6 +57,8 @@ enum Command {
     Bookmark(MeetingId, u64, String),
     Search(String),
     Export(MeetingId, ExportKind, PathBuf),
+    /// Meetings were added to the store from outside this controller.
+    Refresh(String),
     Shutdown,
 }
 
@@ -259,6 +261,12 @@ impl Bridge {
 
     pub fn search(&self, query: String) -> Result<(), String> {
         self.send(Command::Search(query))
+    }
+
+    /// Re-read the store after complete meetings were published into it by
+    /// someone else (the previous-edition import) and show `notice`.
+    pub fn refresh(&self, notice: String) -> Result<(), String> {
+        self.send(Command::Refresh(notice))
     }
 
     pub fn export(&self, id: MeetingId, kind: ExportKind, path: PathBuf) -> Result<(), String> {
@@ -650,6 +658,16 @@ fn run_controller(
             Command::Select(id) => {
                 selected = Some(id);
                 publish_store(&bridge, &store, selected.as_ref(), &search, None, None);
+            }
+            Command::Refresh(notice) => {
+                publish_store(
+                    &bridge,
+                    &store,
+                    selected.as_ref(),
+                    &search,
+                    None,
+                    Some(notice),
+                );
             }
             Command::Delete(id) => {
                 if bridge.is_active() {

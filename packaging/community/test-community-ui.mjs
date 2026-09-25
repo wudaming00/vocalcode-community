@@ -22,7 +22,8 @@ test('status rendering shows no plan, licence or Pro state, even if a host still
   const {map,node}=nodes();
   const ctx={document:{getElementById:node},window:{vocalcodeNoiseFilterStatus(){}},t:x=>x,
     setTextIfChanged(el,v){el.textContent=v;},announceSetup(){},setOnboarding(){},
-    renderSetup(){} /* the model setup banner has its own tests */};
+    renderSetup(){} /* the model setup banner has its own tests */,
+    renderFirstRunTry(){} /* so does first run */};
   vm.runInNewContext(source,ctx);
   const legacy={ready:true,license:'Basic',license_kind:'basic',license_days:3,pro:false,trial_setup_error:true};
   ctx.window.vocalcodeStatus({...legacy,crash_notice:{at:1,version:'1.4.0'}});

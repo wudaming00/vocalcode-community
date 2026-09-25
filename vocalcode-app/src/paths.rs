@@ -277,7 +277,7 @@ impl Drop for DataLifecycleGuard {
 }
 
 #[cfg(target_os = "macos")]
-fn raw_data_dir() -> PathBuf {
+fn macos_application_support() -> PathBuf {
     use objc2_foundation::{
         NSSearchPathDirectory, NSSearchPathDomainMask, NSSearchPathForDirectoriesInDomains,
     };
@@ -287,24 +287,54 @@ fn raw_data_dir() -> PathBuf {
         NSSearchPathDomainMask::UserDomainMask,
         true,
     );
-    let support = paths
+    paths
         .firstObject()
         .map(|value| PathBuf::from(value.to_string()))
         .filter(|path| path.is_absolute())
         .unwrap_or_else(|| {
             panic!("macOS did not return an absolute user Application Support directory")
-        });
-    support.join(crate::community::DATA_DIR_NAME)
+        })
+}
+
+#[cfg(target_os = "macos")]
+fn raw_data_dir() -> PathBuf {
+    macos_application_support().join(crate::community::DATA_DIR_NAME)
 }
 
 #[cfg(windows)]
 fn raw_data_dir() -> PathBuf {
-    windows_data_dir_from_known_folder()
+    windows_local_app_data().join(crate::community::DATA_DIR_NAME)
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
 fn raw_data_dir() -> PathBuf {
     exe_dir()
+}
+
+/// Folder name of the paid edition's data, beside the community one.
+pub(crate) const PREVIOUS_EDITION_DATA_DIR_NAME: &str = "VocalCode";
+
+/// Where the previous (paid) VocalCode kept its data, for the explicit,
+/// copy-only import in Settings. Resolved from the same OS known folder as
+/// this edition's own data, never from an environment variable. `None` in a
+/// build that *is* that edition, and on platforms it never shipped for. The
+/// path is not created or checked here; the importer opens it read-only.
+pub(crate) fn previous_edition_data_dir() -> Option<PathBuf> {
+    if !crate::community::ENABLED {
+        return None;
+    }
+    #[cfg(windows)]
+    {
+        Some(windows_local_app_data().join(PREVIOUS_EDITION_DATA_DIR_NAME))
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Some(macos_application_support().join(PREVIOUS_EDITION_DATA_DIR_NAME))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
+    {
+        None
+    }
 }
 
 fn lifecycle_lock_parent() -> std::io::Result<PathBuf> {
@@ -501,7 +531,7 @@ pub fn data_dir() -> PathBuf {
 }
 
 #[cfg(windows)]
-fn windows_data_dir_from_known_folder() -> PathBuf {
+fn windows_local_app_data() -> PathBuf {
     use std::ffi::{c_void, OsString};
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::System::Com::CoTaskMemFree;
@@ -547,7 +577,7 @@ fn windows_data_dir_from_known_folder() -> PathBuf {
             local.display()
         );
     }
-    local.join(crate::community::DATA_DIR_NAME)
+    local
 }
 
 #[cfg(windows)]
@@ -571,12 +601,109 @@ fn is_legacy_data_entry(name: &str) -> bool {
 }
 
 #[cfg(windows)]
-fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
+pub(crate) fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;
 
     const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0000_0400;
     metadata.file_type().is_symlink()
         || metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+pub(crate) fn is_link_or_reparse(metadata: &std::fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+/// Open an existing file for reading without following a final symlink or
+/// reparse point. The returned handle, not the path, is what callers inspect.
+fn open_without_following(path: &Path) -> std::io::Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+        options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        // O_NOFOLLOW is architecture-specific on Linux: 0o100000 on Arm and
+        // PowerPC, 0o400000 on x86 and the generic ABI (RISC-V, LoongArch).
+        #[cfg(all(
+            any(target_os = "linux", target_os = "android"),
+            any(
+                target_arch = "arm",
+                target_arch = "aarch64",
+                target_arch = "powerpc",
+                target_arch = "powerpc64"
+            )
+        ))]
+        const NOFOLLOW: i32 = 0x8000;
+        #[cfg(all(
+            any(target_os = "linux", target_os = "android"),
+            not(any(
+                target_arch = "arm",
+                target_arch = "aarch64",
+                target_arch = "powerpc",
+                target_arch = "powerpc64"
+            ))
+        ))]
+        const NOFOLLOW: i32 = 0x2_0000;
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        const NOFOLLOW: i32 = 0x100;
+        options.custom_flags(NOFOLLOW);
+    }
+    options.open(path)
+}
+
+/// Read one regular file, bounded, without following a link at its name.
+/// `Ok(None)` when it does not exist. A link, reparse point, directory or
+/// oversized file is an error, never silently followed or truncated.
+pub(crate) fn read_regular_file_bounded(
+    path: &Path,
+    maximum: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if is_link_or_reparse(&metadata) => return Err(reparse_error(path)),
+        Ok(metadata) if !metadata.is_file() => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("{} is not a regular file", path.display()),
+            ))
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    }
+    let file = open_without_following(path)?;
+    let metadata = file.metadata()?;
+    if is_link_or_reparse(&metadata) || !metadata.is_file() {
+        return Err(reparse_error(path));
+    }
+    if metadata.len() > maximum as u64 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("file exceeds the {maximum}-byte safety limit"),
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(maximum as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > maximum {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("file exceeds the {maximum}-byte safety limit"),
+        ));
+    }
+    Ok(Some(bytes))
+}
+
+/// A real directory at exactly this name: not a link, junction or file.
+pub(crate) fn is_plain_directory(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .is_ok_and(|metadata| metadata.is_dir() && !is_link_or_reparse(&metadata))
 }
 
 /// True for symbolic links, junctions and other Windows reparse points. Purge
@@ -589,7 +716,6 @@ pub(crate) fn is_reparse_point(path: &Path) -> bool {
         .unwrap_or(true)
 }
 
-#[cfg(windows)]
 fn reparse_error(path: &Path) -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::InvalidData,
@@ -604,8 +730,8 @@ fn reparse_error(path: &Path) -> std::io::Error {
 /// before and after the source is moved under a unique staging name: the first
 /// pass avoids disturbing an obvious junction, while the second closes the
 /// race where the legacy name was swapped between inspection and rename.
-#[cfg(windows)]
-fn validate_tree_without_reparse(path: &Path) -> std::io::Result<()> {
+/// The previous-edition importer uses it before copying a directory.
+pub(crate) fn validate_tree_without_reparse(path: &Path) -> std::io::Result<()> {
     let metadata = std::fs::symlink_metadata(path)?;
     if is_link_or_reparse(&metadata) {
         return Err(reparse_error(path));
@@ -623,16 +749,32 @@ fn validate_tree_without_reparse(path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-#[cfg(windows)]
-fn hash_migration_tree(path: &Path) -> std::io::Result<[u8; 32]> {
+/// Content hash of a whole tree (names, kinds, sizes and bytes), never
+/// following a link. Proves a copy matches, and that a source was not touched.
+#[cfg(any(windows, test))]
+pub(crate) fn hash_migration_tree(path: &Path) -> std::io::Result<[u8; 32]> {
     use sha2::Digest;
+
+    fn name_units(name: &std::ffi::OsStr) -> Vec<u8> {
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::OsStrExt;
+            name.encode_wide().flat_map(u16::to_le_bytes).collect()
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            name.as_bytes().to_vec()
+        }
+        #[cfg(not(any(windows, unix)))]
+        {
+            name.to_string_lossy().into_owned().into_bytes()
+        }
+    }
 
     fn update(path: &Path, digest: &mut sha2::Sha256) -> std::io::Result<()> {
         use std::io::Read;
-        use std::os::windows::ffi::OsStrExt;
-        use std::os::windows::fs::OpenOptionsExt;
 
-        const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
         let metadata = std::fs::symlink_metadata(path)?;
         if is_link_or_reparse(&metadata) {
             return Err(reparse_error(path));
@@ -640,11 +782,7 @@ fn hash_migration_tree(path: &Path) -> std::io::Result<[u8; 32]> {
         if metadata.is_file() {
             digest.update(b"F");
             digest.update(metadata.len().to_le_bytes());
-            let mut options = std::fs::OpenOptions::new();
-            options
-                .read(true)
-                .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-            let mut file = options.open(path)?;
+            let mut file = open_without_following(path)?;
             let opened = file.metadata()?;
             if is_link_or_reparse(&opened) || !opened.is_file() || opened.len() != metadata.len() {
                 return Err(reparse_error(path));
@@ -667,13 +805,13 @@ fn hash_migration_tree(path: &Path) -> std::io::Result<[u8; 32]> {
         }
         digest.update(b"D");
         let mut entries = std::fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by_key(|entry| entry.file_name().encode_wide().collect::<Vec<_>>());
+        // Hashes are only ever compared with another hash from this same
+        // function, so any deterministic, platform-exact name order will do.
+        entries.sort_by_key(|entry| entry.file_name());
         for entry in entries {
-            let name = entry.file_name().encode_wide().collect::<Vec<_>>();
+            let name = name_units(&entry.file_name());
             digest.update((name.len() as u64).to_le_bytes());
-            for unit in name {
-                digest.update(unit.to_le_bytes());
-            }
+            digest.update(&name);
             update(&entry.path(), digest)?;
         }
         Ok(())
@@ -810,17 +948,10 @@ fn remove_migration_path(path: &Path) -> std::io::Result<()> {
 /// complete contents before the name can be published. `std::fs::copy` may
 /// return while dirty pages are still only in the cache, which made a
 /// cross-volume migration look complete after a power loss even though model
-/// bytes had never reached disk.
-#[cfg(windows)]
-fn copy_file_synced(source: &Path, destination: &Path) -> std::io::Result<()> {
-    use std::os::windows::fs::OpenOptionsExt;
-
-    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
-    let mut source_options = std::fs::OpenOptions::new();
-    source_options
-        .read(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
-    let mut input = source_options.open(source)?;
+/// bytes had never reached disk. The previous-edition importer copies every
+/// file through this, so it is available wherever that import is.
+pub(crate) fn copy_file_synced(source: &Path, destination: &Path) -> std::io::Result<()> {
+    let mut input = open_without_following(source)?;
     let metadata = input.metadata()?;
     if is_link_or_reparse(&metadata) || !metadata.is_file() {
         return Err(reparse_error(source));

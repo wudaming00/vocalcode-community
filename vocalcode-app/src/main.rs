@@ -15,6 +15,7 @@ mod diagnostics;
 mod dictation_control;
 mod inference;
 mod learning;
+mod legacy_import;
 mod meeting;
 mod meeting_prompt;
 mod meeting_reminder;
@@ -2007,6 +2008,38 @@ fn bump_totals(status: &Arc<RuntimeStatus>, text: &str) {
         }
         Err(e) => log::warn!("serialise totals: {e}"),
     }
+}
+
+/// Add the previous VocalCode's lifetime counters to this installation's and
+/// write the sum. Refused when this session could not read its own totals, by
+/// the same rule as `bump_totals`: a sum over a guessed zero, written back,
+/// would destroy the real file.
+fn add_imported_totals(
+    status: &RuntimeStatus,
+    path: &Path,
+    writable: bool,
+    imported: Totals,
+) -> Result<Totals, String> {
+    if !writable {
+        return Err(
+            "This installation's usage totals could not be read, so nothing was added to them."
+                .to_string(),
+        );
+    }
+    let mut totals = status.totals.lock().unwrap_or_else(|p| p.into_inner());
+    let next = Totals {
+        dictations: totals.dictations.saturating_add(imported.dictations),
+        words: totals.words.saturating_add(imported.words),
+        chars: totals.chars.saturating_add(imported.chars),
+    };
+    let serialized = serde_json::to_string(&next).map_err(|error| error.to_string())?;
+    storage::atomic_write(path, serialized).map_err(|error| error.to_string())?;
+    *totals = next;
+    Ok(next)
+}
+
+fn totals_writable() -> bool {
+    TOTALS_WRITABLE.load(Ordering::Acquire)
 }
 
 fn push_history(status: &Arc<RuntimeStatus>, text: &str) {
