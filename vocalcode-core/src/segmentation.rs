@@ -23,20 +23,41 @@ pub struct NoiseFloor {
 impl NoiseFloor {
     /// One-second blocks: in a long scan (the first one after a slow decode)
     /// a 300 ms pause is under a tenth of the frames. Counted back from the
-    /// newest audio, so a pause just heard is always inside a whole block;
-    /// short remainders are skipped so a start-up click or a device warming
-    /// up is not the floor.
+    /// newest audio, so a pause just heard is always inside a whole block.
+    /// A block offers a floor only with half a second of sound in it.
     const BLOCK_FRAMES: usize = 100;
     const MIN_FRAMES: usize = 50;
+    /// About -100 dBFS. No microphone in a real room is this quiet; a stream
+    /// is, when it delivers zeros. Those frames are left out: counted as the
+    /// room, six of them in a second would pin the floor at zero for the rest
+    /// of the utterance.
+    const DIGITAL_SILENCE: f32 = 0.00001;
+    /// Zeros for 150 ms after sound in one scan: a microphone that silences
+    /// its own pauses (a noise gate or suppressor). The fixed ceiling finds
+    /// those pauses, and every frame it lets through is the speaker, so its
+    /// floor is zero. Shorter runs are a dropout, and zeros before any sound
+    /// in a scan are a device warming up: every press opens a new stream, and
+    /// a Bluetooth headset switching profiles can take hundreds of ms.
+    const GATED_FRAMES: usize = 15;
 
     fn observe(&mut self, energies: &[f32]) {
+        let silent = |energy: &f32| *energy <= Self::DIGITAL_SILENCE;
+        let sound = energies.iter().position(|e| !silent(e));
+        let after_sound = &energies[sound.unwrap_or(energies.len())..];
+        if after_sound
+            .split(|e| !silent(e))
+            .any(|zeros| zeros.len() >= Self::GATED_FRAMES)
+        {
+            self.floor = Some(0.);
+            return;
+        }
         for block in energies.rchunks(Self::BLOCK_FRAMES) {
-            if block.len() < Self::MIN_FRAMES {
+            let mut heard: Vec<f32> = block.iter().copied().filter(|e| !silent(e)).collect();
+            if heard.len() < Self::MIN_FRAMES {
                 continue;
             }
-            let mut sorted = block.to_vec();
-            let tenth = (sorted.len() - 1) / 10;
-            let (_, &mut low, _) = sorted.select_nth_unstable_by(tenth, f32::total_cmp);
+            let tenth = (heard.len() - 1) / 10;
+            let (_, &mut low, _) = heard.select_nth_unstable_by(tenth, f32::total_cmp);
             self.floor = Some(self.floor.map_or(low, |floor| floor.min(low)));
         }
     }
@@ -78,10 +99,10 @@ pub fn pause_boundary(
     if peak <= 0.00001 {
         return None;
     }
-    // A room louder than the ceiling raises it; quiet rooms and digital
-    // silence keep it exactly. Still relative to the phrase: a floor that was
-    // learned from speech (no pause since the key went down) cannot turn
-    // speech within 22 dB of its peak into a pause.
+    // A room louder than the ceiling raises it; quiet rooms and microphones
+    // that silence their pauses keep it exactly. Still relative to the
+    // phrase: a floor that was learned from speech (no pause since the key
+    // went down) cannot turn speech within 22 dB of its peak into a pause.
     let quiet = (peak * 0.08).min(floor.quiet().max(0.003));
     let mut quiet_frames = 0;
     let mut voiced_frames = 0;
@@ -199,6 +220,7 @@ pub fn join_separator(previous: &str, next: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ops::RangeInclusive;
 
     fn tone(rate: u32, ms: usize, amplitude: f32) -> Vec<f32> {
         (0..rate as usize * ms / 1000)
@@ -295,7 +317,8 @@ mod tests {
         speech
     }
 
-    /// The engine's cadence: 80 ms of new audio per scan plus one second of
+    /// The engine's cadence: nothing before the default 250 ms minimum
+    /// recording, then 80 ms of new audio per scan plus one second of
     /// already-scanned context, with one floor carried through the utterance.
     fn replay(audio: &[f32], rate: u32, minimum_ms: usize) -> Vec<usize> {
         let (tick, rate) = (rate as usize * 80 / 1000, rate as usize);
@@ -306,6 +329,9 @@ mod tests {
             available = (available + tick).min(audio.len());
             let scan = start.max(scanned.saturating_sub(rate));
             scanned = available;
+            if start == 0 && scanned < rate / 4 {
+                continue;
+            }
             let remaining = (start + rate * minimum_ms / 1000).saturating_sub(scan) * 1000 / rate;
             let window = &audio[scan..available];
             if let Some(end) = pause_boundary(window, rate as u32, remaining as u32, &mut floor) {
@@ -317,55 +343,118 @@ mod tests {
         cuts
     }
 
+    /// `lead` of nothing, 400 ms of room, then five 1.7 s phrases peaking
+    /// near -13 dBFS with 400 ms pauses. Also returns where each pause may be
+    /// cut: once 240 ms of it has been heard.
+    fn phrases_in_room(rate: u32, lead: usize) -> (Vec<f32>, Vec<RangeInclusive<usize>>) {
+        let ms = |ms: usize| rate as usize * ms / 1000;
+        let mut speech = vec![0.; ms(400)];
+        for _ in 0..5 {
+            speech.extend(vowel(rate, 1700, 0.3));
+            speech.extend(vec![0.; ms(400)]);
+        }
+        let mut audio = vec![0.; ms(lead)];
+        audio.extend(mix(speech, rate, 7));
+        let pauses = (1..=5)
+            .map(|n| ms(lead + 2100 * n + 240)..=ms(lead + 2100 * n + 400))
+            .collect();
+        (audio, pauses)
+    }
+
+    /// Progressive text finds every pause and on-release preparation the
+    /// first one after 8 s, each cut inside room-only audio.
+    fn assert_cuts_every_pause(audio: &[f32], pauses: &[RangeInclusive<usize>], rate: u32) {
+        let cuts = replay(audio, rate, 300);
+        assert_eq!(cuts.len(), 5, "{rate}: {cuts:?}");
+        assert!(
+            cuts.iter()
+                .zip(pauses)
+                .all(|(cut, pause)| pause.contains(cut)),
+            "{rate}: {cuts:?}"
+        );
+        let cuts = replay(audio, rate, 8000);
+        assert_eq!(cuts.len(), 1, "{rate}: {cuts:?}");
+        assert!(pauses[3].contains(&cuts[0]), "{rate}: {cuts:?}");
+    }
+
     #[test]
     fn finds_pauses_in_room_noise_above_the_fixed_ceiling() {
         for rate in [16000, 48000] {
-            let ms = |ms: usize| rate as usize * ms / 1000;
             let quiet = room(rate, 1000, -46., 3);
-            let mut energies = frame_energies(&quiet, ms(10));
+            let mut energies = frame_energies(&quiet, rate as usize / 100);
             energies.sort_by(f32::total_cmp);
             assert!(
                 energies[energies.len() / 10] > 0.003,
                 "the fixed ceiling alone hears this room as continuous sound"
             );
-            // 400 ms of room, then five 1.7 s phrases peaking near -13 dBFS
-            // with 400 ms pauses.
-            let mut speech = vec![0.; ms(400)];
-            for _ in 0..5 {
-                speech.extend(vowel(rate, 1700, 0.3));
-                speech.extend(vec![0.; ms(400)]);
-            }
-            let audio = mix(speech, rate, 7);
-            let pauses: Vec<(usize, usize)> = (0..5)
-                .map(|n| (ms(2100 * (n + 1)), ms(2100 * (n + 1) + 400)))
-                .collect();
-            let inside = |cut: usize| {
-                cut == audio.len()
-                    || pauses
-                        .iter()
-                        .any(|&(from, to)| cut >= from + ms(240) && cut <= to)
-            };
-            // Progressive text: every pause, each cut inside room-only audio.
-            let cuts = replay(&audio, rate, 300);
-            assert_eq!(cuts.len(), 5, "{rate}: {cuts:?}");
-            assert!(cuts.iter().all(|&cut| inside(cut)), "{rate}: {cuts:?}");
-            // On-release preparation: the first pause after 8 s.
-            let cuts = replay(&audio, rate, 8000);
-            assert_eq!(cuts.len(), 1, "{rate}: {cuts:?}");
-            assert!(cuts[0] >= pauses[3].0 + ms(240) && cuts[0] <= pauses[3].1);
+            let (audio, pauses) = phrases_in_room(rate, 0);
+            assert_cuts_every_pause(&audio, &pauses, rate);
         }
     }
 
     #[test]
+    fn zeros_from_a_device_starting_or_dropping_out_are_not_the_room() {
+        // Every press opens a new capture stream, and a device warming up (a
+        // Bluetooth headset switching profiles, say) delivers zeros first; a
+        // dropout does the same mid-stream. Counted as the room, 60 ms of
+        // them pinned the floor at zero and no pause here was ever found.
+        for rate in [16000, 48000] {
+            let ms = |ms: usize| rate as usize * ms / 1000;
+            for lead in [100, 300] {
+                let (audio, pauses) = phrases_in_room(rate, lead);
+                assert_cuts_every_pause(&audio, &pauses, rate);
+            }
+            // 100 ms lost inside the first phrase, then inside the first pause.
+            for at in [1000, 2150] {
+                let (mut audio, pauses) = phrases_in_room(rate, 0);
+                audio[ms(at)..ms(at + 100)].fill(0.);
+                assert_cuts_every_pause(&audio, &pauses, rate);
+            }
+        }
+    }
+
+    #[test]
+    fn a_microphone_that_silences_its_pauses_keeps_the_fixed_ceiling() {
+        // A noise gate or suppressor passes the speaker and nothing else, so
+        // a floor learned from it would be the soft end of the voice: here a
+        // 400 ms vowel 26 dB under the loud ones. Its pauses are zeros, which
+        // the fixed ceiling finds. Before its first pause such a stream, like
+        // any without a moment of room, only has the 22 dB cap.
+        let rate = 16000;
+        let mut audio = vec![0.; 4800];
+        let mut pauses = Vec::new();
+        for phrase in 0..5 {
+            audio.extend(vowel(rate, 800, 0.3));
+            if phrase > 0 {
+                audio.extend(vowel(rate, 400, 0.015));
+            }
+            audio.extend(vowel(rate, 500, 0.3));
+            audio.extend(vec![0.; 6400]);
+            pauses.push(audio.len() - 2560..=audio.len());
+        }
+        assert_cuts_every_pause(&audio, &pauses, rate);
+    }
+
+    #[test]
     fn speech_like_modulated_noise_without_pauses_is_never_cut() {
+        // Every third syllable stressed (peaks near -9 dBFS), the rest 24-28
+        // dB under it: the phrase-relative cap (-31 dBFS) sits far above
+        // twice the room (-44 dBFS), so only the floor keeps the valleys
+        // around the soft ones from adding up to 240 ms. Five times it would.
         let rate = 16000;
         let mut rng = Noise(99);
         let mut speech = vec![0.; 9600];
+        let mut syllables = 0;
         while speech.len() < rate as usize * 12 {
             // A syllable, noise under a raised cosine of 100–250 ms, then a
             // 20–80 ms join where only the room is heard.
             let len = 16 * (100 + (rng.next().abs() * 150.) as usize);
-            let level = 0.06 + rng.next().abs() * 0.14;
+            let level = if syllables % 3 == 0 {
+                0.6
+            } else {
+                0.025 + rng.next().abs() * 0.015
+            };
+            syllables += 1;
             let syllable: Vec<f32> = (0..len)
                 .map(|i| {
                     let envelope = (std::f32::consts::PI * i as f32 / len as f32).sin().powi(2);
@@ -442,7 +531,7 @@ mod tests {
         let mut unsure = NoiseFloor::default();
         unsure.observe(&[0.02; 100]);
         let mut scan = vowel(rate, 250, 0.3);
-        scan.extend(vec![0.; 3840]);
+        scan.extend(vowel(rate, 240, 0.0005));
         scan.extend(vowel(rate, 1000, 0.3));
         assert_eq!(pause_boundary(&scan, rate, 300, &mut unsure), Some(7840));
         assert!(!only_room(&vowel(rate, 500, 0.01), rate, &unsure));
@@ -488,6 +577,35 @@ mod tests {
         let mut fresh = NoiseFloor::default();
         fresh.observe(&long);
         assert_eq!(fresh.floor, Some(0.001));
+    }
+
+    #[test]
+    fn digital_silence_is_left_out_of_the_floor_unless_it_is_a_gate() {
+        let mut room: Vec<f32> = (0..100).map(|i| 0.004 + i as f32 * 0.00001).collect();
+        // A stream opening with zeros, and a 100 ms dropout: judged by the
+        // frames that were heard, as long as half a second of them remains.
+        let mut floor = NoiseFloor::default();
+        let mut opening = vec![0.; 60];
+        opening.extend(&room[..40]);
+        floor.observe(&opening);
+        assert_eq!(floor.floor, None, "40 frames heard");
+        let mut opening = vec![0.; 45];
+        opening.extend(&room[..55]);
+        floor.observe(&opening);
+        assert_eq!(floor.floor, Some(room[5]), "the tenth of 55 heard frames");
+        let mut fresh = NoiseFloor::default();
+        room[30..40].fill(0.);
+        fresh.observe(&room);
+        assert_eq!(fresh.floor, Some(room[8]), "the tenth of 90 heard frames");
+        let mut silence = NoiseFloor::default();
+        silence.observe(&[0.; 300]);
+        assert_eq!(silence.floor, None);
+        // 150 ms of zeros after sound: a gate. Zero, and it never rises.
+        room[30..45].fill(0.);
+        fresh.observe(&room);
+        assert_eq!(fresh.floor, Some(0.));
+        fresh.observe(&[0.004; 100]);
+        assert_eq!(fresh.floor, Some(0.));
     }
 
     #[test]

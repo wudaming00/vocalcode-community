@@ -327,12 +327,14 @@ fn the_rest_of_a_noisy_pause_is_not_decoded_on_its_own() {
 }
 
 #[test]
-fn a_silent_room_learned_in_one_utterance_is_forgotten_by_the_next() {
-    // Digital silence teaches a floor of zero, which would hide every pause
-    // of a later dictation in a noisy room if it carried over.
-    let mut quiet = vec![0.; 16000];
-    quiet.extend(voice(1000));
-    let mut h = Harness::new(false, quiet);
+fn a_gated_microphone_learned_in_one_utterance_is_forgotten_by_the_next() {
+    // A microphone that turns its pauses into zeros teaches a floor of zero,
+    // which would hide every pause of a later dictation in a noisy room (on
+    // another microphone, say) if it carried over.
+    let mut gated = voice(1000);
+    gated.extend(vec![0.; 4800]);
+    gated.extend(voice(1000));
+    let mut h = Harness::new(false, gated);
     h.engine.tick_partial().unwrap();
     assert_eq!(
         h.finish().unwrap(),
@@ -345,6 +347,61 @@ fn a_silent_room_learned_in_one_utterance_is_forgotten_by_the_next() {
     let input = noisy_long_dictation();
     assert!(h.feed_until_submitted(&input) < input.len());
     assert!((8740 * 16..=8900 * 16).contains(&h.next().0.len()));
+}
+
+#[test]
+fn progressive_text_in_a_noisy_room_does_not_type_the_rest_of_the_pause() {
+    // Each phrase is typed at its pause. What the room makes after the last
+    // one until release is not decoded (a recognizer types it as "Yeah."),
+    // while a soft word said there (-40 dBFS, 6 dB above the room) still is.
+    let spoken = |ms: usize| voice(ms).into_iter().map(|v| v * 6.25);
+    let mut speech = vec![0.; 8000];
+    speech.extend(spoken(1500));
+    speech.extend(vec![0.; 24000]);
+    for (word, expected) in [
+        (0, "First sentence."),
+        (250, "First sentence. Remaining words."),
+    ] {
+        let mut input = speech.clone();
+        input.extend(voice(word).into_iter().map(|v| v * 0.25));
+        let input = in_room(input, 7);
+        let mut h = Harness::new(true, vec![]);
+        let fed = h.feed_until_submitted(&input);
+        let (phrase, reply) = h.next();
+        assert!(
+            (2240 * 16..=2400 * 16).contains(&phrase.len()),
+            "cut inside the pause: {} ms",
+            phrase.len() / 16
+        );
+        reply.send(Ok("First sentence.".into())).unwrap();
+        h.audio.lock().unwrap().extend_from_slice(&input[fed..]);
+        h.engine.tick_partial().unwrap();
+        assert_eq!(
+            *h.calls.lock().unwrap(),
+            ["begin", "insert:First sentence."]
+        );
+        assert!(
+            h.work.lock().unwrap().queued.is_empty(),
+            "the room is no phrase"
+        );
+        assert_eq!(h.finish().unwrap(), Outcome::Transcribed(expected.into()));
+        let mut calls = vec!["begin", "insert:First sentence."];
+        if word > 0 {
+            calls.push("insert: Remaining words.");
+        }
+        calls.push("end");
+        assert_eq!(*h.calls.lock().unwrap(), calls);
+        let work = h.work.lock().unwrap();
+        assert!(work.queued.is_empty());
+        assert_eq!(work.synchronous.len(), usize::from(word > 0));
+        if word > 0 {
+            assert_eq!(
+                [phrase, work.synchronous[0].clone()].concat(),
+                input,
+                "the word is decoded with the room before it, once"
+            );
+        }
+    }
 }
 
 #[test]
