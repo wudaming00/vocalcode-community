@@ -1232,8 +1232,12 @@ fn dispatch_grabbed(
                     matching_action(input, &g.0, &g.1, &g.2)
                 };
                 if !ready.load(Ordering::Acquire) {
-                    // Passed through exactly as before. Only the count is new.
-                    if action == Some(Action::Talk) {
+                    // Passed through exactly as before. Only the count is new,
+                    // and only a person's press counts: the app's own paste
+                    // chord sends an injected Ctrl while a dictation is being
+                    // delivered (unready), and with talk bound to Ctrl every
+                    // pasted dictation would end in "still working".
+                    if action == Some(Action::Talk) && !injected {
                         note_talk_while_not_ready();
                     }
                     return false;
@@ -3327,6 +3331,43 @@ mod tests {
         assert!(press(RdevKey::F9), "a ready talk key is consumed as before");
         assert!(matches!(rx.try_recv(), Ok(TriggerEvent::TalkPressed(_))));
         assert_eq!(talk_presses_while_not_ready(), before + 1);
+    }
+
+    /// Delivering a dictation leaves the engine unready, and the paste chord
+    /// that delivers it sends an injected Ctrl. With talk bound to Ctrl, that
+    /// synthetic press is not the person trying again and must not end every
+    /// pasted dictation with "still working".
+    #[test]
+    fn unready_injected_talk_press_passes_through_uncounted() {
+        let _count = not_ready_count_guard();
+        let (hook, capture, triggers, ready, tx, rx) =
+            grabbed_harness(vec![Trigger::Key("ControlLeft".into())]);
+        ready.store(false, Ordering::Release);
+        let dispatch = |event, injected| {
+            dispatch_grabbed(&event, &hook, &capture, &triggers, &ready, &tx, injected)
+        };
+
+        let before = talk_presses_while_not_ready();
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), true));
+        assert!(!dispatch(EventType::KeyRelease(RdevKey::ControlLeft), true));
+        assert_eq!(
+            talk_presses_while_not_ready(),
+            before,
+            "the app's own paste chord is not a talk press"
+        );
+
+        // The person pressing the same key is still told why nothing started.
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), false));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        // A paste chord while they hold it adds nothing either.
+        assert!(!dispatch(EventType::KeyPress(RdevKey::ControlLeft), true));
+        assert!(!dispatch(EventType::KeyRelease(RdevKey::ControlLeft), true));
+        assert!(!dispatch(
+            EventType::KeyRelease(RdevKey::ControlLeft),
+            false
+        ));
+        assert_eq!(talk_presses_while_not_ready(), before + 1);
+        assert!(rx.try_recv().is_err(), "nothing may reach the engine");
     }
 
     #[test]

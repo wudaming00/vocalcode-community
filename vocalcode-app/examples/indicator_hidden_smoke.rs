@@ -42,6 +42,7 @@ fn main() -> anyhow::Result<()> {
     let notices = [
         Notice::CopiedToClipboard,
         Notice::NotReady(NotReady::Downloading(100)),
+        Notice::NotReady(NotReady::ChooseLanguage),
         Notice::NotReady(NotReady::Model),
         Notice::NotReady(NotReady::Microphone),
         Notice::NotReady(NotReady::Busy),

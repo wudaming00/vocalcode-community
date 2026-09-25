@@ -2210,7 +2210,23 @@ impl AudioCapture for UnavailableAudio {
     }
 }
 
-struct UnavailableAsr(String);
+/// Stands in for a speech model that failed to prepare, until a retry works.
+struct UnavailableAsr {
+    error: String,
+    /// The error under [`MODEL_ERROR_LABEL`]. Several paths put the engine's
+    /// label back after a microphone recovery or a cancelled switch; with the
+    /// bare error there, the tray took a failed model for one still loading.
+    label: String,
+}
+
+impl UnavailableAsr {
+    fn new(error: String) -> Self {
+        Self {
+            label: format!("{MODEL_ERROR_LABEL}{error}"),
+            error,
+        }
+    }
+}
 
 impl Asr for UnavailableAsr {
     fn transcribe(
@@ -2218,10 +2234,10 @@ impl Asr for UnavailableAsr {
         _samples: &[f32],
         _sample_rate: u32,
     ) -> vocalcode_core::error::Result<String> {
-        Err(VocalCodeError::Asr(self.0.clone()))
+        Err(VocalCodeError::Asr(self.error.clone()))
     }
     fn model_label(&self) -> &str {
-        &self.0
+        &self.label
     }
 }
 
@@ -3573,6 +3589,8 @@ fn start_background(
                     "Input controls stopped working; VocalCode will retry automatically: {failure}"
                 ),
             );
+            // For the tray; cleared by the engine once the listener is back.
+            hotkey_status.input_failed.store(true, Ordering::Release);
             // Release any recording whose physical key-up can no longer reach
             // us. The engine owns the audio backend, so signal it rather than
             // trying to stop capture from the listener thread.
@@ -3710,19 +3728,14 @@ fn start_background(
                 }
                 Err(error) => {
                     log::error!("model prepare failed: {error}");
-                    let label = format!("{MODEL_ERROR_LABEL}{error}");
+                    let unavailable = UnavailableAsr::new(error.to_string());
+                    let label = unavailable.model_label().to_string();
                     *status.model_label.lock().unwrap() = label.clone();
                     report_runtime_error(
                         &status,
                         format!("The speech model is not ready yet: {error}"),
                     );
-                    break (
-                        Box::new(UnavailableAsr(error.to_string())),
-                        Vec::new(),
-                        label,
-                        false,
-                        want,
-                    );
+                    break (Box::new(unavailable), Vec::new(), label, false, want);
                 }
             }
         };
@@ -4069,6 +4082,11 @@ fn start_background(
                 status
                     .microphone_failed
                     .store(!audio_ready, Ordering::Release);
+                // A failure landing between this load and the store is only
+                // missed until the listener's next failed retry (at most 30 s).
+                if input_ready.load(Ordering::Acquire) {
+                    status.input_failed.store(false, Ordering::Release);
+                }
                 status.ready.store(
                     engine_ready(audio_ready, model_ready, &input_ready, &status),
                     Ordering::Release,
@@ -5778,6 +5796,7 @@ fn main() -> anyhow::Result<()> {
         let notices = [
             notice::Notice::CopiedToClipboard,
             notice::Notice::NotReady(notice::NotReady::Downloading(45)),
+            notice::Notice::NotReady(notice::NotReady::ChooseLanguage),
             notice::Notice::NotReady(notice::NotReady::Model),
             notice::Notice::NotReady(notice::NotReady::Microphone),
             notice::Notice::NotReady(notice::NotReady::Busy),
@@ -7815,6 +7834,22 @@ mod tests {
             &mut ready,
         ));
         assert!(ready);
+    }
+
+    /// A microphone recovery or a cancelled model switch puts the engine's
+    /// model label back. For a failed model that must still read as failed,
+    /// or the tray reports an error the user can act on as "preparing".
+    #[test]
+    fn a_failed_model_keeps_its_error_label_when_the_engine_label_is_restored() {
+        let mut unavailable = UnavailableAsr::new("model file is damaged".to_string());
+        assert_eq!(
+            unavailable.model_label(),
+            format!("{MODEL_ERROR_LABEL}model file is damaged")
+        );
+        assert!(matches!(
+            unavailable.transcribe(&[0.0; 160], 16_000),
+            Err(VocalCodeError::Asr(message)) if message == "model file is damaged"
+        ));
     }
 
     #[test]

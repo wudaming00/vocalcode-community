@@ -1,7 +1,7 @@
 //! Opt-in desktop controls. No transcript, clipboard, model, or settings IPC is
 //! exposed here. Native non-activation preserves the real text-field focus.
 use crate::dictation_control::{Action, Bridge};
-use crate::overlay::{Phase, Snapshot};
+use crate::overlay::{Phase, ScreenRect, Snapshot};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use serde::Deserialize;
 use std::time::{Duration, Instant};
@@ -154,6 +154,16 @@ struct Bounds {
     y: i32,
     width: i32,
     height: i32,
+}
+impl Bounds {
+    fn rect(self) -> ScreenRect {
+        ScreenRect {
+            left: self.x,
+            top: self.y,
+            right: self.x.saturating_add(self.width),
+            bottom: self.y.saturating_add(self.height),
+        }
+    }
 }
 
 const MOTION_FRAME: Duration = Duration::from_millis(16);
@@ -343,6 +353,17 @@ fn surface_for(hovered: bool, phase: Phase, notice: bool, menu_open: &mut bool) 
     }
 }
 
+/// Everything the capsule covers now (`drawn`, which may be the open menu or a
+/// frame of its animation) or can grow to without a click: the hover controls
+/// and the status message. A notice placed clear of this is not covered by the
+/// next hover or error, and moves again only if the menu opens under it.
+fn keep_clear_area(work: RECT, scale: f64, edge: &str, drawn: Bounds) -> ScreenRect {
+    [Surface::Compact, Surface::Quick, Surface::Status]
+        .into_iter()
+        .map(|surface| bounds(work, scale, edge, surface))
+        .fold(drawn.rect(), |area, surface| area.union(surface.rect()))
+}
+
 fn bounds(work: RECT, scale: f64, edge: &str, surface: Surface) -> Bounds {
     let scale = if scale.is_finite() {
         scale.clamp(0.5, 16.0)
@@ -441,6 +462,8 @@ pub struct ControlBar {
     page_ratio: Option<u32>,
     text_scale: f64,
     recovery_until: Option<Instant>,
+    /// What a passive notice must leave uncovered; see [`keep_clear_area`].
+    keep_clear: Option<ScreenRect>,
 }
 impl ControlBar {
     pub fn new<T: 'static>(
@@ -529,6 +552,7 @@ impl ControlBar {
             page_ratio: None,
             text_scale: 1.0,
             recovery_until: None,
+            keep_clear: None,
         })
     }
 
@@ -742,6 +766,7 @@ impl ControlBar {
             && (self.motion.moving() || self.last_surface != surface);
         let opening = target.height > self.last_bounds.map_or(0, |b| b.height);
         let layout = self.motion.layout(target, now, animate, opening);
+        self.keep_clear = Some(keep_clear_area(info.rcWork, effective_scale, edge, layout));
         self.motion_context = Some(context);
         self.last_surface = surface;
         let moving = self.motion.moving();
@@ -828,6 +853,12 @@ impl ControlBar {
     /// Actual presentation state survives a temporarily contended config lock.
     pub fn is_shown(&self) -> bool {
         self.shown
+    }
+
+    /// The screen area the indicator's notices must not cover, while the
+    /// capsule is on screen.
+    pub fn keep_clear(&self) -> Option<ScreenRect> {
+        self.keep_clear.filter(|_| self.shown)
     }
 
     /// Brief frame cadence while morphing; the settled idle bar has no timer.
@@ -1620,6 +1651,103 @@ mod tests {
         assert_eq!((quick.width, quick.height), (160, 36));
         assert_eq!((controls.width, controls.height), (248, 40));
         assert_eq!((menu.width, menu.height), (160, 200));
+    }
+    /// The indicator yields to the capsule, but a notice still shows beside
+    /// it, at the same bottom-centre spot. It must sit above every surface the
+    /// capsule shows without a click, and above the menu while that is open.
+    #[test]
+    fn a_notice_beside_the_bottom_capsule_never_covers_it() {
+        use crate::overlay::{origin_clear_of, NOTICE_MAX_W, NOTICE_MIN_W, WINDOW_H};
+        for work in [
+            RECT {
+                left: 0,
+                top: 48,
+                right: 1920,
+                bottom: 1040,
+            },
+            RECT {
+                left: -2560,
+                top: -900,
+                right: 0,
+                bottom: 480,
+            },
+        ] {
+            let screen = ScreenRect {
+                left: work.left,
+                top: work.top,
+                right: work.right,
+                bottom: work.bottom,
+            };
+            for scale in [1.0_f64, 1.25, 1.5, 2.0, 3.0] {
+                let margin = (8.0 * scale).round() as i32;
+                let height = (WINDOW_H * scale).round() as i32;
+                for drawn in [
+                    Surface::Compact,
+                    Surface::Quick,
+                    Surface::Menu,
+                    Surface::Status,
+                ] {
+                    let drawn = bounds(work, scale, "bottom", drawn);
+                    let keep = keep_clear_area(work, scale, "bottom", drawn);
+                    for logical_width in [NOTICE_MIN_W, 300.0, NOTICE_MAX_W] {
+                        let width = (logical_width * scale).round() as i32;
+                        let (x, y) = origin_clear_of(screen, width, height, margin, Some(keep));
+                        let notice = Bounds {
+                            x,
+                            y,
+                            width,
+                            height,
+                        }
+                        .rect();
+                        assert!(y >= work.top && x >= work.left);
+                        assert!(!notice.intersects(drawn.rect()), "{scale} {drawn:?}");
+                        for surface in [Surface::Compact, Surface::Quick, Surface::Status] {
+                            let surface = bounds(work, scale, "bottom", surface).rect();
+                            assert!(!notice.intersects(surface), "{scale} {surface:?}");
+                        }
+                        // Lifted only as far as it must be: one margin above.
+                        assert_eq!(notice.bottom + margin, keep.top);
+                    }
+                }
+            }
+        }
+    }
+    #[test]
+    fn a_notice_keeps_its_usual_spot_unless_the_capsule_is_under_it() {
+        use crate::overlay::origin_clear_of;
+        let work = RECT {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        };
+        let screen = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1040,
+        };
+        let usual = origin_clear_of(screen, 300, 34, 8, None);
+        assert_eq!(usual, (810, 998));
+        for edge in ["left", "right"] {
+            let drawn = bounds(work, 1.0, edge, Surface::Menu);
+            let keep = keep_clear_area(work, 1.0, edge, drawn);
+            assert_eq!(origin_clear_of(screen, 300, 34, 8, Some(keep)), usual);
+        }
+        // A screen too short for both keeps the notice on it.
+        let short = ScreenRect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 60,
+        };
+        let keep = ScreenRect {
+            left: 0,
+            top: 10,
+            right: 1920,
+            bottom: 60,
+        };
+        assert_eq!(origin_clear_of(short, 300, 34, 8, Some(keep)), (810, 0));
     }
     #[test]
     fn leave_grace_does_not_flicker_or_extend_on_repeated_leave_messages() {

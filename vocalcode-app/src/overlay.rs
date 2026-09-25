@@ -55,7 +55,7 @@ const WINDOW_H: f64 = 64.0;
 #[cfg(windows)]
 const WINDOW_W: f64 = 172.0;
 #[cfg(windows)]
-const WINDOW_H: f64 = 34.0;
+pub(crate) const WINDOW_H: f64 = 34.0;
 #[cfg(windows)]
 const MINI_WINDOW_W: f64 = 64.0;
 #[cfg(windows)]
@@ -66,9 +66,9 @@ const BOTTOM_MARGIN: f64 = 8.0;
 const NOTICE_DURATION: Duration = Duration::from_secs(3);
 /// Notice capsule bounds on Windows, where the window hugs the capsule.
 #[cfg(any(windows, test))]
-const NOTICE_MIN_W: f64 = 140.0;
+pub(crate) const NOTICE_MIN_W: f64 = 140.0;
 #[cfg(any(windows, test))]
-const NOTICE_MAX_W: f64 = 460.0;
+pub(crate) const NOTICE_MAX_W: f64 = 460.0;
 /// Horizontal padding, the mark and its gap, and the border.
 #[cfg(any(windows, test))]
 const NOTICE_CHROME_W: f64 = 2.0 * 15.0 + 18.0 + 8.0 + 2.0;
@@ -239,7 +239,8 @@ impl Display {
 
     /// A notice is rare and explains a failure, so it shows even when the
     /// recording indicator is turned off or has yielded to the desktop
-    /// capsule — silence is exactly the problem it exists to fix.
+    /// capsule — silence is exactly the problem it exists to fix. Beside the
+    /// capsule it is placed clear of it; see `Overlay::keep_clear_of`.
     fn wants_window(&self, style: Style) -> bool {
         match self {
             Self::Phase(Phase::Idle) => false,
@@ -357,6 +358,9 @@ pub struct Overlay {
     last_page_ratio: u32,
     #[cfg(windows)]
     text_scale: f64,
+    /// Where the desktop capsule is, which the window must not cover.
+    #[cfg(windows)]
+    keep_clear: Option<ScreenRect>,
 }
 
 impl Overlay {
@@ -474,6 +478,8 @@ impl Overlay {
             last_page_ratio: 0,
             #[cfg(windows)]
             text_scale: 1.0,
+            #[cfg(windows)]
+            keep_clear: None,
         })
     }
 
@@ -522,6 +528,35 @@ impl Overlay {
         // Deferred for the same reason as the style: sent just before the
         // indicator is shown, when the document is certainly parsed.
         self.lang_pending = true;
+    }
+
+    /// Keep the window off `area`, where the opt-in desktop capsule is drawn,
+    /// or `None` when it is not on screen. Safe to call on every tick.
+    ///
+    /// The recording indicator yields to the capsule entirely, but a notice
+    /// still shows beside it, and both would otherwise take the same
+    /// bottom-centre spot. Both are topmost and the notice is raised last, so
+    /// it would hide the capsule for as long as it is up. It is lifted above
+    /// the capsule instead, and moves again if the capsule grows under it.
+    #[cfg(windows)]
+    pub fn keep_clear_of(&mut self, area: Option<ScreenRect>) {
+        if area == self.keep_clear {
+            return;
+        }
+        self.keep_clear = area;
+        if self.shown {
+            self.place();
+        }
+    }
+
+    /// Put the window at the bottom centre of the screen in use and, on
+    /// Windows, clear of the desktop capsule.
+    fn place(&self) {
+        #[cfg(windows)]
+        if position_on_windows_work_area(&self.window, self.frame, self.keep_clear) {
+            return;
+        }
+        position_bottom_centre(&self.window, self.frame);
     }
 
     /// Hidden, synthetic-only native layout inspection; absent from releases.
@@ -631,7 +666,7 @@ impl Overlay {
                         .evaluate_script(&format!("window.vcStyle && vcStyle('{name}')"));
                     self.style_pending = false;
                 }
-                position_bottom_centre(&self.window, self.frame);
+                self.place();
                 #[cfg(target_os = "macos")]
                 self.panel.sync_frame_from(&self.window);
             }
@@ -685,7 +720,7 @@ impl Overlay {
     fn apply_frame(&mut self, frame: (f64, f64)) {
         self.frame = frame;
         self.resize_windows_frame();
-        position_bottom_centre(&self.window, frame);
+        self.place();
     }
 
     #[cfg(windows)]
@@ -778,7 +813,7 @@ fn position_bottom_centre(window: &Window, frame: (f64, f64)) {
     }
 
     #[cfg(target_os = "windows")]
-    if position_on_windows_work_area(window, frame) {
+    if position_on_windows_work_area(window, frame, None) {
         return;
     }
 
@@ -1093,7 +1128,11 @@ fn make_inert_and_floating(panel: &MacPanel) {
 /// desktop coordinates.  Keep the whole calculation in those coordinates so
 /// mixed-DPI displays do not combine logical sizes with physical offsets.
 #[cfg(target_os = "windows")]
-fn position_on_windows_work_area(window: &Window, size: (f64, f64)) -> bool {
+fn position_on_windows_work_area(
+    window: &Window,
+    size: (f64, f64),
+    keep_clear: Option<ScreenRect>,
+) -> bool {
     use std::mem::size_of;
 
     use tao::platform::windows::WindowExtWindows as _;
@@ -1145,17 +1184,84 @@ fn position_on_windows_work_area(window: &Window, size: (f64, f64)) -> bool {
     let height = ((window_height * scale).round().max(1.0) as i32)
         .max(i32::try_from(measured.height).unwrap_or(i32::MAX));
     let margin = (BOTTOM_MARGIN * scale).round().max(0.0) as i32;
+    let work = ScreenRect {
+        left: info.rcWork.left,
+        top: info.rcWork.top,
+        right: info.rcWork.right,
+        bottom: info.rcWork.bottom,
+    };
+    let (x, y) = origin_clear_of(work, width, height, margin, keep_clear);
+    window.set_outer_position(tao::dpi::PhysicalPosition::new(x, y));
+    true
+}
+
+/// A rectangle in physical desktop pixels, the coordinates Windows positions
+/// top-level windows in on every monitor.
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+#[cfg(windows)]
+impl ScreenRect {
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            left: self.left.min(other.left),
+            top: self.top.min(other.top),
+            right: self.right.max(other.right),
+            bottom: self.bottom.max(other.bottom),
+        }
+    }
+
+    pub fn intersects(self, other: Self) -> bool {
+        self.left < other.right
+            && other.left < self.right
+            && self.top < other.bottom
+            && other.top < self.bottom
+    }
+}
+
+/// The indicator's position in `work`: bottom centre, `margin` above the
+/// bottom edge, unless that would cover `keep_clear`. Then it goes `margin`
+/// above that area instead, but never above the top of the work area: on a
+/// screen too short for both, overlapping beats being off screen.
+#[cfg(target_os = "windows")]
+pub(crate) fn origin_clear_of(
+    work: ScreenRect,
+    width: i32,
+    height: i32,
+    margin: i32,
+    keep_clear: Option<ScreenRect>,
+) -> (i32, i32) {
     let (x, y) = bottom_centre_in_work_area(
-        info.rcWork.left,
-        info.rcWork.top,
-        info.rcWork.right,
-        info.rcWork.bottom,
+        work.left,
+        work.top,
+        work.right,
+        work.bottom,
         width,
         height,
         margin,
     );
-    window.set_outer_position(tao::dpi::PhysicalPosition::new(x, y));
-    true
+    let frame = ScreenRect {
+        left: x,
+        top: y,
+        right: x.saturating_add(width.max(1)),
+        bottom: y.saturating_add(height.max(1)),
+    };
+    match keep_clear {
+        Some(area) if frame.intersects(area) => {
+            let lifted = area
+                .top
+                .saturating_sub(margin.max(0))
+                .saturating_sub(height.max(1));
+            (x, lifted.min(y).max(work.top))
+        }
+        _ => (x, y),
+    }
 }
 
 /// Return a position whose complete window rectangle remains inside `rcWork`.
@@ -1415,6 +1521,7 @@ mod tests {
             for notice in [
                 Notice::CopiedToClipboard,
                 Notice::NotReady(NotReady::Downloading(100)),
+                Notice::NotReady(NotReady::ChooseLanguage),
                 Notice::NotReady(NotReady::Model),
                 Notice::NotReady(NotReady::Microphone),
                 Notice::NotReady(NotReady::Busy),

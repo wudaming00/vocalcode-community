@@ -428,6 +428,10 @@ pub struct RuntimeStatus {
     /// default (false) means "no failure seen", so startup never flashes an
     /// error before the engine has opened the device.
     pub microphone_failed: AtomicBool,
+    /// The input listener stopped and has not been reinstalled yet. For the
+    /// tray, which otherwise reads a listener retrying for minutes as
+    /// "preparing".
+    pub input_failed: AtomicBool,
     /// Generation, pending desired snapshot, and active model-preparation
     /// cancellation token. The FIFO save worker holds this mutex across
     /// persistence and publication; the engine holds it across its final
@@ -1508,7 +1512,7 @@ pub fn run(
     let mut notice_lang = crate::notice::LangCache::default();
     let mut not_ready_presses =
         crate::notice::PressWatch::new(vocalcode_platform::hotkey::talk_presses_while_not_ready());
-    let mut last_tooltip = String::new();
+    let mut last_tooltip = None;
     let started = Instant::now();
     // Last status handed to the page; see `push_status`.
     let mut last_status = String::new();
@@ -1789,6 +1793,10 @@ pub fn run(
                 }
             }
         }
+        // Read even when the config lock was contended: a notice must never
+        // cover the capsule, whose position this reports while it is shown.
+        #[cfg(windows)]
+        let desktop_keep_clear = desktop_control.as_ref().and_then(crate::control_bar::ControlBar::keep_clear);
 
         if let Ok(config) = tick_cfg.try_lock() {
             if config.ui_lang != ui_lang {
@@ -1809,13 +1817,15 @@ pub fn run(
         }
         if !readiness.shutdown {
             if let Some(tray) = &tray {
-                let tooltip =
-                    crate::notice::tray_tooltip(crate::notice::tray_state(&readiness), lang);
-                if tooltip != last_tooltip {
+                // Compared before formatting: this runs for every window
+                // event, mouse moves over Settings included.
+                let shown = (crate::notice::tray_state(&readiness), lang);
+                if last_tooltip != Some(shown) {
+                    let tooltip = crate::notice::tray_tooltip(shown.0, lang);
                     if let Err(error) = tray.set_tooltip(Some(&tooltip)) {
                         log::warn!("tray tooltip update failed: {error}");
                     }
-                    last_tooltip = tooltip;
+                    last_tooltip = Some(shown);
                 }
             }
         }
@@ -1835,6 +1845,8 @@ pub fn run(
             if let Some(style) = crate::overlay::Style::alongside_capsule(configured_style, desktop_control_visible) {
                 o.set_style(style);
             }
+            #[cfg(windows)]
+            o.keep_clear_of(desktop_keep_clear);
             // In demo mode there is no microphone stream, so synthesise a level
             // — otherwise the bars sit at their floor and the level→height path
             // goes unexercised.
@@ -2428,6 +2440,7 @@ fn notice_readiness(
             .lock()
             .is_ok_and(|label| label.starts_with(crate::MODEL_ERROR_LABEL)),
         microphone_failed: status.microphone_failed.load(Ordering::Acquire),
+        input_failed: status.input_failed.load(Ordering::Acquire),
         ready: status.ready.load(Ordering::Acquire),
         phase,
     }
@@ -9740,69 +9753,6 @@ mod updater_contract_tests {
         }
     }
 
-    /// Two failures inside one UI tick used to share one slot, and the first —
-    /// usually the cause — was overwritten before the page ever saw it.
-    #[test]
-    fn runtime_errors_queue_in_order_instead_of_overwriting() {
-        let errors = RuntimeErrors::default();
-        errors.push("Microphone stopped responding: device removed".into());
-        errors.push("Could not finish the recording".into());
-        assert_eq!(
-            errors.drain(),
-            [
-                "Microphone stopped responding: device removed",
-                "Could not finish the recording"
-            ]
-        );
-        assert!(errors.drain().is_empty(), "delivery is once");
-    }
-
-    #[test]
-    fn runtime_errors_are_bounded_newest_kept_and_never_duplicated() {
-        let errors = RuntimeErrors::default();
-        for _ in 0..50 {
-            errors.push("Diagnostic event queue full".into());
-        }
-        assert_eq!(errors.drain(), ["Diagnostic event queue full"]);
-        for i in 0..20 {
-            errors.push(format!("error {i}"));
-        }
-        let pending = errors.drain();
-        assert_eq!(pending.len(), RuntimeErrors::CAPACITY);
-        assert_eq!(pending.first().map(String::as_str), Some("error 12"));
-        assert_eq!(pending.last().map(String::as_str), Some("error 19"));
-    }
-
-    #[test]
-    fn notice_readiness_reads_the_model_error_label_and_download() {
-        use crate::overlay::Phase;
-        let status = RuntimeStatus::default();
-        status.onboarded.store(true, Ordering::Release);
-        status.permissions_ok.store(true, Ordering::Release);
-        *status.model_label.lock().unwrap() = format!("{}offline", crate::MODEL_ERROR_LABEL);
-        let readiness = notice_readiness(&status, Phase::Idle);
-        assert!(readiness.model_failed && !readiness.model_available);
-        assert_eq!(
-            crate::notice::tray_state(&readiness),
-            crate::notice::TrayState::Error(crate::notice::TrayError::Model)
-        );
-        *status.model_label.lock().unwrap() = "Preparing…".into();
-        *status.model_download.lock().unwrap() = Some(("Parakeet".into(), 37.9, 190.0, 500.0));
-        let readiness = notice_readiness(&status, Phase::Idle);
-        assert!(!readiness.model_failed);
-        assert_eq!(
-            crate::notice::not_ready_reason(&readiness),
-            Some(crate::notice::NotReady::Downloading(37))
-        );
-        status.microphone_failed.store(true, Ordering::Release);
-        *status.model_download.lock().unwrap() = None;
-        status.model_available.store(true, Ordering::Release);
-        assert_eq!(
-            crate::notice::not_ready_reason(&notice_readiness(&status, Phase::Idle)),
-            Some(crate::notice::NotReady::Microphone)
-        );
-    }
-
     #[test]
     fn transient_update_label_restores_without_clobbering_engine_updates() {
         let label = Mutex::new("Ready · original".to_string());
@@ -10934,5 +10884,81 @@ mod purge_tests {
         purge_app_data(&d).unwrap();
         assert!(upper.exists());
         let _ = std::fs::remove_dir_all(&d);
+    }
+}
+
+/// The settings page's error queue and what the UI thread reads for notices
+/// and the tray tooltip.
+#[cfg(test)]
+mod runtime_notice_tests {
+    use super::*;
+
+    /// Two failures inside one UI tick used to share one slot, and the first —
+    /// usually the cause — was overwritten before the page ever saw it.
+    #[test]
+    fn runtime_errors_queue_in_order_instead_of_overwriting() {
+        let errors = RuntimeErrors::default();
+        errors.push("Microphone stopped responding: device removed".into());
+        errors.push("Could not finish the recording".into());
+        assert_eq!(
+            errors.drain(),
+            [
+                "Microphone stopped responding: device removed",
+                "Could not finish the recording"
+            ]
+        );
+        assert!(errors.drain().is_empty(), "delivery is once");
+    }
+
+    #[test]
+    fn runtime_errors_are_bounded_newest_kept_and_never_duplicated() {
+        let errors = RuntimeErrors::default();
+        for _ in 0..50 {
+            errors.push("Diagnostic event queue full".into());
+        }
+        assert_eq!(errors.drain(), ["Diagnostic event queue full"]);
+        for i in 0..20 {
+            errors.push(format!("error {i}"));
+        }
+        let pending = errors.drain();
+        assert_eq!(pending.len(), RuntimeErrors::CAPACITY);
+        assert_eq!(pending.first().map(String::as_str), Some("error 12"));
+        assert_eq!(pending.last().map(String::as_str), Some("error 19"));
+    }
+
+    #[test]
+    fn notice_readiness_reads_the_model_error_label_and_download() {
+        use crate::overlay::Phase;
+        let status = RuntimeStatus::default();
+        status.onboarded.store(true, Ordering::Release);
+        status.permissions_ok.store(true, Ordering::Release);
+        *status.model_label.lock().unwrap() = format!("{}offline", crate::MODEL_ERROR_LABEL);
+        let readiness = notice_readiness(&status, Phase::Idle);
+        assert!(readiness.model_failed && !readiness.model_available);
+        assert_eq!(
+            crate::notice::tray_state(&readiness),
+            crate::notice::TrayState::Error(crate::notice::TrayError::Model)
+        );
+        *status.model_label.lock().unwrap() = "Preparing…".into();
+        *status.model_download.lock().unwrap() = Some(("Parakeet".into(), 37.9, 190.0, 500.0));
+        let readiness = notice_readiness(&status, Phase::Idle);
+        assert!(!readiness.model_failed);
+        assert_eq!(
+            crate::notice::not_ready_reason(&readiness),
+            Some(crate::notice::NotReady::Downloading(37))
+        );
+        status.microphone_failed.store(true, Ordering::Release);
+        *status.model_download.lock().unwrap() = None;
+        status.model_available.store(true, Ordering::Release);
+        assert_eq!(
+            crate::notice::not_ready_reason(&notice_readiness(&status, Phase::Idle)),
+            Some(crate::notice::NotReady::Microphone)
+        );
+        status.microphone_failed.store(false, Ordering::Release);
+        status.input_failed.store(true, Ordering::Release);
+        assert_eq!(
+            crate::notice::tray_state(&notice_readiness(&status, Phase::Idle)),
+            crate::notice::TrayState::Error(crate::notice::TrayError::Input)
+        );
     }
 }

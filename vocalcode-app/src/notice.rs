@@ -26,7 +26,9 @@ use crate::overlay::Phase;
 pub enum NotReady {
     /// The speech model is downloading; whole percent done.
     Downloading(u8),
-    /// No usable speech model: still loading, failed, or no language chosen.
+    /// No language chosen yet, so no model has been picked to download.
+    ChooseLanguage,
+    /// No usable speech model: still loading or failed.
     Model,
     /// The selected microphone could not be opened or stopped responding.
     Microphone,
@@ -122,6 +124,8 @@ pub struct Readiness {
     /// The last model preparation failed and a retry is pending.
     pub model_failed: bool,
     pub microphone_failed: bool,
+    /// The input listener stopped and is retrying.
+    pub input_failed: bool,
     /// The engine's own gate: every part ready and no decode in progress.
     pub ready: bool,
     /// The engine's phase, as the indicator shows it.
@@ -137,6 +141,16 @@ fn whole_percent(percent: f64) -> u8 {
     }
 }
 
+/// The download still in flight, in whole percent. Once every byte is in, the
+/// download entry stays until the model has loaded, which takes seconds; that
+/// is preparing, not a download sitting at "100%".
+fn downloading(readiness: &Readiness) -> Option<u8> {
+    readiness
+        .download
+        .map(whole_percent)
+        .filter(|percent| *percent < 100)
+}
+
 /// Why a talk press passed through, judged a moment after the press.
 ///
 /// The most useful explanation wins: a download says how long to wait, and a
@@ -147,13 +161,17 @@ pub fn not_ready_reason(readiness: &Readiness) -> Option<NotReady> {
     if readiness.shutdown {
         return None;
     }
-    if let Some(percent) = readiness.download {
-        return Some(NotReady::Downloading(whole_percent(percent)));
+    if let Some(percent) = downloading(readiness) {
+        return Some(NotReady::Downloading(percent));
+    }
+    // Before a language is chosen, that is the step to take, as the tray says.
+    if !readiness.onboarded {
+        return Some(NotReady::ChooseLanguage);
     }
     if readiness.microphone_failed {
         return Some(NotReady::Microphone);
     }
-    if !readiness.onboarded || !readiness.model_available {
+    if !readiness.model_available {
         return Some(NotReady::Model);
     }
     Some(NotReady::Busy)
@@ -174,13 +192,15 @@ pub enum TrayError {
     Permissions,
     Microphone,
     Model,
+    /// The global shortcut listener stopped; it reinstalls itself.
+    Input,
 }
 
 /// The tray's state. Unlike a notice this describes a condition, so a decode
 /// in progress is still "Ready": the app is working, not stuck.
 pub fn tray_state(readiness: &Readiness) -> TrayState {
-    if let Some(percent) = readiness.download {
-        return TrayState::Downloading(whole_percent(percent));
+    if let Some(percent) = downloading(readiness) {
+        return TrayState::Downloading(percent);
     }
     if !readiness.onboarded {
         return TrayState::ChooseLanguage;
@@ -200,7 +220,12 @@ pub fn tray_state(readiness: &Readiness) -> TrayState {
     if readiness.ready || readiness.phase != Phase::Idle {
         return TrayState::Ready;
     }
-    // Settings being applied, or the input listener restarting.
+    // Checked after readiness: the flag clears on the engine's next health
+    // pass, which can trail a listener that is already back.
+    if readiness.input_failed {
+        return TrayState::Error(TrayError::Input);
+    }
+    // Settings being applied, or the input listener starting.
     TrayState::Preparing
 }
 
@@ -334,6 +359,7 @@ impl Notice {
                 Lang::Fr => format!("Téléchargement du modèle — {percent}\u{a0}%"),
                 Lang::De => format!("Modell wird heruntergeladen — {percent}\u{a0}%"),
             },
+            Notice::NotReady(NotReady::ChooseLanguage) => choose_language(lang).to_string(),
             Notice::NotReady(NotReady::Model) => match lang {
                 Lang::En => "Model not ready yet",
                 Lang::Zh => "模型还没准备好",
@@ -360,6 +386,18 @@ impl Notice {
             }
             .to_string(),
         }
+    }
+}
+
+/// Shared by the notice and the tray, so a press before onboarding says the
+/// same thing the tray does.
+fn choose_language(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Choose a language to begin",
+        Lang::Zh => "请先选择语言",
+        Lang::Es => "Elige un idioma para empezar",
+        Lang::Fr => "Choisissez une langue pour commencer",
+        Lang::De => "Wähle eine Sprache, um zu beginnen",
     }
 }
 
@@ -422,14 +460,7 @@ pub fn tray_tooltip(state: TrayState, lang: Lang) -> String {
             Lang::De => "Wird vorbereitet…",
         }
         .to_string(),
-        TrayState::ChooseLanguage => match lang {
-            Lang::En => "Choose a language to begin",
-            Lang::Zh => "选择一种语言开始",
-            Lang::Es => "Elige un idioma para empezar",
-            Lang::Fr => "Choisissez une langue pour commencer",
-            Lang::De => "Wähle eine Sprache, um zu beginnen",
-        }
-        .to_string(),
+        TrayState::ChooseLanguage => choose_language(lang).to_string(),
         TrayState::Error(error) => {
             let reason = match error {
                 TrayError::Permissions => match lang {
@@ -446,6 +477,13 @@ pub fn tray_tooltip(state: TrayState, lang: Lang) -> String {
                     Lang::Es => "No se pudo cargar el modelo de voz",
                     Lang::Fr => "Échec du chargement du modèle vocal",
                     Lang::De => "Sprachmodell konnte nicht geladen werden",
+                },
+                TrayError::Input => match lang {
+                    Lang::En => "Shortcut not responding",
+                    Lang::Zh => "快捷键无响应",
+                    Lang::Es => "El atajo no responde",
+                    Lang::Fr => "Le raccourci ne répond pas",
+                    Lang::De => "Tastenkürzel reagiert nicht",
                 },
             };
             match lang {
@@ -470,6 +508,7 @@ mod tests {
         vec![
             Notice::CopiedToClipboard,
             Notice::NotReady(NotReady::Downloading(45)),
+            Notice::NotReady(NotReady::ChooseLanguage),
             Notice::NotReady(NotReady::Model),
             Notice::NotReady(NotReady::Microphone),
             Notice::NotReady(NotReady::Busy),
@@ -486,6 +525,7 @@ mod tests {
             model_available: true,
             model_failed: false,
             microphone_failed: false,
+            input_failed: false,
             ready: true,
             phase: Phase::Idle,
         }
@@ -510,6 +550,26 @@ mod tests {
         );
     }
 
+    /// The download entry outlives the bytes: it is cleared only once the
+    /// model has loaded, which takes seconds. That wait is not a download.
+    #[test]
+    fn a_finished_download_reads_as_loading_not_as_one_stuck_at_100() {
+        let loading = Readiness {
+            download: Some(100.0),
+            model_available: false,
+            ready: false,
+            ..idle_ready()
+        };
+        assert_eq!(not_ready_reason(&loading), Some(NotReady::Model));
+        assert_eq!(tray_state(&loading), TrayState::Preparing);
+        let almost = Readiness {
+            download: Some(99.95),
+            ..loading
+        };
+        assert_eq!(not_ready_reason(&almost), Some(NotReady::Downloading(99)));
+        assert_eq!(tray_state(&almost), TrayState::Downloading(99));
+    }
+
     #[test]
     fn download_percent_never_claims_done_early_or_leaks_nonsense() {
         assert_eq!(whole_percent(99.9), 99);
@@ -521,7 +581,7 @@ mod tests {
     }
 
     #[test]
-    fn not_ready_reason_prefers_the_microphone_then_the_model_then_busy() {
+    fn not_ready_reason_prefers_language_then_microphone_then_model_then_busy() {
         let broken_mic = Readiness {
             microphone_failed: true,
             model_available: false,
@@ -536,11 +596,21 @@ mod tests {
             ..idle_ready()
         };
         assert_eq!(not_ready_reason(&loading), Some(NotReady::Model));
+        // Before onboarding the step to take is choosing a language, which is
+        // also what the tray says then.
         let before_language = Readiness {
             onboarded: false,
+            microphone_failed: true,
             ..loading
         };
-        assert_eq!(not_ready_reason(&before_language), Some(NotReady::Model));
+        assert_eq!(
+            not_ready_reason(&before_language),
+            Some(NotReady::ChooseLanguage)
+        );
+        assert_eq!(
+            Notice::NotReady(NotReady::ChooseLanguage).text(Lang::En),
+            tray_tooltip(tray_state(&before_language), Lang::En).trim_start_matches("VocalCode — ")
+        );
 
         let decoding = Readiness {
             ready: false,
@@ -619,6 +689,21 @@ mod tests {
             ..ready
         };
         assert_eq!(tray_state(&restarting), TrayState::Preparing);
+        // A listener that keeps failing is an error, not endless preparing,
+        // and one already back reads as ready before its flag is cleared.
+        let listener_down = Readiness {
+            input_failed: true,
+            ..restarting
+        };
+        assert_eq!(
+            tray_tooltip(tray_state(&listener_down), Lang::En),
+            "VocalCode — Error: Shortcut not responding"
+        );
+        let listener_back = Readiness {
+            input_failed: true,
+            ..ready
+        };
+        assert_eq!(tray_state(&listener_back), TrayState::Ready);
         let first_run = Readiness {
             onboarded: false,
             model_available: false,
@@ -647,6 +732,7 @@ mod tests {
             TrayState::Error(TrayError::Permissions),
             TrayState::Error(TrayError::Microphone),
             TrayState::Error(TrayError::Model),
+            TrayState::Error(TrayError::Input),
         ];
         for lang in LANGS {
             let notices: Vec<_> = all_notices().into_iter().map(|n| n.text(lang)).collect();
