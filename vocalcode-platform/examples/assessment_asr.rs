@@ -48,6 +48,7 @@ fn main() -> anyhow::Result<()> {
             &file("encoder.int8.onnx"),
             &file("decoder.int8.onnx"),
             &file("tokenizer"),
+            &args[5],
             threads,
             "assessment",
         )?),
