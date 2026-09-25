@@ -130,6 +130,7 @@ function Assert-Unchanged([hashtable]$Before, [string]$Root, [string[]]$Allowed 
 }
 
 # Every per-user uninstall entry that names VocalCode, whatever its key.
+# PowerShell unrolls a function's output: wrap each call in @() to count it.
 function Get-VocalCodeEntries {
     return @(Get-ChildItem -LiteralPath $uninstallRoot | ForEach-Object { Get-ItemProperty -LiteralPath $_.PSPath } |
         Where-Object { $_.PSObject.Properties.Name -contains 'DisplayName' -and [string]$_.DisplayName -like 'VocalCode*' })
@@ -287,7 +288,7 @@ switch ($Scenario) {
     Wait-Until { Test-Path -LiteralPath $standInLog } 60 'the helper to restart the unregistered copy'
     $restartedWith = [IO.File]::ReadAllText($standInLog)
     if ($restartedWith -ne '--update-failed|7') { throw "The unregistered copy was restarted with '$restartedWith', not '--update-failed 7'" }
-    if ((Get-VocalCodeEntries).Count -ne 0) { throw 'An update of an unregistered copy registered an app' }
+    if (@(Get-VocalCodeEntries).Count -ne 0) { throw 'An update of an unregistered copy registered an app' }
     if (Test-Path -LiteralPath $app) { throw "An update of an unregistered copy installed into $app" }
     if (Test-Path -LiteralPath $data) { throw "An update of an unregistered copy created $data" }
     Remove-Item -LiteralPath $standInLog

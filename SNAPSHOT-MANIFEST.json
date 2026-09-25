@@ -397,8 +397,8 @@
     },
     {
       "path": "packaging/community/e2e-windows.ps1",
-      "bytes": 30427,
-      "sha256": "6c14706590d15060ae1c1af519776822969c88aed3197815dfec8339b81d1021"
+      "bytes": 30505,
+      "sha256": "52e244c67d800cc7e9e93fd28e628b23043752e4ee51d31ed31d3f2d10e16d2b"
     },
     {
       "path": "packaging/community/e2e/community-1.4.0/activity.json",
