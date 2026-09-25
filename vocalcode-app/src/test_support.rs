@@ -122,6 +122,30 @@ fn retry(mut operation: impl FnMut() -> std::io::Result<()>) -> std::io::Result<
     }
 }
 
+/// The data-folder fixtures under `packaging/community/e2e`: the formats a
+/// paid VocalCode 1.2.1 and the early free build (1.4.0) wrote. The Windows
+/// end-to-end job points the same checks at the folders real installations
+/// left behind (see `packaging/community/e2e-windows.ps1`).
+pub(crate) fn e2e_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../packaging/community/e2e")
+        .join(name)
+}
+
+/// A plain copy of a fixture tree, so a check may write where the app would.
+pub(crate) fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), target).unwrap();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

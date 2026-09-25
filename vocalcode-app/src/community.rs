@@ -1,69 +1,71 @@
-//! Compile-time boundary between the existing paid distribution and a local,
-//! activation-free community edition. Never infer the edition from user data,
-//! an environment variable at runtime, or a WebView message.
+//! Compile-time boundary between the free, open-source build and the old
+//! paid build this code base can still produce for tests. Never infer the
+//! edition from user data, an environment variable at runtime, or a WebView
+//! message.
+//!
+//! There is one product, VocalCode. It installs with the identity the paid
+//! releases (up to 1.2.1) used: the same data folder, login item, bundle,
+//! installer registration and single-running-copy name. That is what lets a
+//! paid installation's own updater replace it in place with this free build,
+//! keeping the person's settings, dictionary, meetings and models where they
+//! are. The early free builds, published as "VocalCode Community" 1.3.1 and
+//! 1.4.0, had an identity of their own; [`early`] names it so this build can
+//! import from that folder and tell whether that app is still running.
 
 pub const ENABLED: bool = cfg!(feature = "community");
-pub const DATA_DIR_NAME: &str = if ENABLED {
-    "VocalCode Community"
-} else {
-    "VocalCode"
-};
+pub const DATA_DIR_NAME: &str = "VocalCode";
 #[cfg(any(test, windows))]
-pub const AUTOSTART_NAME: &str = if ENABLED {
-    "VocalCodeCommunity"
-} else {
-    "VocalCode"
-};
+pub const AUTOSTART_NAME: &str = "VocalCode";
 #[cfg(any(test, target_os = "macos"))]
-pub const BUNDLE_ID: &str = if ENABLED {
-    "app.vocalcode.Community"
-} else {
-    "app.vocalcode.VocalCode"
-};
+pub const BUNDLE_ID: &str = "app.vocalcode.VocalCode";
 #[cfg(any(test, target_os = "macos"))]
-pub const BUNDLE_NAME: &str = if ENABLED {
-    "VocalCode Community.app"
-} else {
-    "VocalCode.app"
-};
+pub const BUNDLE_NAME: &str = "VocalCode.app";
 #[cfg(any(test, target_os = "macos"))]
-pub const UPDATE_STEM: &str = if ENABLED {
-    ".VocalCodeCommunity-update"
-} else {
-    ".VocalCode-update"
-};
-pub const DATA_LOCK_NAME: &str = if ENABLED {
-    ".vocalcode-community-data-lifecycle.lock"
-} else {
-    ".vocalcode-data-lifecycle.lock"
-};
-pub const TRANSITION_LOCK_NAME: &str = if ENABLED {
-    ".vocalcode-community-data-transition.lock"
-} else {
-    ".vocalcode-data-transition.lock"
-};
+pub const UPDATE_STEM: &str = ".VocalCode-update";
+pub const DATA_LOCK_NAME: &str = ".vocalcode-data-lifecycle.lock";
+pub const TRANSITION_LOCK_NAME: &str = ".vocalcode-data-transition.lock";
 #[cfg(windows)]
-pub const INSTALLER_MUTEX: &str = if ENABLED {
-    r"Local\VocalCode.Community.Desktop"
-} else {
-    r"Local\VocalCode.Desktop"
-};
-pub const LABEL: &str = "Community — all local features, no activation";
-pub const ACTIVATION_NOTICE: &str = "Community edition needs no purchase or activation.";
+pub const INSTALLER_MUTEX: &str = r"Local\VocalCode.Desktop";
+/// Shown where the paid build showed its plan.
+pub const LABEL: &str = "Free and open source (AGPL-3.0)";
+pub const ACTIVATION_NOTICE: &str = "VocalCode is free: there is nothing to buy or activate.";
 pub const UPDATE_MANIFEST_URL: &str =
     "https://github.com/wudaming00/vocalcode-community/releases/latest/download/latest.json";
+
+/// The early free builds, "VocalCode Community" 1.3.1 and 1.4.0, exactly as
+/// they installed. Only for importing from that folder and for noticing that
+/// app: nothing here is ever written, and its data folder is only read.
+pub mod early {
+    pub const DATA_DIR_NAME: &str = "VocalCode Community";
+    #[cfg(any(test, windows))]
+    pub const AUTOSTART_NAME: &str = "VocalCodeCommunity";
+    #[cfg(any(test, windows))]
+    pub const EXECUTABLE: &str = "VocalCodeCommunity.exe";
+    #[cfg(any(test, windows))]
+    pub const MUTEX: &str = r"Local\VocalCode.Community.Desktop";
+    #[cfg(any(test, target_os = "macos"))]
+    pub const BUNDLE_ID: &str = "app.vocalcode.Community";
+}
 
 pub fn artifact_url(platform: &str, version: &str) -> Option<String> {
     crate::release_version(version)?;
     let file = match platform {
-        "windows" => "VocalCodeCommunitySetup.exe".to_string(),
-        "macos" => format!("VocalCodeCommunity-{version}.dmg"),
+        "windows" => "VocalCodeSetup.exe".to_string(),
+        "macos" => format!("VocalCode-{version}.dmg"),
         _ => return None,
     };
     Some(format!(
         "https://github.com/wudaming00/vocalcode-community/releases/download/v{version}/{file}"
     ))
 }
+
+/// Where GitHub may send a release download. The repository may later be
+/// renamed from `vocalcode-community` to `vocalcode`, and GitHub then
+/// redirects the old path to the new one, so both are accepted here.
+const RELEASE_PATHS: [&str; 2] = [
+    "/wudaming00/vocalcode-community/releases/",
+    "/wudaming00/vocalcode/releases/",
+];
 
 /// Redirects are a GitHub transport detail, not a new update authority.
 /// Publisher signatures, exact hashes/sizes and product identity are still
@@ -82,8 +84,9 @@ pub fn trusted_download_location(value: &str) -> bool {
     }
     match url.host_str() {
         Some("github.com") => {
-            url.path()
-                .starts_with("/wudaming00/vocalcode-community/releases/")
+            RELEASE_PATHS
+                .iter()
+                .any(|path| url.path().starts_with(path))
                 && url.query().is_none()
         }
         Some("release-assets.githubusercontent.com") => {
@@ -176,40 +179,72 @@ mod tests {
     }
 
     #[test]
-    fn community_updater_is_available_but_cannot_offer_paid_installers() {
+    fn updater_offers_only_the_free_release_assets() {
         for command in ["checkupdate", "update"] {
             assert!(blocked_ipc_for_edition(true, Some(command)).is_none());
         }
-        assert_eq!(artifact_url("windows", "1.3.1").unwrap(), "https://github.com/wudaming00/vocalcode-community/releases/download/v1.3.1/VocalCodeCommunitySetup.exe");
+        assert_eq!(
+            artifact_url("windows", "1.4.1").unwrap(),
+            "https://github.com/wudaming00/vocalcode-community/releases/download/v1.4.1/VocalCodeSetup.exe"
+        );
+        assert_eq!(
+            artifact_url("macos", "1.4.1").unwrap(),
+            "https://github.com/wudaming00/vocalcode-community/releases/download/v1.4.1/VocalCode-1.4.1.dmg"
+        );
         assert!(artifact_url("macos", "../evil").is_none());
         assert!(artifact_url("linux", "1.3.1").is_none());
     }
 
+    /// The identity the paid releases installed with, byte for byte. A paid
+    /// installation's updater replaces it in place only if these agree:
+    /// the same data folder, login item, bundle and running-copy name.
     #[test]
-    fn community_identity_is_separate() {
-        if ENABLED {
-            assert_ne!(DATA_DIR_NAME, "VocalCode");
-            assert_ne!(AUTOSTART_NAME, "VocalCode");
-            assert_ne!(BUNDLE_ID, "app.vocalcode.VocalCode");
-            assert_ne!(BUNDLE_NAME, "VocalCode.app");
-            assert_ne!(UPDATE_STEM, ".VocalCode-update");
-            assert_ne!(DATA_LOCK_NAME, ".vocalcode-data-lifecycle.lock");
-            assert_ne!(TRANSITION_LOCK_NAME, ".vocalcode-data-transition.lock");
-        }
+    fn identity_is_the_one_paid_installations_already_have() {
+        assert_eq!(DATA_DIR_NAME, "VocalCode");
+        assert_eq!(AUTOSTART_NAME, "VocalCode");
+        assert_eq!(BUNDLE_ID, "app.vocalcode.VocalCode");
+        assert_eq!(BUNDLE_NAME, "VocalCode.app");
+        assert_eq!(UPDATE_STEM, ".VocalCode-update");
+        assert_eq!(DATA_LOCK_NAME, ".vocalcode-data-lifecycle.lock");
+        assert_eq!(TRANSITION_LOCK_NAME, ".vocalcode-data-transition.lock");
+        #[cfg(windows)]
+        assert_eq!(INSTALLER_MUTEX, r"Local\VocalCode.Desktop");
+    }
+
+    #[test]
+    fn the_early_free_builds_keep_their_own_names() {
+        assert_eq!(early::DATA_DIR_NAME, "VocalCode Community");
+        assert_eq!(early::AUTOSTART_NAME, "VocalCodeCommunity");
+        assert_eq!(early::EXECUTABLE, "VocalCodeCommunity.exe");
+        assert_eq!(early::MUTEX, r"Local\VocalCode.Community.Desktop");
+        assert_eq!(early::BUNDLE_ID, "app.vocalcode.Community");
+        assert_ne!(early::DATA_DIR_NAME, DATA_DIR_NAME);
+        assert_ne!(early::AUTOSTART_NAME, AUTOSTART_NAME);
+        assert_ne!(early::BUNDLE_ID, BUNDLE_ID);
     }
 
     #[test]
     fn github_transport_rejects_untrusted_redirects() {
         assert!(trusted_download_location(UPDATE_MANIFEST_URL));
+        assert!(trusted_download_location(
+            &artifact_url("windows", "1.4.1").unwrap()
+        ));
+        // A later rename of the repository redirects here.
+        assert!(trusted_download_location(
+            "https://github.com/wudaming00/vocalcode/releases/download/v1.4.1/VocalCodeSetup.exe"
+        ));
         assert!(trusted_download_location("https://release-assets.githubusercontent.com/github-production-release-asset/1/2?signature=fixture"));
         for value in [
             "http://github.com/wudaming00/vocalcode-community/releases/",
             "https://github.com/other/project/releases/",
+            "https://github.com/wudaming00/vocalcode-other/releases/",
+            "https://github.com/wudaming00/vocalcode/archive/refs/heads/main.zip",
             "https://github.com.evil.example/wudaming00/vocalcode-community/releases/",
             "https://token@release-assets.githubusercontent.com/github-production-release-asset/1",
             "https://release-assets.githubusercontent.com:8080/github-production-release-asset/1",
             "https://release-assets.githubusercontent.com/other/path",
             "https://github.com/wudaming00/vocalcode-community/releases/#fragment",
+            "https://github.com/wudaming00/vocalcode/releases/?x=1",
         ] {
             assert!(!trusted_download_location(value), "{value}");
         }

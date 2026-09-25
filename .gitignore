@@ -32,6 +32,9 @@ vocalcode-trial.dat
 vocalcode-license.json
 replacements.txt
 *.wav
+# ...except the end-to-end data fixtures, which are test inputs.
+!packaging/community/e2e/**/vocalcode.toml
+!packaging/community/e2e/**/replacements.txt
 
 # OS / editor
 .DS_Store

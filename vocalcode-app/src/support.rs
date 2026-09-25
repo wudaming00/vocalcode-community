@@ -262,7 +262,7 @@ pub fn diagnostics_report(
 ) -> String {
     let mut report = format!(
         "VocalCode diagnostics\n\
-         Version: {} (community)\n\
+         Version: {}\n\
          OS: {} {}\n\
          Hardware: {}\n\
          Spoken language: {}\n\
@@ -512,19 +512,19 @@ mod tests {
         };
         let home = Path::new(r"C:\Users\Jane Doe");
         let lines = vec![
-            r"[t INFO vocalcode_app] VocalCode 1.4.0 starting — log at C:\Users\Jane Doe\AppData\Local\VocalCode Community\vocalcode.log".to_string(),
+            r"[t INFO vocalcode_app] VocalCode 1.4.0 starting — log at C:\Users\Jane Doe\AppData\Local\VocalCode\vocalcode.log".to_string(),
             "[t INFO vocalcode_app] model at C:/Users/Jane Doe/models".to_string(),
         ];
         let report = diagnostics_report(&facts, &lines, Some(home));
         for expected in [
-            "Version: 1.4.0 (community)",
+            "Version: 1.4.0",
             "OS: windows x86_64",
             "Hardware: 8 cores · 16 GB RAM · standard",
             "Spoken language: zh",
             "Model: SenseVoice (ready)",
             "Microphone: USB microphone",
             "Last 2 lines of vocalcode.log",
-            r"log at ~\AppData\Local\VocalCode Community\vocalcode.log",
+            r"log at ~\AppData\Local\VocalCode\vocalcode.log",
             "model at ~/models",
         ] {
             assert!(report.contains(expected), "{expected}\n{report}");

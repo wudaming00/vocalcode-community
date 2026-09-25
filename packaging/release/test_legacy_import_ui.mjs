@@ -49,7 +49,7 @@ function setup(language){
 }
 
 const found={available:true,path:'C:\\Users\\Ana\\AppData\\Local\\VocalCode',settings:true,profiles:'new',rules:42,snippets:2,meetings:5,meetings_present:0,meetings_in_progress:1,meetings_unreadable:0,
-  stats:{dictations:900,words:12000,days:40},stats_imported:false,models:{files:3,bytes:700*1048576,invalid:0,busy:0},problems:[],community_empty:true,answered:false,login:true};
+  stats:{dictations:900,words:12000,days:40},stats_imported:false,models:{files:3,bytes:700*1048576,invalid:0,busy:0},problems:[],this_empty:true,answered:false,login:true};
 
 test('a scan fills the checklist, leaves models opt-in and offers Home once',()=>{
   const f=setup();f.request('scan');
@@ -71,7 +71,7 @@ test('a scan fills the checklist, leaves models opt-in and offers Home once',()=
   assert.equal(f.node('legacyImport').disabled,false);
   assert.equal(f.node('legacyLoginOff').hidden,false);
 
-  for(const quiet of [{community_empty:false},{answered:true},{settings:false,profiles:null,rules:0,snippets:0,meetings:0,stats:null}]){
+  for(const quiet of [{this_empty:false},{answered:true},{settings:false,profiles:null,rules:0,snippets:0,meetings:0,stats:null}]){
     const g=setup();g.request('scan');g.receive('scan',{...found,...quiet});
     assert.equal(g.node('homeLegacy').hidden,true,JSON.stringify(quiet));
   }
@@ -91,7 +91,7 @@ test('the Home card names only what the previous folder has, with singular count
 
 test('an installation with its own setup keeps it unless Settings is ticked knowingly',()=>{
   const f=setup();f.request('scan');
-  f.receive('scan',{...found,community_empty:false,profiles:'kept'});
+  f.receive('scan',{...found,this_empty:false,profiles:'kept'});
   // Settings would replace what this person set up here: shown, never preselected.
   assert.equal(f.node('legacyPartSettings').checked,false);
   assert.equal(f.node('legacyPartSettings').disabled,false);
@@ -110,7 +110,7 @@ test('an installation with its own setup keeps it unless Settings is ticked know
   assert.doesNotMatch(f.node('legacyMessage').textContent,/settings/i);
 
   // Ticked on purpose: applied through the ordinary save, and said so.
-  const g=setup();g.request('scan');g.receive('scan',{...found,community_empty:false});
+  const g=setup();g.request('scan');g.receive('scan',{...found,this_empty:false});
   g.node('legacyPartSettings').checked=true;
   g.node('legacyImport').onclick();
   assert.equal(g.sent.at(-1).parts.settings,true);

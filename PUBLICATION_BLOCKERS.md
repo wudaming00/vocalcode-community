@@ -1,6 +1,6 @@
-# Community release validation and remaining limitations
+# Release validation and remaining limitations
 
-Source publication and the full community release workflow were authorized by
+Source publication and the full release workflow were authorized by
 the owner on 2026-09-22. Signed installers are published only by the gated
 [release workflow](.github/workflows/community-release.yml); check its actual
 run result and the [release assets](https://github.com/wudaming00/vocalcode-community/releases)
@@ -30,10 +30,14 @@ release remains source-only and is not the desktop installer.
 
 ## Implemented release safeguards
 
-- [x] Separate community installation, data, instance, autostart, updater and
-      update staging identities. No silent legacy migration or data deletion.
-- [x] Remove community Pro badges and paid activation flows; all local features
-      are available without an account or licence server.
+- [x] One product, VocalCode, installed with the paid releases' identity
+      (data folder, bundle, executable, login item, installer registration),
+      so their updater replaces them in place without moving or deleting data;
+      the early free builds are uninstalled with their data kept for import.
+      Checked end to end against the real paid 1.2.1 and Community 1.4.0
+      installers in CI.
+- [x] Remove Pro badges and paid activation flows; all features are available
+      without an account or licence server.
 - [x] Build without credentials, isolate signing in a protected environment,
       verify on fresh credential-free runners, and publish only after both OS
       verification jobs pass. Actions and Inno Setup are pinned.
@@ -70,5 +74,5 @@ build outputs. The public receipt-contract fixture is test data required by
 desktop client tests, not the payment service or a production signing key.
 
 These are maintainer release procedures, not additional restrictions on AGPL
-rights. Community support is best-effort; no legal or security certification
+rights. Support is best-effort; no legal or security certification
 or service-level agreement is implied.

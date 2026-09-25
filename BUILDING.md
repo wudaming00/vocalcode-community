@@ -1,4 +1,4 @@
-# Building and releasing VocalCode Community
+# Building and releasing VocalCode
 
 These instructions prepare an unsigned, local development build. They do not
 publish a release or bypass platform permissions. First-party desktop source
@@ -54,6 +54,7 @@ Input Monitoring, and relevant system-audio permissions still apply.
 cargo fmt --all -- --check
 cargo test --workspace --locked --features vocalcode-app/community
 cargo clippy --workspace --all-targets --locked --features vocalcode-app/community -- -D warnings
+cargo clippy --workspace --all-targets --locked --no-default-features -- -D warnings
 node --test packaging/community/test-community-ui.mjs
 node --test packaging/community/test-licensing.mjs
 node --test packaging/release/test_replay_metrics.mjs
@@ -84,18 +85,20 @@ These exercise layout, native window flags and programmatic IPC, not real mouse
 input, microphones, speech quality or cross-application text injection. Do not
 interpret hidden-window checks as completed end-to-end desktop acceptance.
 
-## Edition boundary
+## The free build
 
-The exported candidate defaults to `community`. In the original private
-repository this feature is opt-in, so preparing it cannot silently change the
-existing paid release. Community builds:
+VocalCode is free and open source. The `community` build feature, on by
+default, is that free build; without it the code base still compiles the old
+paid build, which is kept only so its tests keep passing and is never released.
+The free build:
 
-- allow all local workflows without a receipt or account;
-- skip trial/licence maintenance before device identification or user-data IO;
-- refuse purchase/activation/recovery commands and paid-channel update URLs;
-- use an independent GitHub Releases updater with publisher/edition verification;
-- build in release mode without a licence public-key environment variable;
-- preserve native input safety and the legacy updater's signature checks.
+- allows every workflow without a receipt, account or activation;
+- never reads licence, trial or time-anchor files and skips licence maintenance;
+- refuses purchase/activation/recovery commands and paid-channel update URLs;
+- updates from this repository's GitHub Releases with publisher and product
+  verification;
+- builds in release mode without a licence public-key environment variable;
+- keeps native input safety and the updater's signature checks.
 
 No production signing private key, payment credential, R2 credential, or
 licensing backend is required. Public receipt fixtures are test data, not
@@ -114,7 +117,7 @@ explicit Corresponding Source archive of the exact release commit.
 ## GitHub-hosted continuous integration
 
 Pushes to `main`, pull requests, and manual dispatches run the
-[Community checks workflow](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml).
+[Checks workflow](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml).
 It uses standard GitHub-hosted `windows-2025`, `macos-15` (Apple silicon), and
 `ubuntu-24.04` runners, not the maintainer's own machines. Windows/macOS jobs
 test, lint and build unsigned executables; the Linux job audits dependencies
@@ -125,6 +128,16 @@ push run on its exact commit. Third-party dependency builds are cached from
 `main` only, keyed on `Cargo.lock` and `rust-toolchain.toml`; workspace and
 vendored crates are always rebuilt.
 
+A further Windows job (`e2e-windows`) installs the real, signed paid
+VocalCode 1.2.1 and VocalCode Community 1.4.0 installers (sha-pinned, cached)
+on a disposable runner, gives them realistic data, and then installs this
+commit's unsigned `VocalCodeSetup.exe`: over the paid app exactly as that
+app's own updater runs it, and over the early free build. It checks the
+registration, program files, login items, that every seeded file (including
+licence-named decoys) is untouched, that the new build started and loads
+that data, and that uninstalling keeps it. See
+`packaging/community/e2e-windows.ps1`.
+
 Non-PR builds retain unsigned developer artifacts for three days. These are
 not signed installers or a macOS `.app` bundle. Keep runtime libraries next to
 the executable. No production secrets or code-signing keys are available to
@@ -134,16 +147,16 @@ artifact storage has separate limits.
 
 ## Signed releases and automatic updates
 
-The [Signed community release workflow](.github/workflows/community-release.yml)
+The [Signed release workflow](.github/workflows/community-release.yml)
 uses only GitHub-hosted runners. To release as the repository owner:
 
-1. Review and push the version/source change to `main`. Wait for **Community
-   checks** to pass on that exact commit.
-2. Dispatch **Signed community release** from `main`; set `publish` to `true`
+1. Review and push the version/source change to `main`. Wait for **Checks** to
+   pass on that exact commit.
+2. Dispatch **Signed release** from `main`; set `publish` to `true`
    to publish after all gates, or leave it off for a signing/install rehearsal.
    Packaging consumes the exact successful main CI run's commit-named binaries
    and rechecks native linkage. If its three-day artifacts have expired, rerun
-   Community checks on `main` first.
+   Checks on `main` first.
 3. Approve the `community-release` environment for signing. Windows app,
    uninstaller and installer are individually signed through Azure Artifact
    Signing. macOS app and DMG are signed, notarized and stapled using a temporary
@@ -151,6 +164,8 @@ uses only GitHub-hosted runners. To release as the repository owner:
 4. Fresh runners without signing credentials verify both packages. Windows
    installs, reinstalls the same version and uninstalls while checking preserved
    synthetic data; macOS verifies Gatekeeper, notarization and mounted identity.
+   Both check exactly what a paid VocalCode's updater checks before it runs
+   them (see below).
    Both execute `--build-info` to check native linkage without starting capture.
 5. Approve publication. Only then does a draft become a stable release, exposing
    both installers, exact source, checksums and `latest.json` together.
@@ -169,22 +184,58 @@ signing services and update channel; they cannot publish as the original project
 
 The updater checks this repository's `releases/latest/download/latest.json`.
 Bounded HTTPS redirects are restricted to GitHub release asset hosts; exact
-versioned download URLs, size, SHA-256 and OS publisher/edition identities are
-validated before installation. The legacy paid channel remains separate.
+versioned download URLs, size, SHA-256 and OS publisher/product identities are
+validated before installation.
+
+### Paid installations
+
+The paid releases (up to 1.2.1) read `https://vocalcode.app/latest.json`. They
+offer an update only if it is newer, the licence is valid or the trial active,
+and the URL is exactly `https://vocalcode.app/VocalCodeSetup.exe` (Windows) or
+`https://vocalcode.app/VocalCode-<version>.dmg` (macOS), with the lowercase
+SHA-256 and size of that file. Before running it they require:
+
+- Windows: Authenticode status `Valid`, signer exactly
+  `CN=Daming Wu, O=Daming Wu, L=Newberry, S=FL, C=US`, ProductVersion equal to
+  the version (a trailing `.0` allowed), ProductName `VocalCode`,
+  OriginalFilename `VocalCodeSetup.exe`. The installer then runs with
+  `/VERYSILENT /SUPPRESSMSGBOXES /NOCANCEL /NORESTART` and the app restarts
+  `{app}\VocalCode.exe`.
+- macOS: the DMG signed by Team `58Y98W3QQK` and notarized, `VocalCode.app` at
+  its root with bundle identifier `app.vocalcode.VocalCode`, a designated
+  requirement naming that identifier and team, and
+  `CFBundleShortVersionString` equal to the version. The app swaps its own
+  bundle for it and relaunches `Contents/MacOS/VocalCode`.
+
+The release's `VocalCodeSetup.exe` and `VocalCode-<version>.dmg` are built to
+pass exactly these checks, so the website only has to serve those same bytes
+under those names and list their SHA-256 and size.
 
 These checks do not establish real microphone quality, meeting echo performance,
 all OS permission flows, or a cross-version data migration. Those require
 device testing; see [validation scope](PUBLICATION_BLOCKERS.md).
 
-## Data isolation and models
+## Data and models
 
-Community data lives in `%LOCALAPPDATA%\VocalCode Community` on Windows and
-`~/Library/Application Support/VocalCode Community` on macOS. The bundle ID is
-`app.vocalcode.Community`; instance, autostart and update staging identities are
-also edition-specific. Legacy data is not automatically migrated or deleted.
-Close any other VocalCode edition before use to avoid competing global hooks.
-Building and running non-ignored unit tests does not install the app or replace
-user data. Installer smoke tests refuse to run outside disposable hosted CI.
+VocalCode keeps its data in `%LOCALAPPDATA%\VocalCode` on Windows and
+`~/Library/Application Support/VocalCode` on macOS, the folders the paid
+releases used, with the same bundle ID (`app.vocalcode.VocalCode`), executable
+(`VocalCode.exe`), login item (`VocalCode`), running-copy mutex
+(`Local\VocalCode.Desktop`) and installer registration (`VocalCode_is1`). A
+paid installation that updates therefore keeps everything in place; the free
+build ignores the paid licence, trial and time-anchor files and never opens
+them. The installer overwrites the paid uninstall log, so uninstalling
+VocalCode later keeps the data folder (the paid uninstaller purged it).
+
+The early free builds (VocalCode Community 1.3.1 and 1.4.0) used their own
+names (`VocalCode Community`, `app.vocalcode.Community`,
+`VocalCodeCommunity.exe`). The Windows installer runs that app's uninstaller,
+which keeps its data folder; **Settings → System → Previous VocalCode** copies
+from it. Don't run two copies at once: each hooks the talk key.
+
+Unit tests never touch those locations: a test build keeps its data folder in
+a temporary directory and never writes the login item. Installer and
+end-to-end tests refuse to run outside disposable hosted CI.
 
 The small Silero VAD artifact is bundled with its MIT notice and pinned hash.
 Recognition model weights are not in this source snapshot. The app downloads

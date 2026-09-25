@@ -12,6 +12,7 @@
 *.rs text eol=lf
 *.toml text eol=lf
 *.json text eol=lf
+*.jsonl text eol=lf
 *.lock text eol=lf
 *.html text eol=lf
 *.svg text eol=lf

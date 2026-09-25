@@ -20,13 +20,13 @@
 
 <p align="center">Maintained by <a href="https://github.com/wudaming00">Daming Wu</a> · <a href="LICENSE">AGPL-3.0-only</a></p>
 
-> **Free community edition, with all local features and no activation.**
+> **VocalCode is free and open source (AGPL-3.0): every feature, no account, no activation.**
 > [Downloads and release status](https://github.com/wudaming00/vocalcode-community/releases)
 > include signed Windows installers and notarized Apple-silicon DMGs only after
 > the release checks pass. Tags named `source-preview-*` contain source only.
 > See [validation scope and limitations](PUBLICATION_BLOCKERS.md).
 
-[![Community checks](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml/badge.svg)](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml)
+[![Checks](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml/badge.svg)](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml)
 
 ## Why I'm building this
 
@@ -84,9 +84,9 @@ not been published as a new release by this work. See the
 ## Install or build
 
 Open [Releases](https://github.com/wudaming00/vocalcode-community/releases) and choose
-a stable `v*` release: `VocalCodeCommunitySetup.exe` for Windows x64 or
-`VocalCodeCommunity-<version>.dmg` for Apple-silicon macOS. Each includes matching
-source and SHA-256 checksums. On macOS, drag **VocalCode Community.app** to Applications.
+a stable `v*` release: `VocalCodeSetup.exe` for Windows x64 or
+`VocalCode-<version>.dmg` for Apple-silicon macOS. Each includes matching
+source and SHA-256 checksums. On macOS, drag **VocalCode.app** to Applications.
 
 Install the native prerequisites in [BUILDING.md](BUILDING.md), then:
 
@@ -97,13 +97,17 @@ cargo build -p vocalcode-app --release --locked --features community
 ```
 
 No payment account, activation code, or operator credential is required.
-This repository enables `community` by default; the explicit flag
-makes the intended edition clear.
+The `community` build feature (on by default) is the free build; the explicit
+flag only makes that clear.
 
-The community edition has its own installation, data directory, instance identity,
-autostart entry, and update channel. It does not migrate or remove legacy data.
-Close the other edition before use to avoid competing global input hooks.
-Dictionary/snippet import is explicit; back up data before any manual migration.
+**Coming from an earlier VocalCode.** VocalCode installs where the paid
+VocalCode releases (1.2.1 and earlier) did and uses the same data folder, so
+installing it over one of them replaces that app in place and keeps its
+settings, dictionary, meetings and downloaded models; nothing needs importing.
+The early free builds, VocalCode Community 1.3.1 and 1.4.0, had their own
+installation: the Windows installer uninstalls that app and keeps its data
+folder, and **Settings → System → Previous VocalCode** copies what you choose
+from it. Don't run two copies at once: each would type every dictation.
 
 ## Getting started
 
@@ -142,7 +146,7 @@ connections the app makes:
 | When | Connects to | What is sent |
 | --- | --- | --- |
 | A speech model (or its punctuation model) is first needed | `models.vocalcode.app` | Requests for pinned model files. Each file's size and SHA-256 are checked before use. |
-| At startup, every 6 hours, and when you press **Check now** | GitHub Releases of this repository | A request for `latest.json`. An installer is downloaded from GitHub only after you choose **Update**, and its size, SHA-256, publisher and edition are verified before it runs. |
+| At startup, every 6 hours, and when you press **Check now** | GitHub Releases of this repository | A request for `latest.json`. An installer is downloaded from GitHub only after you choose **Update**, and its size, SHA-256, publisher and product name are verified before it runs. |
 | Only if you connect **Upcoming calendar meetings** (Beta) | Google (`accounts.google.com`, `oauth2.googleapis.com`, `www.googleapis.com`) | Your Google sign-in and read-only requests for upcoming event metadata, directly between this device and Google. Audio and notes are never sent. |
 | Only if you use the [rewrite scratchpad](docs/SMART-REWRITE.md) with **Ollama** | `127.0.0.1:11434` on this computer | The text you put in the scratchpad, to your own local Ollama. It does not leave the device. |
 | Only if you choose **Claude Code** in the scratchpad and consent for that request | Whatever service your Claude Code CLI is configured for | The source text of that one request, through the separately installed CLI. Its service, account policies and logging are a separate trust boundary; a locally installed CLI is not local inference. Codex is detected only, not used. |
@@ -181,13 +185,16 @@ their own licences, independent of the client source licence.
 - Progressive typing is experimental: it inserts stable segments, not a
   continuously rewritten live hypothesis.
 - Meeting detection is advisory, not proof that a call has started or ended.
-- Linux packaging is not provided. Legacy paid builds do not automatically
-  switch to this community channel.
+- Linux packaging is not provided.
+- A paid VocalCode release offers updates in the app only while its licence or
+  trial is active; otherwise install this release over it from Releases. The
+  early free builds (VocalCode Community 1.3.1 and 1.4.0) cannot update to
+  this release in the app: download it from Releases once.
 
 ## Project layout
 
 ```text
-vocalcode-app/       Desktop UI, workflows, model management, community policy
+vocalcode-app/       Desktop UI, workflows, model management, free-build policy
 vocalcode-core/      Portable engine, configuration, and text processing
 vocalcode-platform/ Native audio, focus checks, and input delivery
 vocalcode-meeting/  Meeting storage, segmentation, echo handling, and export
@@ -208,7 +215,7 @@ See [LICENSE](LICENSE), [licensing scope](LICENSING.md), and
 [brand guidance](BRANDING.md). Models and other third-party components retain
 their own licences.
 
-Community support is best-effort, with no promised response time, fix date,
+Support is best-effort, with no promised response time, fix date,
 or service-level agreement. Existing purchases are a separate matter; this
 source preparation does not announce a change to their terms. Never put
 private recordings, credentials, or security exploits in a public issue.

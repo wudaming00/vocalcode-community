@@ -1,4 +1,4 @@
-name: Community checks
+name: Checks
 on:
   pull_request:
   push:
@@ -129,6 +129,32 @@ jobs:
           ./packaging/community/windows.ps1 -Mode Tools
           & (Join-Path $env:RUNNER_TEMP 'community-inno\ISCC.exe') /Qp packaging/community/windows.iss
           if ($LASTEXITCODE -ne 0) { throw 'Unsigned installer compilation failed' }
+      - name: Stage the end-to-end inputs (the unsigned installer and the unit-test binary)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The same flags as "Workspace tests", so nothing is rebuilt.
+          $lines = cargo test --workspace --all-targets --locked --features vocalcode-app/community --no-run --message-format=json
+          if ($LASTEXITCODE -ne 0) { throw 'cargo test --no-run failed' }
+          $exe = @($lines | Where-Object { $_.StartsWith('{') } | ForEach-Object { $_ | ConvertFrom-Json } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'vocalcode-app' -and $_.profile.test -and $_.target.kind -contains 'bin' } |
+            ForEach-Object { $_.executable } | Select-Object -Unique)
+          if ($exe.Count -ne 1) { throw "Expected one vocalcode-app unit-test binary, found $($exe.Count)" }
+          $stage = Join-Path $env:RUNNER_TEMP 'e2e-inputs'
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item -LiteralPath $exe[0] -Destination (Join-Path $stage 'vocalcode-app-tests.exe')
+          foreach ($dll in @('onnxruntime.dll', 'onnxruntime_providers_shared.dll', 'sherpa-onnx-c-api.dll', 'sherpa-onnx-cxx-api.dll')) {
+            Copy-Item -LiteralPath (Join-Path 'target/debug' $dll) -Destination $stage
+          }
+          Copy-Item -LiteralPath 'dist-community/artifacts/VocalCodeSetup.exe' -Destination $stage
+      - name: Keep the end-to-end inputs for the next job
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e2e-windows-inputs
+          path: ${{ runner.temp }}/e2e-inputs/
+          retention-days: 1
+          if-no-files-found: error
       - name: Validate macOS bundle, architecture and actual native linkage without credentials
         if: runner.os == 'macOS'
         run: python packaging/community/release.py build-macos
@@ -149,3 +175,49 @@ jobs:
             BUILDING.md
             THIRD-PARTY-NOTICES.txt
             THIRD-PARTY-LICENSES/
+  # A paid VocalCode updates to this build through its own in-app updater, and
+  # the early free build is replaced, on a disposable hosted runner with the
+  # real signed installers of those releases (sha-pinned). See
+  # packaging/community/e2e-windows.ps1.
+  e2e-windows:
+    needs: test
+    runs-on: windows-2025
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.14.4'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: e2e-windows-inputs
+          path: ${{ runner.temp }}/e2e-inputs
+      - name: Cache the pinned earlier installers
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/vocalcode-e2e-downloads
+          key: vocalcode-e2e-installers-2ba1b7b36be74ae3819b5eec2e8a217dbbfbac2a44e0232d01f325e91028cb1a-55b49f79ae74c96a5be04fbe6a351bf2068f75b40de36056cbd02b9aacd1c6cd
+      - name: A paid VocalCode 1.2.1 updates in place through its own updater
+        shell: pwsh
+        run: >-
+          ./packaging/community/e2e-windows.ps1 -Scenario Paid
+          -Installer "$env:RUNNER_TEMP/e2e-inputs/VocalCodeSetup.exe"
+          -TestExe "$env:RUNNER_TEMP/e2e-inputs/vocalcode-app-tests.exe"
+          -Downloads "$env:RUNNER_TEMP/vocalcode-e2e-downloads"
+      - name: VocalCode Community 1.4.0 is replaced and its data stays importable
+        shell: pwsh
+        run: >-
+          ./packaging/community/e2e-windows.ps1 -Scenario Early
+          -Installer "$env:RUNNER_TEMP/e2e-inputs/VocalCodeSetup.exe"
+          -TestExe "$env:RUNNER_TEMP/e2e-inputs/vocalcode-app-tests.exe"
+          -Downloads "$env:RUNNER_TEMP/vocalcode-e2e-downloads"
+      - name: Keep the installer logs (paths and steps only)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e2e-windows-logs
+          path: ${{ runner.temp }}/vocalcode-e2e-*/*.log
+          retention-days: 7
+          if-no-files-found: ignore

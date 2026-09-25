@@ -1,0 +1,25 @@
+teach = []
+min_record_ms = 250
+paste_insert = false
+correction_window_ms = 8000
+live_caption = false
+cue_sounds = false
+model = "sensevoice"
+language = "zh"
+autostart = true
+smart_meeting_reminders = true
+ignored_meeting_apps = []
+ui_lang = "zh"
+talk_mode = "toggle"
+overlay_style = "classic"
+onboarded = true
+config_version = 4
+
+[[talk]]
+mouse_button = "x2"
+
+[[talk]]
+key = "F9"
+
+[[send]]
+mouse_button = "x1"

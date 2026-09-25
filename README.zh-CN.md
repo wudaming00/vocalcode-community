@@ -6,12 +6,12 @@
 <p align="center"><a href="README.md">English</a> · 简体中文</p>
 <p align="center">维护者：<a href="https://github.com/wudaming00">Daming Wu</a> · <a href="LICENSE">AGPL-3.0-only</a> · <a href="MAINTAINERS.md">联系与参与</a></p>
 
-> **免费社区版：全部本地功能，无需激活。** 自有桌面源码采用 AGPL-3.0-only。
+> **VocalCode 免费且开源（AGPL-3.0）：全部功能，无需账户，无需激活。**
 > [下载与发布状态](https://github.com/wudaming00/vocalcode-community/releases)：
 > Windows 签名安装包与 Apple-silicon macOS 公证安装包只有通过发布检查后才会公开。
 > `source-preview-*` 标签仅有源码。详见 [验证范围与局限](PUBLICATION_BLOCKERS.md)。
 
-[![Community checks](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml/badge.svg)](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml)
+[![Checks](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml/badge.svg)](https://github.com/wudaming00/vocalcode-community/actions/workflows/community-ci.yml)
 
 ## 我是谁，为什么做这个
 
@@ -33,7 +33,7 @@
 - **找回未成功输入的文字**：历史记录在本机加密保留最近的听写（关闭 / 24 小时 / 7 天）；没能输入出去的文字会一直留到退出为止。本地诊断另有独立的容量控制与导出。
 - **选择适合的模型**：支持不同语言的本地模型路线，不要求独立显卡。
 
-社区构建开放全部本地功能，无需账户、付费或激活码。录音仍须你确认并取得参与者许可。
+VocalCode 开放全部功能，无需账户、付费或激活码。录音仍须你确认并取得参与者许可。
 
 ### 新安装的默认设置
 
@@ -55,8 +55,8 @@
 ## 安装或自行构建
 
 打开 [Releases](https://github.com/wudaming00/vocalcode-community/releases)，选择稳定的 `v*` 版本。
-Windows x64 下载 `VocalCodeCommunitySetup.exe`；Apple 芯片 Mac 下载
-`VocalCodeCommunity-<版本>.dmg`，将 **VocalCode Community.app** 拖到 Applications。
+Windows x64 下载 `VocalCodeSetup.exe`；Apple 芯片 Mac 下载
+`VocalCode-<版本>.dmg`，将 **VocalCode.app** 拖到 Applications。
 同页提供与安装包对应的源码及 SHA-256 校验文件。
 
 先按 [构建文档](BUILDING.md) 安装 Rust、原生编译工具及运行环境，再执行：
@@ -67,9 +67,13 @@ cd vocalcode-community
 cargo build -p vocalcode-app --release --locked --features community
 ```
 
-本仓库默认开启社区模式。社区版拥有独立的安装目录、数据目录、自启动标识和更新通道，
-不会覆盖、删除或自动迁移旧版数据。使用时请退出另一版本，避免全局快捷键竞争。
-词典与片段可手动导入；手动迁移前请备份。
+`community` 构建选项（默认开启）即免费版本，显式写出只是为了清楚。
+
+**从旧版 VocalCode 过来。** VocalCode 安装在付费版（1.2.1 及更早）原来的位置，并使用同一个数据
+文件夹，所以装在付费版上面会原地替换它，设置、词典、会议记录和已下载的模型都原样保留，无需导入。
+早期免费版 VocalCode Community 1.3.1 和 1.4.0 是单独安装的：Windows 安装程序会卸载它并保留它的
+数据文件夹，在 **设置 → 系统 → 旧版 VocalCode** 里可以选择要复制过来的内容。
+不要同时运行两个副本，否则每次听写都会被输入两遍。
 
 ## 开始使用
 
@@ -94,9 +98,10 @@ cargo build -p vocalcode-app --release --locked --features community
 ## 隐私与真实边界
 
 识别模型下载完成后，语音识别和会议音频处理在设备本地运行，这些处理流程不上传音频或转写。
-模型下载需要网络；用户明确配置的外部日历等集成也可能访问网络。社区版不请求激活、试用验证
-或付款，只检查 GitHub Releases 的社区版更新；安装前校验大小、SHA-256、签名发布者及版本身份，
-不会更新回付费版。旧付费版也不会自动切换到社区版。
+模型下载需要网络；用户明确配置的外部日历等集成也可能访问网络。VocalCode 不请求激活、试用验证
+或付款，只检查本仓库 GitHub Releases 的更新；安装前校验大小、SHA-256、签名发布者及产品身份。
+付费版只有在授权或试用仍有效时才会在应用内提示更新，否则请从 Releases 下载安装包直接覆盖安装；
+早期免费版（VocalCode Community 1.3.1、1.4.0）无法在应用内更新到本版本，请从 Releases 下载一次。
 
 开发中的[智能改写草稿](docs/SMART-REWRITE.md)默认使用本地 Ollama；可选 Claude Code CLI
 必须逐次确认，才会把你明确放入草稿的原文交给该 CLI，可能联网并消耗额度。
@@ -105,7 +110,7 @@ cargo build -p vocalcode-app --release --locked --features community
 
 多人同时说话和扬声器回声仍可能影响会议准确率。渐进输入是实验功能，语言模型支持列表也不等于
 每一种语言都经过完整的母语者测试。GitHub Actions 的 Windows/macOS 构建不能替代干净环境、
-真实录音设备及系统权限验证。社区版不要求购买、激活或在线授权验证。
+真实录音设备及系统权限验证。VocalCode 不要求购买、激活或在线授权验证。
 
 ## 参与与许可证
 
@@ -117,5 +122,5 @@ VocalCode 自有桌面源码采用 **AGPL-3.0-only**，允许符合条款的商�
 软件就需要公开。详见 [许可证正文](LICENSE)、[许可范围](LICENSING.md) 和 [品牌说明](BRANDING.md)。
 模型、原生库及其他第三方组件保留各自许可证，详见 [第三方声明](THIRD-PARTY-NOTICES.txt)。
 
-社区支持以维护者和贡献者可投入的时间为限，不承诺响应时限、修复日期或 SLA。这不代表对既有付费
+支持以维护者和贡献者可投入的时间为限，不承诺响应时限、修复日期或 SLA。这不代表对既有付费
 购买条款作出变更。公开反馈中不要上传私人录音、凭证或尚未修复漏洞的敏感细节。

@@ -296,14 +296,29 @@ fn macos_application_support() -> PathBuf {
         })
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(target_os = "macos", not(test)))]
 fn raw_data_dir() -> PathBuf {
     macos_application_support().join(crate::community::DATA_DIR_NAME)
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn raw_data_dir() -> PathBuf {
     windows_local_app_data().join(crate::community::DATA_DIR_NAME)
+}
+
+/// Unit tests run on developers' own machines, where the folder named above
+/// holds the installed VocalCode's real data (the paid releases used the same
+/// name). A test build keeps every data location, and the lifecycle locks
+/// beside it, under a private temporary root instead.
+#[cfg(all(any(target_os = "macos", windows), test))]
+fn raw_data_dir() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::temp_dir()
+            .join(format!("vocalcode-unit-test-data-{}", std::process::id()))
+            .join(crate::community::DATA_DIR_NAME)
+    })
+    .clone()
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -311,25 +326,23 @@ fn raw_data_dir() -> PathBuf {
     exe_dir()
 }
 
-/// Folder name of the paid edition's data, beside the community one.
-pub(crate) const PREVIOUS_EDITION_DATA_DIR_NAME: &str = "VocalCode";
-
-/// Where the previous (paid) VocalCode kept its data, for the explicit,
-/// copy-only import in Settings. Resolved from the same OS known folder as
-/// this edition's own data, never from an environment variable. `None` in a
-/// build that *is* that edition, and on platforms it never shipped for. The
-/// path is not created or checked here; the importer opens it read-only.
+/// Where the early free builds ("VocalCode Community" 1.3.1 and 1.4.0) kept
+/// their data, for the explicit, copy-only import in Settings. Resolved from
+/// the same OS known folder as this build's own data, never from an
+/// environment variable. `None` in the old paid build, which never had one,
+/// and on platforms that build never shipped for. The path is not created or
+/// checked here; the importer opens it read-only.
 pub(crate) fn previous_edition_data_dir() -> Option<PathBuf> {
     if !crate::community::ENABLED {
         return None;
     }
     #[cfg(windows)]
     {
-        Some(windows_local_app_data().join(PREVIOUS_EDITION_DATA_DIR_NAME))
+        Some(windows_local_app_data().join(crate::community::early::DATA_DIR_NAME))
     }
     #[cfg(target_os = "macos")]
     {
-        Some(macos_application_support().join(PREVIOUS_EDITION_DATA_DIR_NAME))
+        Some(macos_application_support().join(crate::community::early::DATA_DIR_NAME))
     }
     #[cfg(not(any(windows, target_os = "macos")))]
     {
@@ -580,17 +593,18 @@ fn windows_local_app_data() -> PathBuf {
     local
 }
 
+/// What VocalCode kept beside its executable before 0.5.2 and moves into the
+/// data folder once. The free build moves the same user data, so someone
+/// updating straight from such an old paid release keeps their settings,
+/// dictionary and models, but never the paid licence, trial or time-anchor
+/// files: it has no use for them and must not read them. Those stay where
+/// they are.
 #[cfg(windows)]
 fn is_legacy_data_entry(name: &str) -> bool {
     matches!(
         name,
         "models"
             | "vocalcode.toml"
-            | "vocalcode-trial.dat"
-            | "vocalcode-time-anchor.bin"
-            | "vocalcode-time-anchor.json"
-            | "vocalcode-license.json"
-            | "vocalcode-license.legacy.json"
             | "replacements.txt"
             | "totals.json"
             | "vocalcode.log"
@@ -598,6 +612,19 @@ fn is_legacy_data_entry(name: &str) -> bool {
     ) || name.starts_with("vocalcode.toml.invalid-")
         || name.starts_with("replacements.txt.invalid-")
         || name.starts_with("totals.json.invalid-")
+        || (!crate::community::ENABLED && is_legacy_licence_entry(name))
+}
+
+#[cfg(windows)]
+fn is_legacy_licence_entry(name: &str) -> bool {
+    matches!(
+        name,
+        "vocalcode-trial.dat"
+            | "vocalcode-time-anchor.bin"
+            | "vocalcode-time-anchor.json"
+            | "vocalcode-license.json"
+            | "vocalcode-license.legacy.json"
+    )
 }
 
 #[cfg(windows)]
@@ -1309,6 +1336,8 @@ fn recover_source_migration_stages(legacy: &Path, destination: &Path) {
             if is_link_or_reparse(&metadata) || !metadata.is_dir() {
                 return Err(reparse_error(&stage));
             }
+            // Refuses a stage for any name this build does not migrate, such
+            // as a paid build's licence file: that stage is left unopened.
             let name = read_migration_manifest(&stage)?;
             let payload = stage.join("payload");
             if !payload.exists() {
@@ -1501,7 +1530,11 @@ fn enter_data_lifecycle_with(wait: LifecycleLockWait) -> std::io::Result<DataLif
     #[cfg(windows)]
     {
         let legacy = exe_dir();
-        if !crate::community::ENABLED && windows_migration_work_needed(&legacy, &destination) {
+        // The free build installs where the paid one did and uses the same
+        // data folder, so it finishes the paid build's move of pre-0.5.2 data
+        // out of the program folder too (without the licence files, see
+        // `is_legacy_data_entry`).
+        if windows_migration_work_needed(&legacy, &destination) {
             drop(shared);
             let exclusive = lock_data_lifecycle_exclusive_raw_with(wait)?;
             // A process ahead of us may have completed the move while this one
@@ -1577,14 +1610,23 @@ mod tests {
             std::fs::read(data.join("models/model-a/model.onnx")).unwrap(),
             b"model"
         );
-        assert_eq!(
-            std::fs::read(data.join("vocalcode-time-anchor.bin")).unwrap(),
-            b"dpapi"
-        );
-        assert_eq!(
-            std::fs::read(data.join("vocalcode-time-anchor.json")).unwrap(),
-            b"legacy"
-        );
+        // The paid build moved its licence files too; the free build leaves
+        // them in place and never opens them.
+        if crate::community::ENABLED {
+            for name in ["vocalcode-time-anchor.bin", "vocalcode-time-anchor.json"] {
+                assert!(legacy.join(name).is_file(), "{name}");
+                assert!(!data.join(name).exists(), "{name}");
+            }
+        } else {
+            assert_eq!(
+                std::fs::read(data.join("vocalcode-time-anchor.bin")).unwrap(),
+                b"dpapi"
+            );
+            assert_eq!(
+                std::fs::read(data.join("vocalcode-time-anchor.json")).unwrap(),
+                b"legacy"
+            );
+        }
         assert!(legacy.join("VocalCode.exe").exists());
         assert!(legacy.join("unins000.exe").exists());
         assert!(!data.join("VocalCode.exe").exists());

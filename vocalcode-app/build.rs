@@ -41,29 +41,12 @@ fn main() {
     {
         let mut res = winresource::WindowsResource::new();
         res.set_icon("vocalcode.ico");
-        let product = if community {
-            "VocalCode Community"
-        } else {
-            "VocalCode"
-        };
-        res.set("FileDescription", product);
-        res.set("ProductName", product);
-        res.set(
-            "InternalName",
-            if community {
-                "VocalCodeCommunity"
-            } else {
-                "VocalCode"
-            },
-        );
-        res.set(
-            "OriginalFilename",
-            if community {
-                "VocalCodeCommunity.exe"
-            } else {
-                "VocalCode.exe"
-            },
-        );
+        // One product in both builds: the same names the paid releases'
+        // VocalCode.exe carried, since the free build now installs over it.
+        res.set("FileDescription", "VocalCode");
+        res.set("ProductName", "VocalCode");
+        res.set("InternalName", "VocalCode");
+        res.set("OriginalFilename", "VocalCode.exe");
         if let Err(error) = res.compile() {
             if std::env::var("PROFILE").as_deref() == Ok("release") {
                 panic!("release requires a working Windows resource toolchain: {error}");

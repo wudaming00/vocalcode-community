@@ -4507,9 +4507,18 @@ fn core_summary(profile: vocalcode_platform::HardwareProfile) -> String {
     }
 }
 
+/// A unit test that reached the login item would change the installed
+/// VocalCode's own: the paid releases registered the same Run value and
+/// LaunchAgent. Tests never change it; they inject their own steps instead.
+#[cfg(any(windows, target_os = "macos"))]
+const TEST_LOGIN_ITEM_REFUSAL: &str = "unit tests never change the real login item";
+
 /// Enable/disable "launch at login" via the per-user Run registry key.
 #[cfg(windows)]
 pub(crate) fn set_autostart(enabled: bool) -> Result<(), String> {
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
+    }
     if enabled {
         let exe = std::env::current_exe()
             .map(|p| p.to_string_lossy().into_owned())
@@ -4522,11 +4531,8 @@ pub(crate) fn set_autostart(enabled: bool) -> Result<(), String> {
         delete_windows_autostart_value()?;
     }
 
-    // A community build must never remove the paid edition's startup shortcut.
-    if crate::community::ENABLED {
-        return Ok(());
-    }
-    // Migrate the shortcut written by installers through 0.4.19.  Otherwise
+    // Migrate the shortcut written by installers through 0.4.19 (the free
+    // build installs over those releases, so it is this app's too).  Otherwise
     // switching the setting off removes only the Run entry and VocalCode still
     // launches from Startup; switching it on creates two instances.
     match windows_startup_directory() {
@@ -4596,6 +4602,9 @@ fn windows_startup_directory() -> Result<PathBuf, String> {
 
 #[cfg(windows)]
 fn write_windows_autostart_value(command: &str) -> Result<(), String> {
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
+    }
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_CURRENT_USER, KEY_SET_VALUE,
@@ -4677,6 +4686,9 @@ fn delete_windows_autostart_value() -> Result<(), String> {
 
 #[cfg(windows)]
 fn delete_windows_run_value(name: &str) -> Result<(), String> {
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
+    }
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND};
     use windows_sys::Win32::System::Registry::{RegDeleteKeyValueW, HKEY_CURRENT_USER};
@@ -4777,9 +4789,6 @@ pub(crate) fn autostart_enabled() -> bool {
             // not an enabled setting for this copy of VocalCode.
             configured.eq_ignore_ascii_case(&exe.to_string_lossy())
         });
-    if crate::community::ENABLED {
-        return run_matches;
-    }
     let legacy_exists = match windows_startup_directory() {
         Ok(startup) => startup.join("VocalCode.lnk").is_file(),
         Err(error) => {
@@ -4793,12 +4802,13 @@ pub(crate) fn autostart_enabled() -> bool {
     run_matches || legacy_exists
 }
 
-/// The paid edition's Run value name and executable. The community edition's
-/// own entry is `AUTOSTART_NAME` and is never touched by the functions below.
+/// The early free build's Run value name and executable ("VocalCode
+/// Community" 1.3.1 and 1.4.0). This app's own entry is `AUTOSTART_NAME` and
+/// is never touched by the functions below.
 #[cfg(windows)]
-const PREVIOUS_AUTOSTART_NAME: &str = "VocalCode";
+const PREVIOUS_AUTOSTART_NAME: &str = crate::community::early::AUTOSTART_NAME;
 #[cfg(windows)]
-const PREVIOUS_EXECUTABLE: &str = "VocalCode.exe";
+const PREVIOUS_EXECUTABLE: &str = crate::community::early::EXECUTABLE;
 
 /// Whether a Run command line starts the previous edition's executable. A
 /// value with the same name that launches anything else is somebody else's.
@@ -4825,14 +4835,17 @@ fn run_command_starts(command: &str, executable: &str) -> bool {
             None => return false,
         }
     };
-    Path::new(program.trim())
-        .file_name()
-        .and_then(|name| name.to_str())
+    // A Windows command line, read the same way on every host (the unit test
+    // also runs on macOS, where `Path` would not split on backslashes).
+    program
+        .trim()
+        .rsplit(['\\', '/'])
+        .next()
         .is_some_and(|name| name.eq_ignore_ascii_case(executable))
 }
 
-/// Whether the previous VocalCode is set to start at login: its Run value
-/// pointing at its executable, or its pre-0.4.20 Startup shortcut.
+/// Whether the early free build is set to start at login: its Run value
+/// pointing at its executable. It never made a Startup shortcut.
 #[cfg(windows)]
 pub(crate) fn previous_edition_autostart() -> bool {
     if !crate::community::ENABLED {
@@ -4840,17 +4853,20 @@ pub(crate) fn previous_edition_autostart() -> bool {
     }
     query_windows_run_value(PREVIOUS_AUTOSTART_NAME)
         .is_some_and(|command| run_command_starts(&command, PREVIOUS_EXECUTABLE))
-        || windows_startup_directory().is_ok_and(|startup| startup.join("VocalCode.lnk").is_file())
 }
 
-/// Stop the previous VocalCode from starting at login, on an explicit click
-/// only: never automatically, at startup or from an installer. Its Run value
-/// is removed only when it launches `VocalCode.exe`; its old Startup shortcut
-/// by name, exactly as that edition's own settings did when turned off.
+/// Stop the early free build from starting at login, on an explicit click
+/// only: never automatically or at startup. (Its own uninstaller, which the
+/// VocalCode installer runs, removes the same value.) Its Run value is
+/// removed only when it launches `VocalCodeCommunity.exe`, exactly as that
+/// build's own setting did when turned off.
 #[cfg(windows)]
 pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
     if !crate::community::ENABLED {
-        return Err("Only the community edition manages the previous VocalCode.".into());
+        return Err("Only the free build manages the earlier VocalCode.".into());
+    }
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
     }
     let mut run = "absent";
     if let Some(command) = query_windows_run_value(PREVIOUS_AUTOSTART_NAME) {
@@ -4861,19 +4877,7 @@ pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
             run = "kept";
         }
     }
-    let startup = windows_startup_directory()?;
-    let shortcut = startup.join("VocalCode.lnk");
-    let shortcut = match std::fs::remove_file(&shortcut) {
-        Ok(()) => "removed",
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "absent",
-        Err(error) => {
-            return Err(format!(
-                "remove the previous VocalCode's Startup shortcut {}: {error}",
-                shortcut.display()
-            ))
-        }
-    };
-    Ok(serde_json::json!({"run": run, "shortcut": shortcut}))
+    Ok(serde_json::json!({"run": run, "shortcut": "absent"}))
 }
 
 #[cfg(target_os = "macos")]
@@ -4893,6 +4897,9 @@ fn macos_home_directory() -> Result<PathBuf, String> {
 /// change takes effect without a logout.
 #[cfg(target_os = "macos")]
 pub(crate) fn set_autostart(enabled: bool) -> Result<(), String> {
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
+    }
     const LABEL: &str = crate::community::BUNDLE_ID;
 
     let home = macos_home_directory()?;
@@ -5009,9 +5016,10 @@ pub(crate) fn autostart_enabled() -> bool {
         && String::from_utf8_lossy(&output.stdout).trim() == exe.to_string_lossy().as_ref()
 }
 
-/// The paid edition's LaunchAgent label, which is also its bundle identifier.
+/// The early free build's LaunchAgent label, which is also its bundle
+/// identifier ("VocalCode Community" 1.3.1 and 1.4.0).
 #[cfg(target_os = "macos")]
-pub(crate) const PREVIOUS_BUNDLE_ID: &str = "app.vocalcode.VocalCode";
+pub(crate) const PREVIOUS_BUNDLE_ID: &str = crate::community::early::BUNDLE_ID;
 
 #[cfg(target_os = "macos")]
 fn previous_launch_agent() -> Result<PathBuf, String> {
@@ -5021,20 +5029,23 @@ fn previous_launch_agent() -> Result<PathBuf, String> {
         .join(format!("{PREVIOUS_BUNDLE_ID}.plist")))
 }
 
-/// Whether the previous VocalCode has a login LaunchAgent.
+/// Whether the early free build has a login LaunchAgent.
 #[cfg(target_os = "macos")]
 pub(crate) fn previous_edition_autostart() -> bool {
     crate::community::ENABLED && previous_launch_agent().is_ok_and(|plist| plist.is_file())
 }
 
-/// Stop the previous VocalCode from starting at login, on an explicit click
-/// only. Mirrors that edition's own "launch at login" off switch: boot the
+/// Stop the early free build from starting at login, on an explicit click
+/// only. Mirrors that build's own "launch at login" off switch: boot the
 /// agent out of launchd, then remove its plist. Booting out an agent that
 /// launchd started also quits that copy, which is what the person wants.
 #[cfg(target_os = "macos")]
 pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
     if !crate::community::ENABLED {
-        return Err("Only the community edition manages the previous VocalCode.".into());
+        return Err("Only the free build manages the earlier VocalCode.".into());
+    }
+    if cfg!(test) {
+        return Err(TEST_LOGIN_ITEM_REFUSAL.to_string());
     }
     let plist = previous_launch_agent()?;
     let uid = unsafe { libc_getuid() };
@@ -5072,7 +5083,7 @@ pub(crate) fn previous_edition_autostart() -> bool {
 
 #[cfg(not(any(windows, target_os = "macos")))]
 pub(crate) fn disable_previous_edition_autostart() -> Result<Value, String> {
-    Err("The previous VocalCode did not run on this platform.".into())
+    Err("The earlier VocalCode did not run on this platform.".into())
 }
 
 #[cfg(target_os = "macos")]
@@ -6750,15 +6761,12 @@ fn read_signed_artifact_identity(text: &str) -> Result<(), String> {
         .map(|line| line.trim().trim_start_matches('\u{feff}').trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>();
-    if values.get(3).copied() != Some(crate::community::DATA_DIR_NAME) {
+    // The same identity a paid release's updater requires, so one installer
+    // serves both.
+    if values.get(3).copied() != Some("VocalCode") {
         return Err("installer ProductName is not VocalCode".to_string());
     }
-    let filename = if crate::community::ENABLED {
-        "VocalCodeCommunitySetup.exe"
-    } else {
-        "VocalCodeSetup.exe"
-    };
-    if values.get(4).copied() != Some(filename) {
+    if values.get(4).copied() != Some("VocalCodeSetup.exe") {
         return Err("installer OriginalFilename is not VocalCodeSetup.exe".to_string());
     }
     Ok(())
@@ -7421,18 +7429,12 @@ fn designated_requirement_matches(text: &str) -> bool {
         && text.contains(&format!("certificate leaf[subject.OU] = \"{TEAM_ID}\""))
 }
 
+/// The paid releases' names. A paid app that swapped this build in leaves
+/// its transaction and copies under them, and this build finishes them.
 #[cfg(any(test, target_os = "macos"))]
-const MAC_UPDATE_TRANSACTION: &str = if crate::community::ENABLED {
-    ".VocalCodeCommunity-update-transaction.json"
-} else {
-    ".VocalCode-update-transaction.json"
-};
+const MAC_UPDATE_TRANSACTION: &str = ".VocalCode-update-transaction.json";
 #[cfg(target_os = "macos")]
-const MAC_UPDATE_LOCK: &str = if crate::community::ENABLED {
-    ".VocalCodeCommunity-update.lock"
-} else {
-    ".VocalCode-update.lock"
-};
+const MAC_UPDATE_LOCK: &str = ".VocalCode-update.lock";
 
 #[cfg(any(test, target_os = "macos"))]
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
@@ -8238,12 +8240,7 @@ mod signature_tests {
 
     #[test]
     fn signed_installer_identity_is_exact() {
-        let product = crate::community::DATA_DIR_NAME;
-        let filename = if crate::community::ENABLED {
-            "VocalCodeCommunitySetup.exe"
-        } else {
-            "VocalCodeSetup.exe"
-        };
+        let (product, filename) = ("VocalCode", "VocalCodeSetup.exe");
         let output = format!("Valid\r\n{OURS}\r\n0.5.2.0\r\n{product}\r\n{filename}\r\n");
         assert!(read_signed_artifact_identity(&output).is_ok());
         assert!(read_signed_artifact_identity(&output.replace(filename, "Other.exe")).is_err());
@@ -10464,15 +10461,14 @@ mod updater_contract_tests {
 
     #[test]
     fn mac_self_update_requires_the_canonical_bundle_name() {
-        assert!(is_canonical_bundle_path(
-            &std::path::Path::new("/Applications").join(crate::community::BUNDLE_NAME)
-        ));
-        if crate::community::ENABLED {
-            assert!(!is_canonical_bundle_path(std::path::Path::new(
-                "/Applications/VocalCode.app"
-            )));
-        }
+        // The paid releases' bundle name: their updater swaps this build
+        // into exactly that path, and later updates keep it there.
+        assert_eq!(crate::community::BUNDLE_NAME, "VocalCode.app");
+        assert!(is_canonical_bundle_path(std::path::Path::new(
+            "/Applications/VocalCode.app"
+        )));
         for path in [
+            "/Applications/VocalCode Community.app",
             "/Applications/Foo.app",
             "/Applications/vocalcode.app",
             "/Applications/VocalCode.app.backup",
@@ -11706,22 +11702,35 @@ mod previous_edition_tests {
 
     #[test]
     fn only_a_run_command_that_starts_the_previous_executable_matches() {
+        // The earlier free build's login item, as its settings wrote it.
+        for command in [
+            r#""C:\Users\Ana\AppData\Local\Programs\VocalCode Community\VocalCodeCommunity.exe""#,
+            r#""C:\Users\Ana Li\AppData\Local\Programs\VocalCode Community\vocalcodecommunity.EXE" --hidden"#,
+            r"C:\Program Files\VocalCode Community\VocalCodeCommunity.exe",
+        ] {
+            assert!(
+                run_command_starts(command, crate::community::early::EXECUTABLE),
+                "{command}"
+            );
+        }
+        // Never this app's own login item, which runs VocalCode.exe.
+        for command in [
+            r#""C:\Users\Ana\AppData\Local\Programs\VocalCode\VocalCode.exe""#,
+            r#""C:\Tools\NotVocalCodeCommunity.exe""#,
+            r"C:\VocalCodeCommunity.exe.bak\other.exe",
+            "",
+            "VocalCodeCommunity",
+        ] {
+            assert!(
+                !run_command_starts(command, crate::community::early::EXECUTABLE),
+                "{command}"
+            );
+        }
         for command in [
             r#""C:\Program Files\VocalCode\VocalCode.exe""#,
-            r#""C:\Users\Ana Li\AppData\Local\Programs\VocalCode\vocalcode.EXE" --hidden"#,
-            r"C:\Program Files\VocalCode\VocalCode.exe",
             r"C:\Program Files\VocalCode\VocalCode.exe --hidden",
         ] {
             assert!(run_command_starts(command, "VocalCode.exe"), "{command}");
-        }
-        for command in [
-            r#""C:\Users\Ana\AppData\Local\Programs\VocalCode Community\VocalCodeCommunity.exe""#,
-            r#""C:\Tools\NotVocalCode.exe""#,
-            r"C:\VocalCode.exe.bak\other.exe",
-            "",
-            "VocalCode",
-        ] {
-            assert!(!run_command_starts(command, "VocalCode.exe"), "{command}");
         }
     }
 

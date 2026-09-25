@@ -16,7 +16,7 @@ function Assert-Signature([string]$Path, [string]$Subject) {
         throw "Invalid publisher signature on $([IO.Path]::GetFileName($Path))"
     }
 }
-function Assert-Community([string]$Path, [string]$OriginalName) {
+function Assert-VocalCode([string]$Path, [string]$OriginalName) {
     Assert-Signature $Path '(^|,\s*)CN=Daming Wu(,|$)'
     $signature = Get-AuthenticodeSignature -LiteralPath $Path
     $subject = ($signature.SignerCertificate.Subject -split ',' | ForEach-Object { $_.Trim() }) -join ', '
@@ -24,8 +24,12 @@ function Assert-Community([string]$Path, [string]$OriginalName) {
     $v = (Get-Item -LiteralPath $Path).VersionInfo
     # Inno Setup pads version-resource strings with spaces. Normalize padding
     # just as the desktop updater does, then compare the complete identity.
-    if ($v.ProductName.Trim() -cne 'VocalCode Community' -or $v.OriginalFilename.Trim() -cne $OriginalName -or $v.ProductVersion.Trim() -notin @($version,"$version.0")) {
-        throw 'Signed executable product, filename or version does not match the community release'
+    # For VocalCodeSetup.exe these are exactly the checks a paid VocalCode's
+    # updater makes before running it: Status Valid, this exact subject,
+    # ProductVersion (optionally with .0), ProductName VocalCode and the
+    # original file name.
+    if ($v.ProductName.Trim() -cne 'VocalCode' -or $v.OriginalFilename.Trim() -cne $OriginalName -or $v.ProductVersion.Trim() -notin @($version,"$version.0")) {
+        throw 'Signed executable product, filename or version does not match the release'
     }
 }
 
@@ -46,7 +50,7 @@ switch ($Mode) {
         if (Test-Path -LiteralPath $dist) { throw 'Refusing an existing dist directory' }
         New-Item -ItemType Directory -Path $dist | Out-Null
         $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $repo 'target' }
-        Copy-Item -LiteralPath (Join-Path $target 'release\vocalcode-app.exe') -Destination (Join-Path $dist 'VocalCodeCommunity.exe')
+        Copy-Item -LiteralPath (Join-Path $target 'release\vocalcode-app.exe') -Destination (Join-Path $dist 'VocalCode.exe')
         foreach ($name in @('onnxruntime.dll','onnxruntime_providers_shared.dll','sherpa-onnx-c-api.dll','sherpa-onnx-cxx-api.dll')) {
             Copy-Item -LiteralPath (Join-Path $target "release\$name") -Destination $dist
         }
@@ -76,7 +80,7 @@ switch ($Mode) {
         $webview = Join-Path $dist 'prerequisites\MicrosoftEdgeWebview2Setup.exe'
         Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile $webview
         Assert-Signature $webview 'Microsoft Corporation'
-        $info = (& (Join-Path $dist 'VocalCodeCommunity.exe') --build-info | ConvertFrom-Json)
+        $info = (& (Join-Path $dist 'VocalCode.exe') --build-info | ConvertFrom-Json)
         if ($LASTEXITCODE -ne 0 -or $info.edition -ne 'community' -or $info.version -ne $version) { throw 'Packaged app cannot load or has wrong edition' }
         Get-ChildItem -LiteralPath $dist -Filter '*.dll' -File | ForEach-Object {
             [pscustomobject]@{ name=$_.Name; version=$_.VersionInfo.FileVersion; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
@@ -84,7 +88,7 @@ switch ($Mode) {
     }
     'UninstallerRequest' {
         if ($env:AZURE_CLIENT_SECRET -or $env:AZURE_CLIENT_ID -or $env:AZURE_TENANT_ID) { throw 'Credentials leaked into installer compilation' }
-        Assert-Community (Join-Path $dist 'VocalCodeCommunity.exe') 'VocalCodeCommunity.exe'
+        Assert-VocalCode (Join-Path $dist 'VocalCode.exe') 'VocalCode.exe'
         New-Item -ItemType Directory -Path $cache | Out-Null
         & $compiler '/Qp' ("/DSIGNED_CACHE=$cache") $recipe
         if ($LASTEXITCODE -ne 2) { throw 'Expected the signed-uninstaller request gate' }
@@ -100,28 +104,28 @@ switch ($Mode) {
         if ($files.Count -ne 1) { throw 'Unexpected signed uninstaller cache' }
         Assert-Signature $files[0].FullName '(^|,\s*)CN=Daming Wu(,|$)'
         & $compiler '/Qp' ("/DSIGNED_CACHE=$cache") $recipe
-        if ($LASTEXITCODE -ne 0) { throw 'Community installer compilation failed' }
+        if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
     }
     'Verify' {
-        Assert-Community (Join-Path $artifacts 'VocalCodeCommunitySetup.exe') 'VocalCodeCommunitySetup.exe'
+        Assert-VocalCode (Join-Path $artifacts 'VocalCodeSetup.exe') 'VocalCodeSetup.exe'
     }
     'Smoke' {
         # Only this disposable GitHub-hosted job may install/uninstall. Never
         # invoke this mode against a maintainer's existing desktop profile.
         if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted') { throw 'Installer smoke requires a disposable hosted runner' }
-        $data = Join-Path $env:LOCALAPPDATA 'VocalCode Community'
-        if (Test-Path -LiteralPath $data) { throw 'Community data already exists; refusing smoke' }
-        $install = Join-Path $env:RUNNER_TEMP 'community-installed'
-        $setup = Join-Path $artifacts 'VocalCodeCommunitySetup.exe'
-        Assert-Community $setup 'VocalCodeCommunitySetup.exe'
+        $data = Join-Path $env:LOCALAPPDATA 'VocalCode'
+        if (Test-Path -LiteralPath $data) { throw 'VocalCode data already exists; refusing smoke' }
+        $install = Join-Path $env:RUNNER_TEMP 'vocalcode-installed'
+        $setup = Join-Path $artifacts 'VocalCodeSetup.exe'
+        Assert-VocalCode $setup 'VocalCodeSetup.exe'
         New-Item -ItemType Directory -Path $data | Out-Null
         $fixture = Join-Path $data 'install-smoke-preserve.txt'
         [IO.File]::WriteAllText($fixture, 'synthetic user data must survive upgrades and uninstall')
         foreach ($attempt in 1..2) {
             $p = Start-Process -FilePath $setup -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/SP-',('/DIR="'+$install+'"')) -PassThru -Wait -WindowStyle Hidden
             if ($p.ExitCode -ne 0) { throw 'Installation/upgrade failed' }
-            $exe = Join-Path $install 'VocalCodeCommunity.exe'
-            Assert-Community $exe 'VocalCodeCommunity.exe'
+            $exe = Join-Path $install 'VocalCode.exe'
+            Assert-VocalCode $exe 'VocalCode.exe'
             $info = (& $exe --build-info | ConvertFrom-Json)
             if ($LASTEXITCODE -ne 0 -or $info.edition -ne 'community' -or $info.version -ne $version) { throw 'Installed app smoke failed' }
             if ([IO.File]::ReadAllText($fixture) -ne 'synthetic user data must survive upgrades and uninstall') { throw 'Upgrade changed user data' }

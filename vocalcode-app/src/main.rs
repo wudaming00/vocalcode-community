@@ -5766,6 +5766,28 @@ where
     purge(deadline)
 }
 
+/// `--uninstall-cleanup` in the free build. Paid releases up to 1.2.1 asked
+/// the VocalCode.exe in their folder for it from their uninstaller, and it
+/// purged the data folder. VocalCode now installs over those releases with
+/// the same executable name. Its own installer overwrites their uninstall log
+/// and never asks for this, but if an old uninstaller ever does, the answer
+/// matches this build's uninstaller: launch at login goes, the settings,
+/// dictionary, meetings and models stay, and the uninstall goes on (success,
+/// even when the login item could not be removed).
+fn run_free_uninstall_cleanup_with<D>(disable_autostart: D) -> Result<(), String>
+where
+    D: FnOnce() -> Result<(), String>,
+{
+    if let Err(error) = disable_autostart() {
+        eprintln!("VocalCode could not turn off launch at login: {error}");
+    }
+    Ok(())
+}
+
+fn run_free_uninstall_cleanup() -> Result<(), String> {
+    run_free_uninstall_cleanup_with(|| webui::set_autostart(false))
+}
+
 fn run_uninstall_cleanup_transaction() -> Result<(), String> {
     // An uninstall may be the first process launched after an upgrade. Let the
     // existing no-follow/no-clobber migration finish recovering allow-listed
@@ -5941,9 +5963,12 @@ fn main() -> anyhow::Result<()> {
     // then acquire the cleanup routine's exclusive guard itself. Route it
     // before this process starts logging, single-instance IPC, GUI state, or a
     // shared lifecycle guard; otherwise it can deadlock on its own lock.
-    if run_early_uninstall_cleanup_with(&args, run_uninstall_cleanup_transaction)
-        .map_err(anyhow::Error::msg)?
-    {
+    let uninstall_cleanup: fn() -> Result<(), String> = if community::ENABLED {
+        run_free_uninstall_cleanup
+    } else {
+        run_uninstall_cleanup_transaction
+    };
+    if run_early_uninstall_cleanup_with(&args, uninstall_cleanup).map_err(anyhow::Error::msg)? {
         return Ok(());
     }
     let update_failure = update_failure_message(&args);
@@ -7431,7 +7456,10 @@ mod tests {
         let detached_dispatch = main.find("run_early_detached_purge_helper_with").unwrap();
         let dispatch = main.find("run_early_uninstall_cleanup_with").unwrap();
         assert!(detached_dispatch < dispatch);
-        assert!(main[dispatch..].contains("run_uninstall_cleanup_transaction"));
+        let choice = main.find("let uninstall_cleanup").unwrap();
+        assert!(choice < dispatch);
+        assert!(main[choice..dispatch].contains("run_free_uninstall_cleanup"));
+        assert!(main[choice..dispatch].contains("run_uninstall_cleanup_transaction"));
         for later in [
             "acquire_installer_observation",
             "paths::enter_data_lifecycle",
@@ -7465,6 +7493,117 @@ mod tests {
             .find("webui::purge_user_data_after_shutdown")
             .unwrap();
         assert!(migrate < purge);
+    }
+
+    /// A paid uninstaller that still asks the free VocalCode.exe for its old
+    /// cleanup gets the free uninstaller's answer: login item off, data kept,
+    /// exit 0 so the uninstall continues.
+    #[test]
+    fn free_uninstall_cleanup_keeps_data_and_lets_the_uninstall_continue() {
+        let args = vec![
+            "VocalCode.exe".to_string(),
+            UNINSTALL_CLEANUP_ARG.to_string(),
+        ];
+        let asked = std::cell::Cell::new(0);
+        assert!(run_early_uninstall_cleanup_with(&args, || {
+            run_free_uninstall_cleanup_with(|| {
+                asked.set(asked.get() + 1);
+                Ok(())
+            })
+        })
+        .unwrap());
+        assert_eq!(asked.get(), 1);
+        // A login item that cannot be removed does not fail the uninstall.
+        assert!(run_early_uninstall_cleanup_with(&args, || {
+            run_free_uninstall_cleanup_with(|| Err("registry busy".to_string()))
+        })
+        .unwrap());
+
+        let source = include_str!("main.rs");
+        let start = source.find("fn run_free_uninstall_cleanup_with").unwrap();
+        let end = source[start..]
+            .find("fn run_uninstall_cleanup_transaction()")
+            .unwrap()
+            + start;
+        let free = &source[start..end];
+        for never in ["purge", "enter_data_lifecycle", "app_dir", "remove_dir"] {
+            assert!(!free.contains(never), "{never}");
+        }
+    }
+
+    /// What a paid VocalCode 1.2.1 left in its data folder, read by the loaders
+    /// this build uses at startup: the paid releases and this build share the
+    /// folder, so there is no import, only these reads. The committed fixture
+    /// was written by the paid release's own code; the Windows end-to-end job
+    /// also sets `VC_E2E_PAID_DATA` to a copy of the folder a real paid
+    /// installation left behind after its updater installed this build.
+    #[test]
+    fn a_paid_data_folder_loads_as_it_was() {
+        use vocalcode_core::config::{MouseExtra, Trigger};
+        let mut folders = vec![crate::test_support::e2e_fixture("paid-1.2.1")];
+        folders.extend(std::env::var_os("VC_E2E_PAID_DATA").map(PathBuf::from));
+        for source in folders {
+            let scratch = TempDir::new("paid-data");
+            crate::test_support::copy_tree(&source, &scratch);
+            let base = scratch.path();
+
+            let config = load_config_from(&base.join("vocalcode.toml")).unwrap();
+            assert_eq!(config.language, "zh", "{}", source.display());
+            assert_eq!(config.model, "sensevoice");
+            assert_eq!(config.talk_mode, "toggle");
+            assert_eq!(config.ui_lang, "zh");
+            assert!(config.onboarded && config.autostart && !config.cue_sounds);
+            assert_eq!(
+                config.talk,
+                vec![
+                    Trigger::MouseButton(MouseExtra::X2),
+                    Trigger::Key("F9".to_string())
+                ]
+            );
+            // A v4 file keeps what it meant: the Back button as Enter, no
+            // speech gate and no kept History, whatever new installs get.
+            assert_eq!(config.send, vec![Trigger::MouseButton(MouseExtra::X1)]);
+            assert!(!config.noise_filter);
+            assert_eq!(
+                config.keep_history,
+                vocalcode_core::config::HistoryRetention::Off
+            );
+            assert_eq!(
+                config.config_version,
+                vocalcode_core::config::CONFIG_VERSION
+            );
+            assert!(models::route_for(&config.model, &config.language).is_some());
+
+            let rules = load_rules_document_from(&base.join("replacements.txt"))
+                .unwrap()
+                .rules;
+            for (heard, written) in [
+                ("collie", "Collie"),
+                ("vocal code", "VocalCode"),
+                ("lang chain", "LangChain"),
+            ] {
+                assert!(
+                    rules
+                        .iter()
+                        .any(|(from, to)| from == heard && to == written),
+                    "{heard} in {rules:?}"
+                );
+            }
+
+            let totals = load_totals_from(&base.join("totals.json")).unwrap();
+            assert_eq!(
+                (totals.dictations, totals.words, totals.chars),
+                (1234, 45678, 234567)
+            );
+
+            let store = vocalcode_meeting::MeetingStore::open(base.join("meetings")).unwrap();
+            let listed = store.list().unwrap();
+            assert_eq!(listed.len(), 1);
+            assert_eq!(listed[0].title, "Weekly sync");
+            let meeting = store.load(&listed[0].id).unwrap();
+            assert_eq!(meeting.segments.len(), 2);
+            assert_eq!(meeting.segments[1].text, "Paid users keep their data.");
+        }
     }
 
     fn main_function_source() -> &'static str {
@@ -8495,13 +8634,10 @@ mod tests {
             instance_platform::private_sddl_for_test("S-1-5-21-123"),
             "D:P(A;;GA;;;SY)(A;;GA;;;S-1-5-21-123)"
         );
+        // The name the paid releases' installers and updater wait on.
         assert_eq!(
             WINDOWS_INSTALLER_OBSERVATION_MUTEX,
-            if community::ENABLED {
-                r"Local\VocalCode.Community.Desktop"
-            } else {
-                r"Local\VocalCode.Desktop"
-            }
+            r"Local\VocalCode.Desktop"
         );
     }
 
@@ -9023,7 +9159,7 @@ mod tests {
             "windows",
             "1.2.3",
             if community::ENABLED {
-                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCodeCommunitySetup.exe"
+                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCodeSetup.exe"
             } else {
                 "https://vocalcode.app/VocalCodeSetup.exe"
             }
@@ -9032,7 +9168,7 @@ mod tests {
             "macos",
             "1.2.3",
             if community::ENABLED {
-                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCodeCommunity-1.2.3.dmg"
+                "https://github.com/wudaming00/vocalcode-community/releases/download/v1.2.3/VocalCode-1.2.3.dmg"
             } else {
                 "https://vocalcode.app/VocalCode-1.2.3.dmg"
             }

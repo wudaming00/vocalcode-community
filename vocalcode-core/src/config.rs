@@ -589,6 +589,22 @@ impl<'de> Deserialize<'de> for Config {
     }
 }
 
+/// The keys v5 gave a new meaning when left out.
+const PRE_V5_IMPLIED_KEYS: [&str; 3] = ["send", "noise_filter", "keep_history"];
+
+/// The keys a document written at `version` settles even where it leaves them
+/// out: reading it fills them in with the values that release implied (see
+/// `restore_pre_v5_defaults`). Importing another installation's settings
+/// carries these as if they were written, so the new-install defaults never
+/// replace what that installation actually did.
+pub fn keys_implied_by_version(version: u64) -> &'static [&'static str] {
+    if version < NEW_INSTALL_DEFAULTS_VERSION {
+        &PRE_V5_IMPLIED_KEYS
+    } else {
+        &[]
+    }
+}
+
 /// v5 changed what three omitted keys mean. A document older than that (or
 /// with no version at all) that leaves one out meant the value it would have
 /// been given then, so that value is written back in before the current
@@ -1461,7 +1477,30 @@ mod migration_tests {
 mod new_install_defaults_tests {
     use super::*;
 
-    /// Byte-for-byte what VocalCode Community 1.4.0 wrote on first launch.
+    /// The keys an import carries for an older file are exactly the ones its
+    /// reading fills in.
+    #[test]
+    fn implied_keys_are_the_ones_an_older_document_is_given() {
+        for version in [0_u64, 3, 4] {
+            let mut fields = serde_json::Map::new();
+            fields.insert("config_version".into(), version.into());
+            restore_pre_v5_defaults(&mut fields);
+            let mut filled = fields
+                .keys()
+                .filter(|key| *key != "config_version")
+                .cloned()
+                .collect::<Vec<_>>();
+            filled.sort();
+            let mut implied = keys_implied_by_version(version).to_vec();
+            implied.sort();
+            assert_eq!(filled, implied, "version {version}");
+        }
+        assert!(keys_implied_by_version(u64::from(CONFIG_VERSION)).is_empty());
+        assert!(keys_implied_by_version(NEW_INSTALL_DEFAULTS_VERSION).is_empty());
+    }
+
+    /// Byte-for-byte what the early free build, VocalCode Community 1.4.0,
+    /// wrote on first launch.
     const WRITTEN_BY_1_4_0: &str = r#"teach = []
 min_record_ms = 250
 paste_insert = false

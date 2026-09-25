@@ -1,0 +1,19 @@
+# VocalCode — your own recognition fixes.
+# One rule per line:  heard text => what to write
+# Lines starting with # are ignored. Matching is whole-word and
+# case-insensitive.
+#
+# VocalCode already ships a built-in dictionary (Claude Code, GitHub,
+# Vercel and many more) — you do NOT need to repeat those here. This file
+# is just for YOUR words, kept separate from the built-ins.
+#
+# To override a built-in, add the same heard phrase with your wording.
+# To turn a built-in off, map its heard phrase to itself, e.g.
+#   cloud code => cloud code
+#
+# Example (edit or delete):
+# my startup name => Acme
+collie => Collie
+vocal code => VocalCode
+lang chain => LangChain
+sauna => Sauna

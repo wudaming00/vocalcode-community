@@ -12,8 +12,8 @@ is provided without warranty, as described in sections 15 and 16 of LICENSE.
 
 This grant covers first-party material in `vocalcode-app/`, `vocalcode-core/`,
 `vocalcode-platform/`, and `vocalcode-meeting/`, and the first-party build
-configuration, community tooling, documentation, and artwork supplied with
-the community source snapshot, except material carrying a separate notice.
+configuration, release tooling, documentation, and artwork supplied with
+this source snapshot, except material carrying a separate notice.
 It applies independently of whether the `community` build feature is enabled.
 The feature controls product behavior, not the source-code licence.
 

@@ -24,10 +24,11 @@ synthetic example. Do not access someone else's data to demonstrate a bug.
   undo protection. An external CLI remains a separately trusted program, not
   an OS-sandboxed text processor. See [the provider boundaries](docs/SMART-REWRITE.md).
 
-Community mode changes product access, not these security boundaries. It does
-not introduce a universal licence key, weaken paid receipt verification, or
-turn off signature verification in the existing updater. Its official paid
-updater is disabled rather than redirected to an untrusted channel.
+The free build changes product access, not these security boundaries. It does
+not introduce a universal licence key, weaken receipt verification in the old
+paid build, or turn off the updater's signature verification. It never reads
+the paid releases' licence, trial or time-anchor files, and its updater accepts
+only this repository's signed releases.
 
 ## Release policy
 

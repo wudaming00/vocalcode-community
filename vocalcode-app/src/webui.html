@@ -944,8 +944,9 @@
         <button type="button" id="crashReport">Report on GitHub</button>
         <button type="button" class="crash-x" id="crashDismiss" title="Dismiss" aria-label="Dismiss">×</button>
       </div>
-      <!-- The paid edition and this one each hook the talk key and type every
-           dictation. Re-checked every few seconds; clears once it quits. -->
+      <!-- The earlier free build (VocalCode Community 1.3/1.4) and this one each
+           hook the talk key and type every dictation. Re-checked every few
+           seconds; clears once it quits. -->
       <div class="perm" id="legacyRunning" role="status">
         <span class="perm-txt">The previous VocalCode is running and will type twice — quit it.</span>
       </div>
@@ -972,8 +973,9 @@
             <button type="button" class="ui-button act" data-go="triggers">Shortcuts <span aria-hidden="true">→</span></button>
           </div>
         </div>
-        <!-- Once, for someone arriving from the paid edition who has not
-             started over here yet. The import itself lives in Settings. -->
+        <!-- Once, for someone arriving from the earlier free build who has not
+             started over here yet (a paid VocalCode that updated to this one
+             already has its data here). The import itself lives in Settings. -->
         <div class="home-legacy" id="homeLegacy" hidden>
           <div class="home-legacy-copy">
             <b>Bring over your data from the previous VocalCode</b>
@@ -1142,7 +1144,7 @@
           <div id="legacySection" hidden>
             <div class="lbl">Previous VocalCode</div>
             <div class="card">
-              <div class="row"><div class="k">Import from the previous VocalCode<small>Copies your data from the paid edition's folder, which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.</small><small id="legacyPath"></small></div>
+              <div class="row"><div class="k">Import from the previous VocalCode<small>Copies your data from the folder of the earlier free VocalCode (1.3 and 1.4), which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.</small><small id="legacyPath"></small></div>
                 <button type="button" class="setbtn" id="legacyScan">Check again</button>
               </div>
               <!-- Settings replace values here, so they are their own box and
@@ -1622,7 +1624,7 @@
       "Review import":"查看可导入的内容",
       "Previous VocalCode":"旧版 VocalCode",
       "Import from the previous VocalCode":"从旧版 VocalCode 导入",
-      "Copies your data from the paid edition's folder, which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"从付费版的文件夹复制你的数据，原文件夹不会被改动。词典、词块和会议记录与这里已有的冲突时，以这里的为准；导入的设置则会替换这里现有的设置。",
+      "Copies your data from the folder of the earlier free VocalCode (1.3 and 1.4), which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"从旧版免费 VocalCode（1.3 和 1.4）的文件夹复制你的数据，原文件夹不会被改动。词典、词块和会议记录与这里已有的冲突时，以这里的为准；导入的设置则会替换这里现有的设置。",
       "Check again":"重新检查",
       "App profiles":"应用配置",
       "Dictionary and snippets":"词典和词块",
@@ -1765,7 +1767,6 @@
       "Triggers":"触发键",
       "Language & model":"语言与模型",
       "Behaviour":"行为",
-      "Community updates are verified before installation.":"社区版使用独立更新通道，安装前会验证更新包。",
       "Push-to-talk":"按住说话",
       "Hold to talk":"按住说话",
       "Hold":"按住",
@@ -2185,7 +2186,6 @@
       "Choose desktop OAuth JSON…":"Elegir JSON de OAuth de escritorio…",
       "Claude Code candidate":"Propuesta de Claude Code",
       "Codex CLI · detected only":"Codex CLI · solo detectado",
-      "Community updates are verified before installation.":"Las actualizaciones de la edición comunitaria se verifican antes de instalarse.",
       "Complete Google sign-in in your browser. You can cancel here.":"Completa el inicio de sesión de Google en tu navegador. Puedes cancelarlo aquí.",
       "Confirm cloud processing for this candidate first. A local CLI is not local inference.":"Primero confirma el procesamiento en la nube para esta propuesta. Una CLI local no implica inferencia local.",
       "Control bar position":"Posición de la barra de control",
@@ -2414,7 +2414,7 @@
       "Review import":"Revisar importación",
       "Previous VocalCode":"Versión anterior de VocalCode",
       "Import from the previous VocalCode":"Importar de la versión anterior de VocalCode",
-      "Copies your data from the paid edition's folder, which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Copia tus datos desde la carpeta de la edición de pago, que nunca se modifica. Las palabras del diccionario, los fragmentos y las reuniones que ya tienes aquí se conservan; los ajustes importados sustituyen a los de aquí.",
+      "Copies your data from the folder of the earlier free VocalCode (1.3 and 1.4), which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Copia tus datos desde la carpeta de la versión gratuita anterior de VocalCode (1.3 y 1.4), que nunca se modifica. Las palabras del diccionario, los fragmentos y las reuniones que ya tienes aquí se conservan; los ajustes importados sustituyen a los de aquí.",
       "Check again":"Volver a comprobar",
       "App profiles":"Perfiles de apps",
       "Dictionary and snippets":"Diccionario y fragmentos",
@@ -2942,7 +2942,6 @@
       "Choose desktop OAuth JSON…":"Choisir le JSON OAuth de bureau…",
       "Claude Code candidate":"Proposition Claude Code",
       "Codex CLI · detected only":"Codex CLI · détecté uniquement",
-      "Community updates are verified before installation.":"Les mises à jour de l’édition communautaire sont vérifiées avant l’installation.",
       "Complete Google sign-in in your browser. You can cancel here.":"Terminez la connexion Google dans votre navigateur. Vous pouvez annuler ici.",
       "Confirm cloud processing for this candidate first. A local CLI is not local inference.":"Confirmez d’abord le traitement dans le cloud pour cette proposition. Une CLI locale ne signifie pas une inférence locale.",
       "Control bar position":"Position de la barre de commandes",
@@ -3171,7 +3170,7 @@
       "Review import":"Voir l'import",
       "Previous VocalCode":"Ancien VocalCode",
       "Import from the previous VocalCode":"Importer depuis l'ancien VocalCode",
-      "Copies your data from the paid edition's folder, which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Copie vos données depuis le dossier de l'édition payante, qui n'est jamais modifié. Les mots du dictionnaire, extraits et réunions que vous avez déjà ici l'emportent ; les réglages importés remplacent ceux d'ici.",
+      "Copies your data from the folder of the earlier free VocalCode (1.3 and 1.4), which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Copie vos données depuis le dossier de l'ancienne version gratuite de VocalCode (1.3 et 1.4), qui n'est jamais modifié. Les mots du dictionnaire, extraits et réunions que vous avez déjà ici l'emportent ; les réglages importés remplacent ceux d'ici.",
       "Check again":"Vérifier à nouveau",
       "App profiles":"Profils d'apps",
       "Dictionary and snippets":"Dictionnaire et extraits",
@@ -3699,7 +3698,6 @@
       "Choose desktop OAuth JSON…":"Desktop-OAuth-JSON wählen…",
       "Claude Code candidate":"Vorschlag von Claude Code",
       "Codex CLI · detected only":"Codex CLI · nur erkannt",
-      "Community updates are verified before installation.":"Community-Updates werden vor der Installation überprüft.",
       "Complete Google sign-in in your browser. You can cancel here.":"Schließe die Google-Anmeldung im Browser ab. Du kannst hier abbrechen.",
       "Confirm cloud processing for this candidate first. A local CLI is not local inference.":"Bestätige zuerst die Cloud-Verarbeitung für diesen Vorschlag. Eine lokal installierte CLI bedeutet keine lokale Inferenz.",
       "Control bar position":"Position der Steuerleiste",
@@ -3928,7 +3926,7 @@
       "Review import":"Import ansehen",
       "Previous VocalCode":"Bisheriges VocalCode",
       "Import from the previous VocalCode":"Aus dem bisherigen VocalCode importieren",
-      "Copies your data from the paid edition's folder, which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Kopiert Ihre Daten aus dem Ordner der kostenpflichtigen Edition, der nie verändert wird. Wörter, Textbausteine und Besprechungen, die Sie hier schon haben, bleiben erhalten; importierte Einstellungen ersetzen die hiesigen.",
+      "Copies your data from the folder of the earlier free VocalCode (1.3 and 1.4), which is never changed. Dictionary words, snippets and meetings you already have here win; imported settings replace the ones here.":"Kopiert Ihre Daten aus dem Ordner der früheren kostenlosen VocalCode-Version (1.3 und 1.4), der nie verändert wird. Wörter, Textbausteine und Besprechungen, die Sie hier schon haben, bleiben erhalten; importierte Einstellungen ersetzen die hiesigen.",
       "Check again":"Erneut prüfen",
       "App profiles":"App-Profile",
       "Dictionary and snippets":"Wörterbuch und Textbausteine",
@@ -6063,7 +6061,6 @@
     if(s.update_check){
       var note=document.getElementById("updNote");
       if(note) note.textContent = t(
-        s.update_check==="community" ? "Community updates are verified before installation." :
         s.update_check==="newer"   ? "An update is available" :
         s.update_check==="current" ? "You have the latest version" :
                                       "Could not check — are you online?");
@@ -7078,7 +7075,8 @@
   migrationEl("snippetAdd").onclick=()=>{migrationClearPreview();migrationEl("migrationKind").value="snippets";migrationEl("migrationLayout").value="auto";migrationRequest("preview",{kind:"snippets",layout:"auto",text:JSON.stringify([{name:migrationEl("snippetName").value,text:migrationEl("snippetText").value}])});};
   send({type:"ready"});
 
-  // PREVIOUS EDITION IMPORT. Copy-only, from the paid VocalCode's folder: the
+  // PREVIOUS EDITION IMPORT. Copy-only, from the earlier free build's folder
+  // ("VocalCode Community"; a paid VocalCode updates in place instead): the
   // host opens nothing there but an allow-list and never writes to it. Settings
   // come back as a snapshot and go through the ordinary save, so they are
   // validated, applied and, if refused, rolled back like any click here. They
@@ -7139,7 +7137,7 @@
     const parts={
       // Settings replace the ones here, so they are only preselected for an
       // installation with nothing of its own; anyone else ticks them knowingly.
-      settings:[!d.settings,d.settings?t("Found")+" · "+t("replaces your current settings"):"",d.community_empty===true],
+      settings:[!d.settings,d.settings?t("Found")+" · "+t("replaces your current settings"):"",d.this_empty===true],
       profiles:[d.profiles!=="new",d.profiles==="new"?t("Found"):d.profiles==="kept"?t("Already set up here"):"",true],
       dictionary:[!(d.rules||d.snippets),[rules,snippets].filter(Boolean).join(" · "),true],
       meetings:[!d.meetings,meetings,true],
@@ -7159,7 +7157,7 @@
     const found=[rules,snippets,meetingCount,d.settings?t("settings"):"",d.profiles==="new"?t("app profiles"):"",d.stats&&!d.stats_imported?t("usage counts"):""].filter(Boolean);
     legacyEl("homeLegacyFound").textContent=found.length?tl("Found there: {list}. Copying them here leaves that folder untouched.",found.join(" · ")):"";
     // A scan that was already in flight must not bring back a card just closed.
-    legacyEl("homeLegacy").hidden=legacyHomeClosed||!(d.available&&d.community_empty&&!d.answered&&found.length);
+    legacyEl("homeLegacy").hidden=legacyHomeClosed||!(d.available&&d.this_empty&&!d.answered&&found.length);
   }
   function legacySummary(d,settingsRefused){
     const settings=!!(d.settings&&typeof d.settings==="object")&&!settingsRefused;

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "id": "1780000000000-61636-1",
+  "title": "Weekly sync",
+  "created_at_ms": 1780000000000,
+  "updated_at_ms": 1780000004000,
+  "started_at_ms": 1780000000000,
+  "ended_at_ms": 1780000004000,
+  "duration_ms": 4000,
+  "segment_count": 2,
+  "status": "completed",
+  "source": {
+    "kind": "live",
+    "microphone": true,
+    "system_audio": true
+  },
+  "language": "zh",
+  "audio_retention": "keep_until_deleted",
+  "speakers": [
+    {
+      "id": "me",
+      "label": "Me",
+      "source": "microphone"
+    }
+  ],
+  "bookmarks": [],
+  "summary": null,
+  "error": null
+}

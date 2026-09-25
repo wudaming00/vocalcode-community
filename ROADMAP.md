@@ -10,10 +10,12 @@ adding a new feature before the existing workflow is dependable.
   to 0.23.45 for RUSTSEC-2026-0285. Remaining dependency warnings need follow-up.
 - Audit the exact exported files for secrets, private data, ownership, model
   terms, and required notices; strengthen the export allowlist/scanner.
-- Community data, instance identity, autostart and signed updates are now
-  separate. Validate explicit legacy migrations and different-version upgrades.
-- Keep community labels and meeting/correction UI regression tests consistent
-  with the activation-free edition and the public CI pipeline.
+- VocalCode now installs with the paid releases' identity and data folder, so
+  a paid installation updates in place; the early free builds' data imports
+  from Settings. Keep validating different-version upgrades on real devices,
+  and add the macOS equivalent of the Windows end-to-end update check.
+- Keep the free-build labels and meeting/correction UI regression tests
+  consistent with the activation-free product and the public CI pipeline.
 - Validate clean-user Windows and native Apple-silicon workflows, then prepare
   real synthetic-content screenshots and an honest build/download guide.
 - Maintain the issue/PR/private-security endpoints, and pair any distributed

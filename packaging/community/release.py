@@ -1,4 +1,10 @@
-"""Community packaging/release helpers. No commerce or production-site access."""
+"""VocalCode packaging/release helpers. No commerce or production-site access.
+
+The free build ships under the identity the paid releases had (bundle
+VocalCode.app, app.vocalcode.VocalCode, VocalCodeSetup.exe), so a paid
+installation's updater can replace it in place. What that updater checks is
+checked here before anything is published.
+"""
 from __future__ import annotations
 
 import argparse
@@ -18,15 +24,22 @@ import tomllib
 ROOT = Path(__file__).resolve().parents[2]
 REPOSITORY = "wudaming00/vocalcode-community"
 TEAM = "58Y98W3QQK"
-APP = "VocalCode Community.app"
-BUNDLE_ID = "app.vocalcode.Community"
+APP = "VocalCode.app"
+BUNDLE_ID = "app.vocalcode.VocalCode"
+# The paid app relaunches Contents/MacOS/VocalCode after swapping bundles.
+EXECUTABLE = "VocalCode"
+WINDOWS_INSTALLER = "VocalCodeSetup.exe"
+
+
+def dmg_name(value: str) -> str:
+    return f"VocalCode-{value}.dmg"
 RUNTIMES = ("libonnxruntime.dylib", "libsherpa-onnx-c-api.dylib", "libsherpa-onnx-cxx-api.dylib")
 
 
 def version() -> str:
     value = tomllib.loads((ROOT / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["package"]["version"]
     if not re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", value):
-        raise ValueError("community stable versions must be canonical X.Y.Z")
+        raise ValueError("stable versions must be canonical X.Y.Z")
     return value
 
 
@@ -80,24 +93,20 @@ def build_macos() -> None:
     contents.mkdir(parents=True, exist_ok=False)
     for name in ("MacOS", "Frameworks", "Resources"):
         (contents / name).mkdir()
-    shutil.copy2(target / "vocalcode-app", contents / "MacOS" / "VocalCode")
-    (contents / "MacOS" / "VocalCode").chmod(0o755)
+    shutil.copy2(target / "vocalcode-app", contents / "MacOS" / EXECUTABLE)
+    (contents / "MacOS" / EXECUTABLE).chmod(0o755)
     for name in RUNTIMES:
         copy_arm64(target / name, contents / "Frameworks" / name)
     data = plistlib.loads((ROOT / "packaging/macos/Info.plist").read_bytes())
-    data.update(CFBundleName="VocalCode Community", CFBundleDisplayName="VocalCode Community",
+    data.update(CFBundleName="VocalCode", CFBundleDisplayName="VocalCode", CFBundleExecutable=EXECUTABLE,
                 CFBundleIdentifier=BUNDLE_ID, CFBundleShortVersionString=version(), CFBundleVersion=version())
-    # The provider uses the process-local service registration. Keep its port
-    # spelling while giving users an unambiguous edition-specific menu item.
-    for service in data.get("NSServices", []):
-        service["NSMenuItem"]["default"] = "Add to VocalCode Community dictionary"
     (contents / "Info.plist").write_bytes(plistlib.dumps(data))
     run("python3", ROOT / "packaging/macos/make_icon.py", contents / "Resources/VocalCode.icns", timeout=300)
     copy_notices(contents / "Resources")
     (volume / "Applications").symlink_to("/Applications", target_is_directory=True)
-    info = json.loads(run(contents / "MacOS/VocalCode", "--build-info"))
+    info = json.loads(run(contents / "MacOS" / EXECUTABLE, "--build-info"))
     if info.get("edition") != "community" or info.get("version") != version():
-        raise ValueError("bundle is not the expected runnable community binary")
+        raise ValueError("bundle is not the expected runnable free build")
     run("/usr/bin/ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", volume, ROOT / "dist-community/macos-unsigned.zip")
 
 
@@ -111,7 +120,7 @@ def notarize(path: Path, key: Path, key_id: str, issuer: str) -> None:
 
 def sign_macos() -> None:
     temp_root = Path(os.environ["RUNNER_TEMP"]).resolve(strict=True)
-    work = Path(tempfile.mkdtemp(prefix="vocalcode-community-signing-", dir=temp_root))
+    work = Path(tempfile.mkdtemp(prefix="vocalcode-signing-", dir=temp_root))
     work.chmod(0o700)
     keychain = work / "signing.keychain-db"
     password = secrets.token_urlsafe(36)
@@ -154,16 +163,16 @@ def sign_macos() -> None:
         run("/usr/bin/xcrun", "stapler", "validate", app)
         output = ROOT / "dist-community/artifacts"
         output.mkdir(parents=True, exist_ok=True)
-        dmg = output / f"VocalCodeCommunity-{version()}.dmg"
+        dmg = output / dmg_name(version())
         if dmg.exists():
             raise ValueError("refusing to overwrite a release disk image")
-        run("/usr/bin/hdiutil", "create", "-volname", "VocalCode Community", "-srcfolder", volume,
+        run("/usr/bin/hdiutil", "create", "-volname", "VocalCode", "-srcfolder", volume,
             "-format", "UDZO", dmg, timeout=300)
         run(*sign, dmg)
         notarize(dmg, notary_key, key_id, issuer)
         run("/usr/bin/xcrun", "stapler", "staple", dmg)
         run("/usr/bin/xcrun", "stapler", "validate", dmg)
-        print("Signed and notarized community app and disk image; no installer executed with credentials.")
+        print("Signed and notarized app and disk image; no installer executed with credentials.")
     finally:
         try:
             run("/usr/bin/security", "list-keychains", "-d", "user", "-s", *prior_paths)
@@ -177,46 +186,96 @@ def sign_macos() -> None:
                 shutil.rmtree(work)
 
 
+def gatekeeper_accepted(text: str) -> bool:
+    """The paid updater's reading of an spctl verdict (read_gatekeeper_verdict)."""
+    return any(line.strip().endswith(": accepted") for line in text.splitlines()) and \
+        "source=Notarized Developer ID" in text
+
+
+def signing_detail(path: Path) -> str:
+    result = subprocess.run(["/usr/bin/codesign", "-dv", "--verbose=2", str(path)], capture_output=True, text=True, timeout=60)
+    if result.returncode:
+        raise ValueError(f"cannot read the signature of {path.name}")
+    return result.stdout + result.stderr
+
+
+def team_of(detail: str) -> str | None:
+    return next((line.strip()[len("TeamIdentifier="):] for line in detail.splitlines()
+                 if line.strip().startswith("TeamIdentifier=")), None)
+
+
+def identifier_of(detail: str) -> str | None:
+    return next((line.strip()[len("Identifier="):] for line in detail.splitlines()
+                 if line.strip().startswith("Identifier=")), None)
+
+
+def spctl(*args: str | Path) -> str:
+    # spctl reports its verdict on stderr; a rejection exits non-zero.
+    result = subprocess.run(["/usr/sbin/spctl", *[str(a) for a in args]], capture_output=True, text=True, timeout=300)
+    if result.returncode:
+        raise ValueError("Gatekeeper rejected the release")
+    return result.stdout + result.stderr
+
+
 def verify_macos() -> None:
-    dmg = ROOT / "dist-community/artifacts" / f"VocalCodeCommunity-{version()}.dmg"
-    run("/usr/bin/codesign", "--verify", "--strict", dmg)
-    detail = subprocess.run(["/usr/bin/codesign", "-dv", "--verbose=4", str(dmg)], capture_output=True, text=True, check=True)
-    if f"TeamIdentifier={TEAM}" not in detail.stderr:
+    """Everything a paid VocalCode checks before it swaps this bundle in
+    (verify_dmg_before_mount, verify_bundle_identity and verify_bundle in its
+    webui.rs), plus the free build's own linkage check."""
+    dmg = ROOT / "dist-community/artifacts" / dmg_name(version())
+    run("/usr/bin/codesign", "--verify", "--strict", "--verbose=2", dmg)
+    if team_of(signing_detail(dmg)) != TEAM:
         raise ValueError("wrong DMG signing team")
     run("/usr/bin/xcrun", "stapler", "validate", dmg)
-    run("/usr/sbin/spctl", "--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", dmg)
-    with tempfile.TemporaryDirectory(prefix="vocalcode-community-verify-") as temp:
+    if not gatekeeper_accepted(spctl("--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=2", dmg)):
+        raise ValueError("Gatekeeper did not accept the notarized disk image")
+    with tempfile.TemporaryDirectory(prefix="vocalcode-verify-") as temp:
         mount = Path(temp) / "mount"
         mount.mkdir()
         try:
             run("/usr/bin/hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, dmg)
+            # The paid updater takes exactly <volume>/VocalCode.app.
             app = mount / APP
+            if app.is_symlink() or not app.is_dir():
+                raise ValueError("the disk image has no VocalCode.app at its root")
             info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
-            if info.get("CFBundleIdentifier") != BUNDLE_ID or info.get("CFBundleShortVersionString") != version():
-                raise ValueError("wrong signed community app identity/version")
-            run("/usr/bin/codesign", "--verify", "--deep", "--strict", app)
+            if (info.get("CFBundleIdentifier") != BUNDLE_ID or info.get("CFBundleShortVersionString") != version()
+                    or info.get("CFBundleExecutable") != EXECUTABLE):
+                raise ValueError("wrong signed app identity/version")
+            run("/usr/bin/codesign", "--verify", "--deep", "--strict", "--verbose=2", app)
+            detail = signing_detail(app)
+            if team_of(detail) != TEAM or identifier_of(detail) != BUNDLE_ID:
+                raise ValueError("wrong app signing team or identifier")
+            requirement = subprocess.run(["/usr/bin/codesign", "-dr", "-", str(app)], capture_output=True, text=True, timeout=60)
+            text = requirement.stdout + requirement.stderr
+            if (requirement.returncode or f'identifier "{BUNDLE_ID}"' not in text
+                    or f'certificate leaf[subject.OU] = "{TEAM}"' not in text):
+                raise ValueError("the designated requirement does not identify VocalCode")
             run("/usr/bin/xcrun", "stapler", "validate", app)
-            run("/usr/sbin/spctl", "--assess", "--type", "execute", "--verbose=2", app)
-            build = json.loads(run(app / "Contents/MacOS/VocalCode", "--build-info"))
+            if not gatekeeper_accepted(spctl("-a", "-t", "exec", "-vv", app)):
+                raise ValueError("Gatekeeper did not accept the notarized app")
+            build = json.loads(run(app / "Contents/MacOS" / EXECUTABLE, "--build-info"))
             if build.get("edition") != "community" or build.get("version") != version():
                 raise ValueError("signed app is not runnable or has the wrong edition")
         finally:
             run("/usr/bin/hdiutil", "detach", mount)
-    print("DMG and app signature, notarization, identity and actual executable linkage verified.")
+    print("DMG and app signature, notarization, identity and actual executable linkage verified "
+          "as a paid VocalCode's updater verifies them.")
 
 
 def manifest() -> None:
     output = ROOT / "dist-community/artifacts"
     value = version()
     commit = run("git", "rev-parse", "HEAD").strip()
+    # Schema and channel are the ones VocalCode's updater has read since the
+    # first free release; only the asset names changed.
     data = {"schema": "vocalcode-community-update-v1", "channel": "community-stable", "source_commit": commit,
-            "notes": "Free, local-first community edition. Separate data and signed updates; no activation required."}
-    names = {"windows": "VocalCodeCommunitySetup.exe", "macos": f"VocalCodeCommunity-{value}.dmg"}
+            "notes": "VocalCode is free and open source (AGPL-3.0). Local-first, with signed updates; no account or activation."}
+    names = {"windows": WINDOWS_INSTALLER, "macos": dmg_name(value)}
     for platform, name in names.items():
         data[platform] = {"version": value, "url": f"https://github.com/{REPOSITORY}/releases/download/v{value}/{name}", **file_record(output / name)}
     (output / "latest.json").write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    source = output / f"VocalCodeCommunity-source-{value}.tar.gz"
-    run("git", "archive", "--format=tar.gz", f"--prefix=VocalCodeCommunity-{value}/", f"--output={source}", commit)
+    source = output / f"VocalCode-source-{value}.tar.gz"
+    run("git", "archive", "--format=tar.gz", f"--prefix=VocalCode-{value}/", f"--output={source}", commit)
     lines = [f"{file_record(path)['sha256']}  {path.name}" for path in sorted(output.iterdir()) if path.is_file() and path.name != "SHA256SUMS"]
     (output / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
 

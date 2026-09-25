@@ -12,8 +12,7 @@
   continual promotion or a promise of unlimited individual support.
 
 This page makes no claim about an employer, company affiliation, contributor
-count, funding, or a support team. This is an early source preview, not an
-announcement of a production-ready community installer.
+count, funding, or a support team.
 
 ## How to get in touch
 
@@ -47,9 +46,9 @@ can be documented if the project grows. No governance role is promised here.
 
 ## Support expectations
 
-Community support is asynchronous and best-effort. There is no guaranteed
+Support is asynchronous and best-effort. There is no guaranteed
 response time, fix date, private onboarding, or service-level agreement.
-Report with app edition/version, OS, CPU, model, device, reproduction steps,
+Report with app version, OS, CPU, model, device, reproduction steps,
 and synthetic data. Never include a real meeting or credential by default.
 
 This does not announce a cancellation or change of previous purchase terms.

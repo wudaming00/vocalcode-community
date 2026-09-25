@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in VocalCode Community does not work as expected.
+description: Something in VocalCode does not work as expected.
 labels: [bug]
 body:
   - type: markdown

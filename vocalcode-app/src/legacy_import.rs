@@ -1,11 +1,12 @@
-//! Copy-only import from the previous (paid) VocalCode.
+//! Copy-only import from the early free builds of VocalCode.
 //!
-//! That edition kept its data in `%LOCALAPPDATA%\VocalCode` on Windows and
-//! `~/Library/Application Support/VocalCode` on macOS. This edition has its
-//! own "VocalCode Community" folder and deliberately never migrates on its
-//! own (see `paths::enter_data_lifecycle`), so people arriving from the paid
-//! app found an empty dictionary, no meetings and default shortcuts. This is
-//! the explicit, user-started bridge between the two folders:
+//! VocalCode now uses the data folder the paid releases used,
+//! `%LOCALAPPDATA%\VocalCode` on Windows and
+//! `~/Library/Application Support/VocalCode` on macOS, so a paid installation
+//! that updates keeps everything where it is. The early free builds,
+//! published as "VocalCode Community" 1.3.1 and 1.4.0, kept theirs in a
+//! "VocalCode Community" folder beside it; the installer removes that app but
+//! never its folder. This is the explicit, user-started bridge from it:
 //!
 //! * The previous folder is only ever opened for reading, and only the names
 //!   in [`ALLOWED`]. Licence, trial and time-anchor files, logs, locks, the
@@ -185,6 +186,13 @@ const SETTINGS_UNREADABLE: &str = "The previous settings file could not be read.
 /// refusal is reported and rolled back the same way. They replace the values
 /// here; the page says so and leaves the box unticked for anyone who already
 /// has data of their own.
+///
+/// The file's own `config_version` decides what a key it leaves out meant.
+/// Before v5, leaving out the Back button, the speech gate or kept History
+/// meant the Back button as Enter, no gate and no kept History, and reading
+/// the file fills those in (`Config`'s `Deserialize`). Those values travel as
+/// if written: otherwise this installation's new-install defaults would stay,
+/// and importing would quietly change how the person's dictation behaves.
 fn previous_settings(previous: &Path) -> Result<Option<Value>, String> {
     let path = allowed(previous, "vocalcode.toml");
     let Some(bytes) = read(&path, MAX_CONFIG_DOCUMENT_BYTES)? else {
@@ -192,10 +200,17 @@ fn previous_settings(previous: &Path) -> Result<Option<Value>, String> {
     };
     let source = String::from_utf8(bytes).map_err(|_| SETTINGS_UNREADABLE.to_string())?;
     crate::reject_future_config_version(&path, &source)?;
-    // The previous edition's settings are a field subset of these: unknown
-    // keys are ignored and missing ones take this build's defaults.
+    // The previous build's settings are a field subset of these: unknown
+    // keys are ignored and missing ones take the defaults of the version
+    // that wrote the file.
     let unreadable = || SETTINGS_UNREADABLE.to_string();
     let written = toml::from_str::<toml::Table>(&source).map_err(|_| unreadable())?;
+    let written_version = written
+        .get("config_version")
+        .and_then(toml::Value::as_integer)
+        .and_then(|version| u64::try_from(version).ok());
+    let implied: &[&str] =
+        vocalcode_core::config::keys_implied_by_version(written_version.unwrap_or(0));
     let mut config: Config = toml::from_str(&source).map_err(|_| unreadable())?;
     config.validate_bounds()?;
     config.migrate();
@@ -211,7 +226,9 @@ fn previous_settings(previous: &Path) -> Result<Option<Value>, String> {
     // window) never travel.
     fields.retain(|key, _| {
         !matches!(key.as_str(), "autostart" | "onboarded")
-            && (written.contains_key(key) || (key == "model" && written.contains_key("language")))
+            && (written.contains_key(key)
+                || implied.contains(&key.as_str())
+                || (key == "model" && written.contains_key("language")))
     });
     // A model this build no longer ships falls back to the language's
     // recommendation; a language never chosen there keeps this one's.
@@ -675,8 +692,9 @@ fn import(
 }
 
 /// Whether this installation already has anything a person made: the Home
-/// suggestion is only for someone who has not started over here yet.
-fn community_has_user_data(base: &Path, status: &RuntimeStatus) -> bool {
+/// suggestion is only for someone who has not started over here yet. Someone
+/// whose paid VocalCode updated to this build has their data here already.
+fn has_user_data(base: &Path, status: &RuntimeStatus) -> bool {
     let dictated = status
         .totals
         .lock()
@@ -772,16 +790,16 @@ fn scan(previous: &Path, base: &Path, status: &RuntimeStatus) -> Value {
         "stats_imported": marker.stats_imported,
         "models": models,
         "problems": problems,
-        "community_empty": !community_has_user_data(base, status),
+        "this_empty": !has_user_data(base, status),
         "answered": marker.dismissed || marker.imported_at_ms > 0,
         "login": crate::webui::previous_edition_autostart(),
     })
 }
 
-/// The previous edition's single-instance name. Its GUI holds this mutex for
+/// The early free build's single-instance name. Its GUI holds this mutex for
 /// its whole lifetime, so its installer can tell whether it is running.
 #[cfg(windows)]
-const PREVIOUS_EDITION_MUTEX: &str = r"Local\VocalCode.Desktop";
+const PREVIOUS_EDITION_MUTEX: &str = crate::community::early::MUTEX;
 
 #[cfg(windows)]
 fn named_mutex_exists(name: &str) -> bool {
@@ -802,7 +820,7 @@ fn named_mutex_exists(name: &str) -> bool {
     true
 }
 
-/// Whether the previous VocalCode is running now. Both would type every
+/// Whether the early free build is running now. Both would type every
 /// dictation, each with its own hotkey hook and microphone.
 #[cfg(windows)]
 pub(crate) fn previous_edition_running() -> bool {
@@ -957,8 +975,8 @@ mod tests {
         lang chain      => LangChain\n\
         a line the previous app ignored too\n";
 
-    /// Everything the paid edition could have in its folder, including every
-    /// credential-looking and unknown name that must never be copied.
+    /// Everything an earlier VocalCode could have in its folder, including
+    /// every credential-looking and unknown name that must never be copied.
     fn previous_tree(previous: &Path) -> MeetingId {
         write(
             previous.join("vocalcode.toml"),
@@ -1064,7 +1082,7 @@ mod tests {
         assert_eq!(scan["meetings_in_progress"], 1);
         assert_eq!(scan["settings"], true);
         assert_eq!(scan["profiles"], "new");
-        assert_eq!(scan["community_empty"], true);
+        assert_eq!(scan["this_empty"], true);
         assert_eq!(scan["problems"], json!([]));
         assert_eq!(scan["stats"]["dictations"], 40);
         assert_eq!(
@@ -1152,7 +1170,7 @@ mod tests {
         assert_eq!(result["workflows"], "imported");
         // Now this installation has data and profiles of its own.
         let after = super::scan(&previous, &base, &status);
-        assert_eq!(after["community_empty"], false);
+        assert_eq!(after["this_empty"], false);
         assert_eq!(after["profiles"], "kept");
 
         assert_eq!(result["snippets"]["added"], 1);
@@ -1422,7 +1440,8 @@ mod tests {
     fn app_profiles_import_on_their_own_and_never_over_existing_ones() {
         let scratch = Scratch::new("profiles");
         let (previous, base) = (scratch.previous(), scratch.community());
-        write(previous.join("vocalcode.toml"), "config_version = 3\n");
+        // A current-format file that sets nothing: no settings to import.
+        write(previous.join("vocalcode.toml"), "config_version = 5\n");
         write(
             previous.join("personalization/workflows.json"),
             r#"{"schema":1,"diagnostics":true,"cleanup":"original","profiles":[{"app_id":"Code.exe","cleanup":"light","progressive":null,"paste":null}]}"#,
@@ -1468,7 +1487,7 @@ mod tests {
         assert!(previous_settings(&previous).unwrap_err().contains("newer"));
         write(
             previous.join("vocalcode.toml"),
-            "language = \"auto\"\nmodel = \"retired-model\"\n",
+            "language = \"auto\"\nmodel = \"retired-model\"\nconfig_version = 5\n",
         );
         assert_eq!(
             previous_settings(&previous).unwrap(),
@@ -1512,11 +1531,124 @@ mod tests {
             .cloned()
             .collect::<Vec<_>>();
         keys.sort();
-        assert_eq!(keys, ["language", "model", "talk"]);
+        // A file from before v5 also settled, by leaving them out, the Back
+        // button, the speech gate and kept History: see the next test.
+        assert_eq!(
+            keys,
+            [
+                "keep_history",
+                "language",
+                "model",
+                "noise_filter",
+                "send",
+                "talk"
+            ]
+        );
         // `migrate` canonicalises the old key spelling and picks the model the
         // current release recommends for that language.
         assert_eq!(settings["talk"], json!(["key:ControlRight"]));
         assert_eq!(settings["model"], "sensevoice");
+    }
+
+    /// The imported file's own `config_version` decides what a key it left
+    /// out meant. VocalCode Community 1.4.0 (v4) left the speech gate and
+    /// kept History out when off, and the Back button bound as Enter; a new
+    /// installation has the gate on, a week of kept History and no Back
+    /// binding. Importing must bring over the old behaviour, not keep the new
+    /// defaults behind the person's back. A v5 file that leaves them out
+    /// meant today's defaults, so nothing is carried for those keys.
+    #[test]
+    fn an_older_file_carries_the_behaviour_its_version_implied() {
+        let scratch = Scratch::new("settings-version");
+        let previous = scratch.previous();
+        write(
+            previous.join("vocalcode.toml"),
+            "language = \"en\"\nconfig_version = 4\nonboarded = true\n",
+        );
+        let settings = previous_settings(&previous).unwrap().unwrap();
+        assert_eq!(settings["noise_filter"], false);
+        assert_eq!(settings["keep_history"], "off");
+        #[cfg(windows)]
+        assert_eq!(settings["send"], json!(["mouse_x1"]));
+        #[cfg(target_os = "macos")]
+        assert_eq!(settings["send"], json!([]));
+
+        // What the file spelled out always wins over what its version implied.
+        write(
+            previous.join("vocalcode.toml"),
+            "language = \"en\"\nconfig_version = 4\nnoise_filter = true\nsend = []\n",
+        );
+        let settings = previous_settings(&previous).unwrap().unwrap();
+        assert_eq!(settings["noise_filter"], true);
+        assert_eq!(settings["send"], json!([]));
+        assert_eq!(settings["keep_history"], "off");
+
+        // No version at all is the oldest format.
+        write(previous.join("vocalcode.toml"), "language = \"en\"\n");
+        let settings = previous_settings(&previous).unwrap().unwrap();
+        assert_eq!(settings["noise_filter"], false);
+        assert_eq!(settings["keep_history"], "off");
+
+        write(
+            previous.join("vocalcode.toml"),
+            "language = \"en\"\nconfig_version = 5\n",
+        );
+        let settings = previous_settings(&previous).unwrap().unwrap();
+        for key in ["send", "noise_filter", "keep_history"] {
+            assert!(settings.get(key).is_none(), "{key}: {settings}");
+        }
+    }
+
+    /// The early free build's folder, as VocalCode Community 1.4.0 wrote it,
+    /// is found and imported whole. The Windows end-to-end job also sets
+    /// `VC_E2E_EARLY_DATA` to a copy of the folder a real 1.4.0 installation
+    /// kept after the VocalCode installer uninstalled it.
+    #[test]
+    fn the_early_free_builds_folder_imports_whole() {
+        let mut folders = vec![crate::test_support::e2e_fixture("community-1.4.0")];
+        folders.extend(std::env::var_os("VC_E2E_EARLY_DATA").map(PathBuf::from));
+        for source in folders {
+            let scratch = Scratch::new("early-build");
+            let (previous, base) = (scratch.previous(), scratch.community());
+            crate::test_support::copy_tree(&source, &previous);
+            let before = crate::paths::hash_migration_tree(&previous).unwrap();
+            let status = status_for(&base);
+
+            let found = scan(&previous, &base, &status);
+            assert_eq!(
+                found["problems"],
+                json!([]),
+                "{}: {found}",
+                source.display()
+            );
+            assert_eq!(found["settings"], true);
+            assert_eq!(found["rules"], 4);
+            assert_eq!(found["snippets"], 1);
+            assert_eq!(found["meetings"], 1);
+            assert_eq!(found["stats"]["dictations"], 321);
+            assert_eq!(found["stats"]["days"], 2);
+            assert_eq!(found["this_empty"], true);
+
+            let result = import(&previous, &base, &status, all(), true).unwrap();
+            assert_eq!(result["errors"], json!([]), "{result}");
+            let settings = &result["settings"];
+            assert_eq!(settings["language"], "en");
+            assert_eq!(settings["talk"], json!(["mouse_x2", "key:F8"]));
+            // Written by 1.4.0 (v4): its gate, History and Back button travel.
+            assert_eq!(settings["noise_filter"], false);
+            assert_eq!(settings["keep_history"], "off");
+            #[cfg(windows)]
+            assert_eq!(settings["send"], json!(["mouse_x1"]));
+            assert_eq!(result["dictionary"]["added"], 4);
+            assert_eq!(result["snippets"]["added"], 1);
+            assert_eq!(result["meetings"]["copied"], 1);
+            assert_eq!(result["stats"]["dictations"], 321);
+            assert_eq!(
+                crate::paths::hash_migration_tree(&previous).unwrap(),
+                before,
+                "the early build's folder is only read"
+            );
+        }
     }
 
     /// A directory link, like a junction on Windows (which needs no
