@@ -254,6 +254,16 @@
   .setup.error{background:linear-gradient(180deg,rgba(232,86,74,.15),rgba(232,86,74,.05));border-color:rgba(232,86,74,.38);color:#f0a49c}
   .setup.error .sspin{display:grid;place-items:center;animation:none;border:1px solid rgba(232,86,74,.55);color:#f5c3bd;font:700 11px/1 var(--sans)}
   .setup.error .sspin::after{content:"!"}
+  .setup.error .dlpct{color:#f5c3bd}
+  /* Why setup failed, and what a retry keeps. Host error text can be long
+     and unbroken (paths, URLs), so it wraps anywhere. */
+  .setupwhy{display:block;margin-top:5px;font-size:11.5px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere;opacity:.9}
+  .setup.error{flex-wrap:wrap}
+  .setup.error .dlwrap{flex:1 1 320px}
+  .setupacts{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:7px;flex:0 0 auto;margin-left:auto}
+  .setupacts button{background:rgba(232,86,74,.16);border:1px solid rgba(232,86,74,.42);color:#f5c3bd;border-radius:8px;padding:6px 11px;font-family:inherit;font-size:12px;cursor:pointer}
+  .setupacts button:hover{background:rgba(232,86,74,.26)}
+  .setupacts button:disabled{opacity:.55;cursor:default}
   /* macOS permission prompt — same shell as .setup but red, since it is a
      blocker rather than a "please wait", and it stacks buttons on the right. */
   .perm{display:none;align-items:center;gap:11px;background:linear-gradient(180deg,rgba(232,86,74,.15),rgba(232,86,74,.05));border:1px solid rgba(232,86,74,.38);border-radius:12px;padding:12px 15px;margin-bottom:16px;font-size:13px;color:#f0a49c}
@@ -266,8 +276,10 @@
   .dlwrap{flex:1 1 auto;min-width:0}
   .dlrow{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
   .dlpct{font-family:var(--mono);font-size:12px;color:var(--amber-2);flex:0 0 auto}
-  .dltrack{height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden;margin-top:7px}
-  .dlbar{height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,var(--amber-2),var(--amber));
+  /* Both are spans inside a block: without display:block their height and
+     width are ignored and the bar never drew. */
+  .dltrack{display:block;height:5px;border-radius:3px;background:rgba(255,255,255,.09);overflow:hidden;margin-top:7px}
+  .dlbar{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,var(--amber-2),var(--amber));
     transition:width .25s ease}
   .sspin{width:15px;height:15px;border-radius:50%;border:2px solid var(--amber-dim);border-top-color:var(--amber);animation:sspin 1s linear infinite;flex:0 0 auto}
   @keyframes sspin{to{transform:rotate(360deg)}}
@@ -837,6 +849,11 @@
         <span class="dlwrap">
           <span class="dlrow"><span id="setupMsg">Preparing the speech model — downloading verified files when needed.</span><span class="dlpct" id="dlPct"></span></span>
           <span class="dltrack" id="dlTrack" style="display:none"><span class="dlbar" id="dlBar"></span></span>
+          <span class="setupwhy" id="setupDetail" style="display:none"></span>
+        </span>
+        <span class="setupacts" id="setupActions" style="display:none">
+          <button type="button" id="setupRetry">Retry now</button>
+          <button type="button" id="setupSmaller">Use a smaller model</button>
         </span>
       </div>
       <span class="sr" id="setupAnnounce" role="status" aria-live="polite"></span>
@@ -1753,6 +1770,12 @@
       "Network error — try again.":"网络错误,请重试。",
       "Activated — you're all set. No restart needed.":"已激活 —— 一切就绪,无需重启。",
       "Preparing the speech model — downloading verified files when needed.":"正在准备语音模型 —— 必要时下载经过校验的文件。",
+      "The speech model could not be set up":"语音模型准备失败",
+      "{done} of {total} MB downloaded — the next try continues from there.":"已下载 {done} / {total} MB，重试时会从断点继续。",
+      "Retrying in {n} s":"{n} 秒后自动重试",
+      "Retrying…":"正在重试…",
+      "Retry now":"立即重试",
+      "Use a smaller model":"改用更小的模型",
       "Updating…":"更新中…",
       "Downloading the update — VocalCode will restart on its own in a moment.":"正在下载更新 —— 稍后 VocalCode 会自动重启。",
       "Update installed — quit and reopen VocalCode to use it.":"更新已安装 —— 退出并重新打开 VocalCode 即可使用。",
@@ -2383,6 +2406,12 @@
       "Network error — try again.":"Error de red; inténtalo de nuevo.",
       "Activated — you're all set. No restart needed.":"Activado; todo listo. No hace falta reiniciar.",
       "Preparing the speech model — downloading verified files when needed.":"Preparando el modelo de voz: se descargan archivos verificados cuando es necesario.",
+      "The speech model could not be set up":"No se pudo preparar el modelo de voz",
+      "{done} of {total} MB downloaded — the next try continues from there.":"{done} de {total} MB descargados; el próximo intento continúa desde ahí.",
+      "Retrying in {n} s":"Nuevo intento en {n} s",
+      "Retrying…":"Reintentando…",
+      "Retry now":"Reintentar ahora",
+      "Use a smaller model":"Usar un modelo más pequeño",
       "Your VocalCode licence is active. 🎉":"Tu licencia de VocalCode está activa. 🎉",
       "No subscription. One licence activates one device; the licence checks in online periodically.":"Sin suscripción. Una licencia activa un dispositivo; la licencia se verifica en línea periódicamente.",
       "Love it? Send a friend the link:":"¿Te gusta? Envía el enlace a un amigo:",
@@ -3045,6 +3074,12 @@
       "Network error — try again.":"Erreur réseau — réessayez.",
       "Activated — you're all set. No restart needed.":"Activé — tout est prêt. Aucun redémarrage nécessaire.",
       "Preparing the speech model — downloading verified files when needed.":"Préparation du modèle vocal — téléchargement de fichiers vérifiés si nécessaire.",
+      "The speech model could not be set up":"Le modèle vocal n’a pas pu être préparé",
+      "{done} of {total} MB downloaded — the next try continues from there.":"{done} Mo sur {total} Mo téléchargés — le prochain essai reprendra à partir de là.",
+      "Retrying in {n} s":"Nouvel essai dans {n} s",
+      "Retrying…":"Nouvel essai…",
+      "Retry now":"Réessayer maintenant",
+      "Use a smaller model":"Utiliser un modèle plus léger",
       "Your VocalCode licence is active. 🎉":"Votre licence VocalCode est active. 🎉",
       "No subscription. One licence activates one device; the licence checks in online periodically.":"Sans abonnement. Une licence active un appareil ; la licence se vérifie en ligne périodiquement.",
       "Love it? Send a friend the link:":"Vous aimez ? Envoyez le lien à un ami :",
@@ -3707,6 +3742,12 @@
       "Network error — try again.":"Netzwerkfehler — bitte erneut versuchen.",
       "Activated — you're all set. No restart needed.":"Aktiviert — alles bereit. Kein Neustart nötig.",
       "Preparing the speech model — downloading verified files when needed.":"Sprachmodell wird vorbereitet — verifizierte Dateien werden bei Bedarf geladen.",
+      "The speech model could not be set up":"Das Sprachmodell konnte nicht eingerichtet werden",
+      "{done} of {total} MB downloaded — the next try continues from there.":"{done} von {total} MB geladen — der nächste Versuch macht dort weiter.",
+      "Retrying in {n} s":"Neuer Versuch in {n} s",
+      "Retrying…":"Neuer Versuch…",
+      "Retry now":"Jetzt erneut versuchen",
+      "Use a smaller model":"Kleineres Modell verwenden",
       "Your VocalCode licence is active. 🎉":"Deine VocalCode-Lizenz ist aktiv. 🎉",
       "No subscription. One licence activates one device; the licence checks in online periodically.":"Kein Abo. Eine Lizenz aktiviert ein Gerät; die Lizenz wird regelmäßig online geprüft.",
       "Love it? Send a friend the link:":"Gefällt es dir? Schick den Link an Freunde:",
@@ -5193,18 +5234,61 @@
     document.getElementById("noiseFilterStatus").textContent=t(Object.prototype.hasOwnProperty.call(labels,s.state)?labels[s.state]:labels.off)+(count?" · "+t("Filtered this session")+": "+count:"");
   };
   // END NOISE FILTER STATUS
-  window.vocalcodeStatus = function(s){
-    window.vocalcodeNoiseFilterStatus(s.noise_filter);
-    const setup=document.getElementById("setup");
-    hasPro=s.pro===true;
+  // MODEL SETUP BANNER: download progress while a model is fetched and, when
+  // preparation fails, why, when it is retried, and two ways out. Every status
+  // tick used to strip the error style, so a download that had given up still
+  // read "Preparing…" with nothing to press and no sign it would try again.
+  var setupFailure=null, setupCountdown=0, setupRetrying=false;
+  function setupMb(value){ return Math.max(0,Math.round(Number(value)||0)); }
+  function smallerChoice(option){
+    // Only a model this page itself offers for the current language.
+    if(!option || typeof option.id!=="string") return null;
+    return (MODEL_CHOICES[cfg.language]||[]).find(function(choice){ return choice.id===option.id; }) || null;
+  }
+  function renderSetupCountdown(){
+    if(!setupFailure) return;
+    var left=Math.ceil(((Number(setupFailure.retry_at_ms)||0)-Date.now())/1000);
+    setTextIfChanged(document.getElementById("dlPct"),
+      !setupRetrying && left>0 ? t("Retrying in {n} s").replace("{n}",String(left)) : t("Retrying…"));
+  }
+  function renderSetup(s){
+    var setup=document.getElementById("setup"), track=document.getElementById("dlTrack"),
+        bar=document.getElementById("dlBar"), pct=document.getElementById("dlPct"),
+        msg=document.getElementById("setupMsg"), detail=document.getElementById("setupDetail"),
+        actions=document.getElementById("setupActions"), smaller=document.getElementById("setupSmaller");
     setup.classList.toggle("on", s.ready===false && s.meeting_active!==true);
-    setup.classList.remove("error");
-    if(typeof s.onboarded==="boolean") setOnboarding(!s.onboarded);
+    var failed=typeof s.model_error==="string" && s.model_error!=="";
+    setup.classList.toggle("error", failed);
+    if(failed){
+      // A new failure (a new retry time) re-arms "Retry now".
+      if(!setupFailure || setupFailure.retry_at_ms!==s.retry_at_ms) setupRetrying=false;
+      setupFailure={retry_at_ms:s.retry_at_ms, smaller_model:s.smaller_model};
+      track.style.display="none";
+      var heading=t("The speech model could not be set up");
+      setTextIfChanged(msg,heading);
+      var done=setupMb(s.model_downloaded_mb), total=setupMb(s.model_total_mb), lines=[];
+      if(done>0 && total>0){
+        lines.push(t("{done} of {total} MB downloaded — the next try continues from there.")
+          .replace("{done}",String(done)).replace("{total}",String(total)));
+      }
+      lines.push(s.model_error);
+      setTextIfChanged(detail,lines.join("\n"));
+      detail.style.display=""; actions.style.display="";
+      document.getElementById("setupRetry").disabled=setupRetrying;
+      var option=smallerChoice(s.smaller_model);
+      smaller.style.display=option ? "" : "none";
+      smaller.title=option ? option.name+" · "+setupMb(s.smaller_model.mb)+" MB" : "";
+      renderSetupCountdown();
+      if(!setupCountdown) setupCountdown=setInterval(renderSetupCountdown,1000);
+      if(s.ready===false) announceSetup(heading);
+      return;
+    }
+    setupFailure=null; setupRetrying=false;
+    if(setupCountdown){ clearInterval(setupCountdown); setupCountdown=0; }
+    detail.style.display="none"; actions.style.display="none";
     // Show real numbers while downloading; fall back to the generic line once
     // the bytes are in and the model is loading.
-    const dl=s.download, track=document.getElementById("dlTrack"),
-          bar=document.getElementById("dlBar"), pct=document.getElementById("dlPct"),
-          msg=document.getElementById("setupMsg");
+    var dl=s.download;
     if(dl){
       track.style.display="";
       var progress=Math.max(0,Math.min(100,Number(dl.pct)||0));
@@ -5223,6 +5307,28 @@
       if(s.ready===false) announceSetup(preparing);
     }
     if(s.ready!==false) announceSetup("");
+  }
+  document.getElementById("setupRetry").onclick=function(){
+    if(!setupFailure) return;
+    setupRetrying=true;
+    this.disabled=true;
+    renderSetupCountdown();
+    send({type:"retry_model"});
+  };
+  document.getElementById("setupSmaller").onclick=function(){
+    var option=smallerChoice(setupFailure && setupFailure.smaller_model);
+    if(!option || cfg.model===option.id) return;
+    // The same acknowledged settings transaction as picking the model on
+    // the Language page; a failure there rolls this choice back.
+    cfg.model=option.id;
+    save(); renderLangs(); showLanguageApplyNote(true);
+  };
+  // END MODEL SETUP BANNER
+  window.vocalcodeStatus = function(s){
+    window.vocalcodeNoiseFilterStatus(s.noise_filter);
+    hasPro=s.pro===true;
+    renderSetup(s);
+    if(typeof s.onboarded==="boolean") setOnboarding(!s.onboarded);
     if(s.history){
       window.vocalcodeHistory(s.history);
       // All-time figures come from the host, which persists three counters and

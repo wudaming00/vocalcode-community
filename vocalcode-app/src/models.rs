@@ -11,9 +11,9 @@
 
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -47,8 +47,8 @@ impl Progress {
 ///
 /// Clones observe the same state. `cancel` also wakes model-lock waiters; HTTP
 /// operations use short, resumable request slices so a blocked socket observes
-/// the signal within a bounded interval instead of waiting for the full model
-/// transfer timeout.
+/// the signal within a bounded interval instead of blocking for a whole
+/// transfer.
 #[derive(Clone, Debug)]
 pub struct CancellationToken {
     state: Arc<CancellationState>,
@@ -264,6 +264,78 @@ pub fn selectable_models(lang: &str) -> &'static [&'static str] {
     }
 }
 
+/// Bytes a route downloads: its model files, plus the punctuation model the
+/// Paraformer route requires.
+fn route_download_bytes(model_id: &str) -> Option<u64> {
+    let spec = spec_of(model_id)?;
+    let mut total = 0u64;
+    for (name, _) in spec.files {
+        total = total.saturating_add(artifact(spec.id, name).ok()?.size);
+    }
+    if wants_punct(spec.id, "") {
+        total = total.saturating_add(artifact("punct", "model.onnx").ok()?.size);
+    }
+    Some(total)
+}
+
+/// The smallest model this language can switch to, when it downloads less
+/// than the current route: the way out offered beside "Retry now" when a
+/// large model will not come down a slow or metered connection. A language
+/// with one tested model has no such choice, and none is invented.
+pub fn smaller_alternative(model_id: &str, lang: &str) -> Option<(&'static str, u64)> {
+    let Some(Route::Single(current)) = route_for(model_id, lang) else {
+        return None;
+    };
+    let current_bytes = route_download_bytes(current)?;
+    selectable_models(lang)
+        .iter()
+        .filter_map(|id| Some((*id, route_download_bytes(id)?)))
+        .filter(|(_, bytes)| *bytes < current_bytes)
+        .min_by_key(|(_, bytes)| *bytes)
+}
+
+/// How much of a route is already on disk, as (bytes, total), for the
+/// failure banner. A complete file counts at its manifest size and a kept
+/// partial at its length. Metadata only: an estimate the next attempt
+/// verifies, not a verdict on the bytes.
+pub fn downloaded_bytes(model_id: &str, lang: &str, base: &Path) -> Option<(u64, u64)> {
+    let Some(Route::Single(id)) = route_for(model_id, lang) else {
+        return None;
+    };
+    let spec = spec_of(id)?;
+    let mut files: Vec<(&str, &str)> = spec
+        .files
+        .iter()
+        .map(|(name, _)| (spec.id, *name))
+        .collect();
+    if wants_punct(model_id, lang) {
+        files.push(("punct", "model.onnx"));
+    }
+    let plain_length = |path: &Path| {
+        std::fs::symlink_metadata(path)
+            .ok()
+            .filter(plain_file_metadata)
+            .map(|metadata| metadata.len())
+    };
+    let (mut done, mut total) = (0u64, 0u64);
+    for (model, name) in files {
+        let size = artifact(model, name).ok()?.size;
+        total = total.saturating_add(size);
+        let canonical = base.join("models").join(model).join(name);
+        let present = if plain_length(&canonical) == Some(size) {
+            size
+        } else {
+            partial_path(&canonical)
+                .ok()
+                .and_then(|partial| plain_length(&partial))
+                .unwrap_or(0)
+                .min(size)
+        };
+        done = done.saturating_add(present);
+    }
+    Some((done, total))
+}
+
 /// Runtime thread count for the selected route. Unlike the one-time model
 /// recommendation, this is recalculated on every model load so a manual
 /// override and a hot switch receive the right measured cap.
@@ -445,15 +517,27 @@ struct Artifact {
 
 type ArtifactManifest = HashMap<String, HashMap<String, Artifact>>;
 static ARTIFACT_MANIFEST: OnceLock<Result<ArtifactManifest, String>> = OnceLock::new();
-static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+#[cfg(test)]
+static TEMP_SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 const MODEL_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const MODEL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
-const MODEL_TRANSFER_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MODEL_IO_SLICE_TIMEOUT: Duration = Duration::from_secs(5);
 const MODEL_LOCK_WAIT_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 const MODEL_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const MODEL_RETRY_DELAY: Duration = Duration::from_millis(100);
-const MODEL_MAX_NO_PROGRESS_ATTEMPTS: u32 = 6;
+// A download attempt ends only after this long without a single new byte.
+// It replaced a count of six failed 100 ms retries, which let a one-second
+// Wi-Fi drop (or DNS failing once while a laptop wakes) end the attempt, and a
+// 30-minute cap per file, which meant Parakeet's 652 MB encoder and Qwen3's
+// 756 MB decoder could never finish below ~3 Mbit/s however steadily the
+// bytes arrived. A slow link that keeps delivering now keeps going.
+const MODEL_STALL_TIMEOUT: Duration = Duration::from_secs(90);
+const MODEL_RETRY_DELAY: Duration = Duration::from_millis(250);
+const MODEL_MAX_RETRY_DELAY: Duration = Duration::from_secs(15);
+// A server that ignores Range (or answers 416 to a prefix it once served), and
+// a digest that fails after a resume, each force a restart from byte zero.
+// Bounded, so a server that also drops every connection partway cannot keep
+// one attempt re-fetching the same prefix.
+const MODEL_MAX_FULL_RESTARTS: u32 = 2;
 
 fn artifact_manifest() -> Result<&'static ArtifactManifest, String> {
     match ARTIFACT_MANIFEST.get_or_init(|| {
@@ -520,9 +604,16 @@ fn plain_file_metadata(metadata: &std::fs::Metadata) -> bool {
 /// the no-follow flag belongs to the open itself and the returned handle is
 /// what gets inspected and hashed.
 fn open_plain_file_for_read(path: &Path) -> Result<Option<File>, String> {
+    open_plain_file(path, false)
+}
+
+/// `open_plain_file_for_read`, optionally writable. Resuming a download
+/// appends to the partial through the same handle that was checked and
+/// hashed, so it inherits the same no-follow guarantee.
+fn open_plain_file(path: &Path, write: bool) -> Result<Option<File>, String> {
     let result = {
         let mut options = OpenOptions::new();
-        options.read(true);
+        options.read(true).write(write);
         #[cfg(unix)]
         {
             use std::os::unix::fs::OpenOptionsExt;
@@ -567,23 +658,40 @@ fn open_plain_file_for_read(path: &Path) -> Result<Option<File>, String> {
 }
 
 fn sha256_reader_with_control(
-    mut file: &File,
+    file: &File,
     cancellation: &CancellationToken,
 ) -> ModelPrepareResult<String> {
     let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 128 * 1024];
-    loop {
+    hash_reader_into(file, &mut hasher, u64::MAX, cancellation)?;
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Feed up to `limit` bytes from the file's current position into `hasher`,
+/// returning how many were read. Shared by whole-file verification and by
+/// download resume, which re-hashes a kept partial so the final digest still
+/// covers every byte of the published file.
+fn hash_reader_into(
+    mut file: &File,
+    hasher: &mut Sha256,
+    limit: u64,
+    cancellation: &CancellationToken,
+) -> ModelPrepareResult<u64> {
+    let mut buffer = vec![0u8; 128 * 1024];
+    let mut hashed = 0u64;
+    while hashed < limit {
         cancellation.check()?;
+        let want = (limit - hashed).min(buffer.len() as u64) as usize;
         let count = file
-            .read(&mut buffer)
+            .read(&mut buffer[..want])
             .map_err(|error| ModelPrepareError::Failed(error.to_string()))?;
         cancellation.check()?;
         if count == 0 {
             break;
         }
         hasher.update(&buffer[..count]);
+        hashed += count as u64;
     }
-    Ok(format!("{:x}", hasher.finalize()))
+    Ok(hashed)
 }
 
 #[cfg(test)]
@@ -960,8 +1068,26 @@ fn with_model_install_lock_cancellable<T>(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ResidueKind {
+    /// A per-process `.part-PID-SEQ` file from releases before downloads
+    /// resumed. Nothing continues it, so it is always removed.
     Partial,
+    /// The deterministic `<file>.partial` a later attempt resumes. Kept
+    /// until the canonical file is valid.
+    Resumable,
     Replaced,
+}
+
+/// The one partial file an artifact's download writes and later resumes.
+/// Deterministic rather than per-process, so a retry, a restart of the app or
+/// a reboot all continue from the bytes already on disk. Only the holder of
+/// the model directory's install lock touches it.
+fn partial_path(canonical: &Path) -> Result<PathBuf, String> {
+    let mut name = canonical
+        .file_name()
+        .ok_or_else(|| format!("model file has no name: {}", canonical.display()))?
+        .to_os_string();
+    name.push(".partial");
+    Ok(canonical.with_file_name(name))
 }
 
 fn process_id_component(value: &str) -> bool {
@@ -980,6 +1106,10 @@ fn sequence_component(value: &str) -> bool {
 }
 
 fn owned_residue_kind(canonical: &Path, candidate_name: &str) -> Option<ResidueKind> {
+    let resumable = partial_path(canonical).ok()?;
+    if resumable.file_name().and_then(|name| name.to_str()) == Some(candidate_name) {
+        return Some(ResidueKind::Resumable);
+    }
     for (marker, kind) in [
         ("part-", ResidueKind::Partial),
         ("replaced-", ResidueKind::Replaced),
@@ -1006,6 +1136,7 @@ fn owned_residue_kind(canonical: &Path, candidate_name: &str) -> Option<ResidueK
                         .get(1)
                         .is_none_or(|sequence| sequence_component(sequence))
             }
+            ResidueKind::Resumable => false,
         };
         if strict {
             return Some(kind);
@@ -1319,7 +1450,8 @@ fn install_verified_cancellable(
 /// Validate a canonical artifact and repair/clean crash residue while the
 /// model's exclusive install lock is held. A verified backup can replace a
 /// missing or corrupt canonical file atomically; corrupt owned backups and
-/// stale owned partials are removed. Lookalike names are ignored, while an
+/// legacy per-process partials are removed, and the resumable `.partial` is
+/// kept until the canonical verifies. Lookalike names are ignored, while an
 /// owned-looking symlink/reparse point fails closed and is never touched.
 #[cfg(test)]
 fn recover_artifact_locked(canonical: &Path, expected: &Artifact) -> Result<bool, String> {
@@ -1351,10 +1483,12 @@ fn recover_artifact_locked_cancellable(
         }
     }
 
+    // A kept `.partial` is the resume point for a canonical that is still
+    // missing or wrong. Once the canonical verifies it is only stale bytes.
     if canonical_state == ArtifactState::Valid {
         for (path, kind) in &residues {
             cancellation.check()?;
-            if *kind == ResidueKind::Replaced {
+            if matches!(kind, ResidueKind::Replaced | ResidueKind::Resumable) {
                 remove_owned_residue(path).map_err(ModelPrepareError::Failed)?;
             }
         }
@@ -1372,7 +1506,12 @@ fn recover_artifact_locked_cancellable(
                 install_verified_cancellable(backup, canonical, expected, cancellation)?;
                 for (other, other_kind) in &residues {
                     cancellation.check()?;
-                    if *other_kind == ResidueKind::Replaced && other != backup {
+                    let stale = match other_kind {
+                        ResidueKind::Replaced => other != backup,
+                        ResidueKind::Resumable => true,
+                        ResidueKind::Partial => false,
+                    };
+                    if stale {
                         remove_owned_residue(other).map_err(ModelPrepareError::Failed)?;
                     }
                 }
@@ -1594,47 +1733,178 @@ pub fn ensure_punct_cancellable(
     })
 }
 
-/// Download `url` to `path`, reporting progress as `(bytes_so_far, total)`.
-///
-/// Chunked rather than `io::copy` so there is something to report at all: these
-/// files run to hundreds of megabytes, and a single blocking copy leaves the
-/// user watching a motionless "Downloading…" for minutes with no way to tell
-/// progress from a hang.
-///
-/// `total` is None when the server sends no Content-Length, in which case the
-/// caller can still show bytes transferred.
 /// Registry labels carry a parenthesised description that is far too long for a
 /// progress line, so only the leading name is shown.
 fn short_label(label: &str) -> String {
     label.split(" · ").next().unwrap_or(label).to_string()
 }
 
-/// Create a new partial file without ever following a pre-created symlink or
-/// truncating somebody else's file. The name is only an implementation detail;
-/// `create_new` is the security boundary and the loop handles stale partials.
-fn create_download_temp(path: &Path) -> Result<(PathBuf, File), String> {
-    for _ in 0..128 {
-        let sequence = TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let tmp = path.with_extension(format!("part-{}-{sequence}", std::process::id()));
-        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
-            Ok(file) => return Ok((tmp, file)),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.to_string()),
-        }
+/// How many directory entries name this file. A resumed partial is appended
+/// to, so it must be the only name for its bytes: a hard link planted at the
+/// partial's name would otherwise have model bytes written into its target.
+#[cfg(unix)]
+fn file_link_count(file: &File) -> Result<u64, String> {
+    use std::os::unix::fs::MetadataExt;
+    file.metadata()
+        .map(|metadata| metadata.nlink())
+        .map_err(|error| format!("inspect model partial links: {error}"))
+}
+
+#[cfg(windows)]
+fn file_link_count(file: &File) -> Result<u64, String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+    };
+    // A plain C out-parameter, filled by the call below; zero is a valid
+    // initial bit pattern for every field.
+    let mut information: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    // The handle is borrowed from `file`, which outlives the call.
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut information) } == 0 {
+        return Err(format!(
+            "inspect model partial links: {}",
+            std::io::Error::last_os_error()
+        ));
     }
-    Err(format!(
-        "could not reserve a unique partial file beside {}",
-        path.display()
-    ))
+    Ok(u64::from(information.nNumberOfLinks))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn file_link_count(_file: &File) -> Result<u64, String> {
+    Ok(1)
+}
+
+/// Create an empty partial. `create_new` refuses any existing name, links
+/// included, so this can never truncate or write through somebody else's file.
+fn create_new_partial(path: &Path) -> ModelPrepareResult<File> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
+        .map_err(|error| {
+            ModelPrepareError::Failed(format!("create model partial {}: {error}", path.display()))
+        })
+}
+
+/// A download's partial file together with the running SHA-256 of every byte
+/// in it.
+///
+/// An existing partial is opened through the same no-follow handle checks as
+/// a canonical model and is appended to only while it is a plain file with a
+/// single name. Anything else has its name removed — which cannot touch the
+/// bytes behind another name — and a fresh file created in its place. Nothing
+/// here truncates in place.
+struct PartialDownload {
+    path: PathBuf,
+    file: File,
+    hasher: Sha256,
+    /// Bytes present and hashed; the next Range request starts here.
+    offset: u64,
+    /// How many of those bytes an earlier attempt left on disk.
+    resumed: u64,
+}
+
+impl PartialDownload {
+    /// Continue whatever an earlier attempt left at `path`, or start empty.
+    fn open(
+        path: &Path,
+        expected: &Artifact,
+        cancellation: &CancellationToken,
+    ) -> ModelPrepareResult<Self> {
+        cancellation.check()?;
+        let Some(mut file) = open_plain_file(path, true).map_err(ModelPrepareError::Failed)? else {
+            return Self::create(path);
+        };
+        let length = file
+            .metadata()
+            .map_err(|error| {
+                ModelPrepareError::Failed(format!(
+                    "inspect model partial {}: {error}",
+                    path.display()
+                ))
+            })?
+            .len();
+        let single_name = file_link_count(&file).map_err(ModelPrepareError::Failed)? == 1;
+        if !single_name || length > expected.size {
+            // Another name shares these bytes, or there are more of them than
+            // the artifact has. Neither is a prefix worth continuing.
+            log::warn!("discarding unusable model partial {}", path.display());
+            drop(file);
+            return Self::replace(path);
+        }
+        // The final digest must cover every byte that gets published, so the
+        // kept prefix goes through the same streaming hasher as new bytes.
+        let mut hasher = Sha256::new();
+        let offset = hash_reader_into(&file, &mut hasher, length, cancellation)?;
+        let io_error = |error: std::io::Error| {
+            ModelPrepareError::Failed(format!(
+                "prepare model partial {} for resume: {error}",
+                path.display()
+            ))
+        };
+        if offset != length {
+            file.set_len(offset).map_err(io_error)?;
+        }
+        file.seek(SeekFrom::Start(offset)).map_err(io_error)?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            file,
+            hasher,
+            offset,
+            resumed: offset,
+        })
+    }
+
+    fn create(path: &Path) -> ModelPrepareResult<Self> {
+        Ok(Self {
+            path: path.to_path_buf(),
+            file: create_new_partial(path)?,
+            hasher: Sha256::new(),
+            offset: 0,
+            resumed: 0,
+        })
+    }
+
+    fn replace(path: &Path) -> ModelPrepareResult<Self> {
+        remove_owned_residue(path).map_err(ModelPrepareError::Failed)?;
+        Self::create(path)
+    }
+
+    /// Discard every byte and start again from zero. The handle is closed
+    /// before the name is removed: on Windows a name still open elsewhere can
+    /// linger as delete-pending and refuse the re-create.
+    fn restart(self) -> ModelPrepareResult<Self> {
+        let Self { path, file, .. } = self;
+        drop(file);
+        Self::replace(&path)
+    }
+
+    fn append(&mut self, bytes: &[u8]) -> ModelPrepareResult<()> {
+        self.file.write_all(bytes).map_err(|error| {
+            ModelPrepareError::Failed(format!(
+                "write model partial {}: {error}",
+                self.path.display()
+            ))
+        })?;
+        self.hasher.update(bytes);
+        self.offset += bytes.len() as u64;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy)]
 struct DownloadPolicy {
     https_only: bool,
+    /// Absolute bound on one request. Dropping a timed-out response closes
+    /// its connection, which is what bounds cancellation while `Read::read`
+    /// itself is blocked; the next request resumes at the bytes kept so far.
     io_slice_timeout: Duration,
-    transfer_timeout: Duration,
+    /// The attempt fails once no new byte has arrived for this long.
+    stall_timeout: Duration,
+    /// First wait after a request that brought nothing; doubles up to
+    /// `max_retry_delay` and resets as soon as bytes flow again.
     retry_delay: Duration,
-    max_no_progress_attempts: u32,
+    max_retry_delay: Duration,
 }
 
 impl DownloadPolicy {
@@ -1642,9 +1912,9 @@ impl DownloadPolicy {
         Self {
             https_only: true,
             io_slice_timeout: MODEL_IO_SLICE_TIMEOUT,
-            transfer_timeout: MODEL_TRANSFER_TIMEOUT,
+            stall_timeout: MODEL_STALL_TIMEOUT,
             retry_delay: MODEL_RETRY_DELAY,
-            max_no_progress_attempts: MODEL_MAX_NO_PROGRESS_ATTEMPTS,
+            max_retry_delay: MODEL_MAX_RETRY_DELAY,
         }
     }
 }
@@ -1685,16 +1955,180 @@ fn parse_content_range(value: &str) -> Option<(u64, u64, u64)> {
 }
 
 fn retryable_request_error(error: &ureq::Error) -> bool {
-    matches!(
-        error,
+    match error {
         ureq::Error::Io(_)
-            | ureq::Error::Timeout(_)
-            | ureq::Error::HostNotFound
-            | ureq::Error::ConnectionFailed
-    )
+        | ureq::Error::Timeout(_)
+        | ureq::Error::HostNotFound
+        | ureq::Error::ConnectionFailed => true,
+        // A CDN edge that is briefly overloaded or restarting says so with
+        // these; anything else in 4xx is a request that will not improve.
+        ureq::Error::StatusCode(code) => matches!(code, 408 | 429 | 500..=599),
+        _ => false,
+    }
+}
+
+/// One response to a ranged GET, reduced to what the resume logic checks.
+struct RangeResponse {
+    status: u16,
+    content_length: Option<u64>,
+    content_range: Option<String>,
+    body: Box<dyn Read>,
+}
+
+enum TransportError {
+    /// The network, a timeout, or a server's 408/429/5xx: back off and retry.
+    Retryable(String),
+    /// HTTP 416: the server no longer accepts the kept prefix as part of the
+    /// object, so it has to start again from zero.
+    RangeNotSatisfiable,
+    Fatal(String),
+}
+
+/// One ranged GET. A seam so the resume logic can be driven by a scripted
+/// network in tests; production always goes through `UreqRangeTransport`.
+trait RangeTransport {
+    fn get(&mut self, url: &str, range: &str) -> Result<RangeResponse, TransportError>;
+}
+
+struct UreqRangeTransport {
+    agent: ureq::Agent,
+}
+
+impl UreqRangeTransport {
+    fn new(policy: &DownloadPolicy) -> Self {
+        // Redirects stay off: the URL allow-list is the exact mirror object,
+        // and a redirect would hand the choice of server to whoever answers.
+        let request_timeout = policy.io_slice_timeout;
+        let agent = ureq::Agent::config_builder()
+            .https_only(policy.https_only)
+            .max_redirects(0)
+            .timeout_connect(Some(MODEL_CONNECT_TIMEOUT.min(request_timeout)))
+            .timeout_recv_response(Some(MODEL_RESPONSE_TIMEOUT.min(request_timeout)))
+            .timeout_recv_body(Some(request_timeout))
+            .timeout_global(Some(request_timeout))
+            .build()
+            .new_agent();
+        Self { agent }
+    }
+}
+
+impl RangeTransport for UreqRangeTransport {
+    fn get(&mut self, url: &str, range: &str) -> Result<RangeResponse, TransportError> {
+        let response = self
+            .agent
+            .get(url)
+            .header("Accept-Encoding", "identity")
+            .header("Range", range)
+            .call()
+            .map_err(|error| match error {
+                ureq::Error::StatusCode(416) => TransportError::RangeNotSatisfiable,
+                error if retryable_request_error(&error) => {
+                    TransportError::Retryable(error.to_string())
+                }
+                error => TransportError::Fatal(error.to_string()),
+            })?;
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let status = response.status().as_u16();
+        let content_length = header("content-length").and_then(|value| value.parse::<u64>().ok());
+        let content_range = header("content-range");
+        Ok(RangeResponse {
+            status,
+            content_length,
+            content_range,
+            body: Box::new(response.into_body().into_reader()),
+        })
+    }
+}
+
+/// Time-based stall detection for one download attempt, with exponential
+/// backoff between requests that bring nothing.
+struct StallClock {
+    last_byte: Instant,
+    delay: Duration,
+    policy: DownloadPolicy,
+}
+
+impl StallClock {
+    fn start(policy: DownloadPolicy) -> Self {
+        Self {
+            last_byte: Instant::now(),
+            delay: policy.retry_delay,
+            policy,
+        }
+    }
+
+    fn progressed(&mut self) {
+        self.last_byte = Instant::now();
+        self.delay = self.policy.retry_delay;
+    }
+
+    /// Wait before retrying a request that brought no new bytes. Fails once
+    /// nothing has arrived for the whole stall window, and never waits past it.
+    fn back_off(
+        &mut self,
+        cancellation: &CancellationToken,
+        cause: &str,
+    ) -> ModelPrepareResult<()> {
+        let quiet = self.last_byte.elapsed();
+        if quiet >= self.policy.stall_timeout {
+            return Err(ModelPrepareError::TimedOut(format!(
+                "no data received for {:?}: {cause}",
+                self.policy.stall_timeout
+            )));
+        }
+        let wait = self.delay.min(self.policy.stall_timeout - quiet);
+        self.delay = self
+            .delay
+            .saturating_mul(2)
+            .min(self.policy.max_retry_delay.max(self.policy.retry_delay));
+        if cancellation.wait_cancelled(wait) {
+            return Err(ModelPrepareError::Cancelled);
+        }
+        Ok(())
+    }
 }
 
 fn download_with_policy(
+    url: &str,
+    path: &Path,
+    expected: &Artifact,
+    cancellation: &CancellationToken,
+    policy: DownloadPolicy,
+    on_progress: &mut dyn FnMut(u64, Option<u64>),
+) -> ModelPrepareResult<()> {
+    let mut transport = UreqRangeTransport::new(&policy);
+    download_with_transport(
+        &mut transport,
+        url,
+        path,
+        expected,
+        cancellation,
+        policy,
+        on_progress,
+    )
+}
+
+/// Download `url` to `path` through `<path>.partial`, reporting progress as
+/// `(bytes_so_far, total)`.
+///
+/// Chunked rather than `io::copy` so there is something to report at all: these
+/// files run to hundreds of megabytes, and a single blocking copy leaves the
+/// user watching a motionless "Downloading…" for minutes with no way to tell
+/// progress from a hang.
+///
+/// Failure and cancellation keep the partial, and the next attempt — a retry,
+/// or the app's next launch — re-hashes it and asks only for the rest. The
+/// SHA-256 over the complete file stays the only authority on what gets
+/// published: a digest that fails after a resume discards the partial and
+/// downloads the artifact once more from byte zero.
+fn download_with_transport(
+    transport: &mut dyn RangeTransport,
     url: &str,
     path: &Path,
     expected: &Artifact,
@@ -1708,88 +2142,147 @@ fn download_with_policy(
             "model manifest declared a zero-byte artifact".to_string(),
         ));
     }
-    if policy.io_slice_timeout.is_zero() || policy.transfer_timeout.is_zero() {
+    if policy.io_slice_timeout.is_zero() || policy.stall_timeout.is_zero() {
         return Err(ModelPrepareError::Failed(
             "model download timeout must be non-zero".to_string(),
         ));
     }
 
-    // Every request is a resumable range and has a short absolute deadline.
-    // Dropping the timed-out response closes that connection; the next request
-    // resumes at exactly the number of bytes already hashed and written. This
-    // is what bounds cancellation while `Read::read` itself is blocked.
-    let request_timeout = policy.io_slice_timeout.min(policy.transfer_timeout);
-    let agent = ureq::Agent::config_builder()
-        .https_only(policy.https_only)
-        .max_redirects(0)
-        .timeout_connect(Some(MODEL_CONNECT_TIMEOUT.min(request_timeout)))
-        .timeout_recv_response(Some(MODEL_RESPONSE_TIMEOUT.min(request_timeout)))
-        .timeout_recv_body(Some(request_timeout))
-        .timeout_global(Some(request_timeout))
-        .build()
-        .new_agent();
-    let transfer_deadline = Instant::now()
-        .checked_add(policy.transfer_timeout)
-        .unwrap_or_else(Instant::now);
-    let (tmp, mut file) = create_download_temp(path).map_err(ModelPrepareError::Failed)?;
+    let partial = partial_path(path).map_err(ModelPrepareError::Failed)?;
+    let mut download = PartialDownload::open(&partial, expected, cancellation)?;
+    if download.resumed > 0 {
+        log::info!(
+            "resuming {} at byte {} of {}",
+            path.display(),
+            download.resumed,
+            expected.size
+        );
+    }
+    let mut full_restarts = 0u32;
+    loop {
+        on_progress(download.offset, Some(expected.size));
+        cancellation.check()?;
+        download = transfer_remaining(
+            transport,
+            url,
+            download,
+            expected,
+            cancellation,
+            policy,
+            &mut full_restarts,
+            on_progress,
+        )?;
+        cancellation.check()?;
+        on_progress(download.offset, Some(expected.size));
+        cancellation.check()?;
+        let actual = format!("{:x}", download.hasher.clone().finalize());
+        if actual.eq_ignore_ascii_case(&expected.sha256) {
+            break;
+        }
+        // A digest over a resumed prefix can be wrong because of the prefix:
+        // bytes an older mirror object served, a torn write, a file planted at
+        // the name. One clean download from byte zero settles which. A clean
+        // download that still mismatches is what the server sends, and is
+        // reported without keeping its bytes.
+        if download.resumed > 0 && full_restarts < MODEL_MAX_FULL_RESTARTS {
+            log::warn!(
+                "model sha256 mismatch after resuming {}; downloading it again",
+                path.display()
+            );
+            full_restarts += 1;
+            download = download.restart()?;
+            continue;
+        }
+        drop(download);
+        remove_owned_residue(&partial).map_err(ModelPrepareError::Failed)?;
+        return Err(ModelPrepareError::Failed(format!(
+            "model sha256 mismatch: got {actual}, expected {}",
+            expected.sha256
+        )));
+    }
     cancellation.check()?;
+    download
+        .file
+        .sync_all()
+        .map_err(|error| ModelPrepareError::Failed(error.to_string()))?;
+    drop(download);
+    cancellation.check()?;
+    install_verified_cancellable(&partial, path, expected, cancellation)?;
+    cancellation.check()?;
+    Ok(())
+}
 
-    let result = (|| -> ModelPrepareResult<()> {
-        let mut hasher = Sha256::new();
-        let mut buffer = vec![0u8; 128 * 1024];
-        let mut done: u64 = 0;
-        let mut no_progress_attempts = 0u32;
-        let mut last_progress = Instant::now();
-        on_progress(0, Some(expected.size));
+/// Start the partial over after a server refused to continue it.
+fn restart_from_zero(
+    download: PartialDownload,
+    full_restarts: &mut u32,
+    reason: &str,
+) -> ModelPrepareResult<PartialDownload> {
+    if *full_restarts >= MODEL_MAX_FULL_RESTARTS {
+        return Err(ModelPrepareError::Failed(format!(
+            "model download cannot resume: {reason}"
+        )));
+    }
+    *full_restarts += 1;
+    log::warn!("restarting model download from byte 0: {reason}");
+    download.restart()
+}
+
+/// Fill `download` to `expected.size` with Range requests.
+///
+/// Every request is one short slice, so a slice that times out while bytes
+/// are flowing is the normal case and is resumed at once. Only a request that
+/// brings nothing waits, with exponential backoff, and the attempt ends only
+/// when no byte has arrived for the stall timeout. There is no cap on the
+/// transfer as a whole.
+#[allow(clippy::too_many_arguments)]
+fn transfer_remaining(
+    transport: &mut dyn RangeTransport,
+    url: &str,
+    mut download: PartialDownload,
+    expected: &Artifact,
+    cancellation: &CancellationToken,
+    policy: DownloadPolicy,
+    full_restarts: &mut u32,
+    on_progress: &mut dyn FnMut(u64, Option<u64>),
+) -> ModelPrepareResult<PartialDownload> {
+    let mut stall = StallClock::start(policy);
+    let mut buffer = vec![0u8; 128 * 1024];
+    let mut last_report = Instant::now();
+    'request: while download.offset < expected.size {
+        cancellation.check()?;
+        let request_start = download.offset;
+        let range = format!("bytes={request_start}-{}", expected.size - 1);
+        let response = match transport.get(url, &range) {
+            Ok(response) => response,
+            Err(TransportError::Retryable(cause)) => {
+                cancellation.check()?;
+                stall.back_off(cancellation, &cause)?;
+                continue;
+            }
+            Err(TransportError::RangeNotSatisfiable) if request_start > 0 => {
+                download = restart_from_zero(
+                    download,
+                    full_restarts,
+                    "the server refused the resume range (HTTP 416)",
+                )?;
+                on_progress(0, Some(expected.size));
+                continue;
+            }
+            Err(TransportError::RangeNotSatisfiable) => {
+                return Err(ModelPrepareError::Failed(
+                    "server refused the model range (HTTP 416)".to_string(),
+                ))
+            }
+            Err(TransportError::Fatal(message)) => return Err(ModelPrepareError::Failed(message)),
+        };
         cancellation.check()?;
 
-        'request: while done < expected.size {
-            cancellation.check()?;
-            if Instant::now() >= transfer_deadline {
-                return Err(ModelPrepareError::TimedOut(format!(
-                    "model transfer timed out after {:?}",
-                    policy.transfer_timeout
-                )));
-            }
-
-            let request_start = done;
-            let range = format!("bytes={request_start}-{}", expected.size - 1);
-            let response = match agent
-                .get(url)
-                .header("Accept-Encoding", "identity")
-                .header("Range", &range)
-                .call()
-            {
-                Ok(response) => response,
-                Err(error) if retryable_request_error(&error) => {
-                    cancellation.check()?;
-                    no_progress_attempts = no_progress_attempts.saturating_add(1);
-                    if no_progress_attempts > policy.max_no_progress_attempts {
-                        return Err(ModelPrepareError::TimedOut(format!(
-                            "model request made no progress after {} attempts: {error}",
-                            policy.max_no_progress_attempts
-                        )));
-                    }
-                    if cancellation.wait_cancelled(policy.retry_delay) {
-                        return Err(ModelPrepareError::Cancelled);
-                    }
-                    continue;
-                }
-                Err(error) => return Err(ModelPrepareError::Failed(error.to_string())),
-            };
-            cancellation.check()?;
-
-            let status = response.status().as_u16();
-            let advertised = response
-                .headers()
-                .get("content-length")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.parse::<u64>().ok());
-            let resumable = if status == 206 {
+        match response.status {
+            206 => {
                 let content_range = response
-                    .headers()
-                    .get("content-range")
-                    .and_then(|value| value.to_str().ok())
+                    .content_range
+                    .as_deref()
                     .and_then(parse_content_range)
                     .ok_or_else(|| {
                         ModelPrepareError::Failed(
@@ -1799,7 +2292,7 @@ fn download_with_policy(
                 if content_range != (request_start, expected.size - 1, expected.size) {
                     return Err(ModelPrepareError::Failed(format!(
                         "server returned unexpected Content-Range for {}: expected bytes {}-{}/{}, got bytes {}-{}/{}",
-                        path.display(),
+                        download.path.display(),
                         request_start,
                         expected.size - 1,
                         expected.size,
@@ -1808,145 +2301,87 @@ fn download_with_policy(
                         content_range.2
                     )));
                 }
-                if advertised.is_some_and(|size| size != expected.size - request_start) {
+                if let Some(size) = response
+                    .content_length
+                    .filter(|size| *size != expected.size - request_start)
+                {
                     return Err(ModelPrepareError::Failed(format!(
-                        "server range size mismatch for {}: expected {}, server {}",
-                        path.display(),
+                        "server range size mismatch for {}: expected {}, server {size}",
+                        download.path.display(),
                         expected.size - request_start,
-                        advertised.unwrap_or_default()
                     )));
                 }
-                true
-            } else if status == 200 && request_start == 0 {
-                if advertised.is_some_and(|size| size != expected.size) {
+            }
+            200 => {
+                if let Some(size) = response
+                    .content_length
+                    .filter(|size| *size != expected.size)
+                {
                     return Err(ModelPrepareError::Failed(format!(
-                        "server size mismatch for {}: manifest {}, server {}",
-                        path.display(),
+                        "server size mismatch for {}: manifest {}, server {size}",
+                        download.path.display(),
                         expected.size,
-                        advertised.unwrap_or_default()
                     )));
                 }
-                false
-            } else {
+                if request_start > 0 {
+                    // The server ignored Range and is sending the object from
+                    // byte zero. Appending it would corrupt the partial, so
+                    // start the partial over and take this body from the top.
+                    download = restart_from_zero(
+                        download,
+                        full_restarts,
+                        "the server ignored the resume range",
+                    )?;
+                    on_progress(0, Some(expected.size));
+                }
+            }
+            status => {
                 return Err(ModelPrepareError::Failed(format!(
                     "server did not honor resume range at byte {request_start} (HTTP {status})"
-                )));
-            };
-
-            let mut reader = response.into_body().into_reader();
-            loop {
-                cancellation.check()?;
-                let count = match reader.read(&mut buffer) {
-                    Ok(0) => break,
-                    Ok(count) => count,
-                    Err(error) => {
-                        cancellation.check()?;
-                        if !resumable && done != 0 {
-                            return Err(ModelPrepareError::Failed(format!(
-                                "server does not support safe model download resume: {error}"
-                            )));
-                        }
-                        if done == request_start {
-                            no_progress_attempts = no_progress_attempts.saturating_add(1);
-                        } else {
-                            no_progress_attempts = 0;
-                        }
-                        if no_progress_attempts > policy.max_no_progress_attempts {
-                            return Err(ModelPrepareError::TimedOut(format!(
-                                "model body made no progress after {} attempts: {error}",
-                                policy.max_no_progress_attempts
-                            )));
-                        }
-                        if Instant::now() >= transfer_deadline {
-                            return Err(ModelPrepareError::TimedOut(format!(
-                                "model transfer timed out after {:?}",
-                                policy.transfer_timeout
-                            )));
-                        }
-                        if cancellation.wait_cancelled(policy.retry_delay) {
-                            return Err(ModelPrepareError::Cancelled);
-                        }
-                        continue 'request;
-                    }
-                };
-                cancellation.check()?;
-                let next_done = done.saturating_add(count as u64);
-                if next_done > expected.size {
-                    return Err(ModelPrepareError::Failed(format!(
-                        "model exceeded manifest size: received at least {next_done}, expected {}",
-                        expected.size
-                    )));
-                }
-                file.write_all(&buffer[..count])
-                    .map_err(|error| ModelPrepareError::Failed(error.to_string()))?;
-                hasher.update(&buffer[..count]);
-                done = next_done;
-                no_progress_attempts = 0;
-                if last_progress.elapsed() >= Duration::from_millis(120) {
-                    on_progress(done, Some(expected.size));
-                    cancellation.check()?;
-                    last_progress = Instant::now();
-                }
+                )))
             }
+        }
 
+        let mut reader = response.body;
+        let mut received = false;
+        loop {
             cancellation.check()?;
-            if done == expected.size {
-                break;
-            }
-            if !resumable {
+            let count = match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => count,
+                Err(error) => {
+                    // A slice that ends mid-body is routine; the next request
+                    // resumes at exactly the bytes already hashed and written.
+                    cancellation.check()?;
+                    if !received {
+                        stall.back_off(cancellation, &error.to_string())?;
+                    }
+                    continue 'request;
+                }
+            };
+            cancellation.check()?;
+            let next_offset = download.offset.saturating_add(count as u64);
+            if next_offset > expected.size {
                 return Err(ModelPrepareError::Failed(format!(
-                    "model size mismatch without resume support: got {done}, expected {}",
+                    "model exceeded manifest size: received at least {next_offset}, expected {}",
                     expected.size
                 )));
             }
-            if done == request_start {
-                no_progress_attempts = no_progress_attempts.saturating_add(1);
-                if no_progress_attempts > policy.max_no_progress_attempts {
-                    return Err(ModelPrepareError::TimedOut(format!(
-                        "model body ended without progress after {} attempts",
-                        policy.max_no_progress_attempts
-                    )));
-                }
-                if cancellation.wait_cancelled(policy.retry_delay) {
-                    return Err(ModelPrepareError::Cancelled);
-                }
-            } else {
-                no_progress_attempts = 0;
+            download.append(&buffer[..count])?;
+            received = true;
+            stall.progressed();
+            if last_report.elapsed() >= Duration::from_millis(120) {
+                on_progress(download.offset, Some(expected.size));
+                cancellation.check()?;
+                last_report = Instant::now();
             }
         }
-
         cancellation.check()?;
-        on_progress(done, Some(expected.size));
-        cancellation.check()?;
-        if done != expected.size {
-            return Err(ModelPrepareError::Failed(format!(
-                "model size mismatch: got {done}, expected {}",
-                expected.size
-            )));
+        if download.offset < expected.size && !received {
+            stall.back_off(cancellation, "the response ended without data")?;
         }
-        let actual = format!("{:x}", hasher.finalize());
-        if !actual.eq_ignore_ascii_case(&expected.sha256) {
-            return Err(ModelPrepareError::Failed(format!(
-                "model sha256 mismatch: got {actual}, expected {}",
-                expected.sha256
-            )));
-        }
-        cancellation.check()?;
-        file.sync_all()
-            .map_err(|error| ModelPrepareError::Failed(error.to_string()))?;
-        drop(file);
-        cancellation.check()?;
-        install_verified_cancellable(&tmp, path, expected, cancellation)?;
-        cancellation.check()?;
-        Ok(())
-    })();
-
-    if result.is_err() {
-        // The exact name was reserved by create_new above. If an attacker has
-        // swapped it for a link, fail closed and leave that link untouched.
-        let _ = remove_owned_residue(&tmp);
     }
-    result
+    Ok(download)
 }
 
 pub fn build_asr(
@@ -2409,6 +2844,62 @@ mod tests {
     }
 
     #[test]
+    fn a_smaller_model_is_offered_only_where_the_language_has_one() {
+        let smaller = |model: &str, lang: &str| smaller_alternative(model, lang).map(|(id, _)| id);
+        // English defaults to Parakeet; SenseVoice is a third of the download.
+        assert_eq!(smaller("", "en"), Some("sensevoice"));
+        assert_eq!(smaller("qwen3-asr-0.6b", "en"), Some("sensevoice"));
+        assert_eq!(smaller("qwen3-asr-0.6b", "zh"), Some("sensevoice"));
+        // Paraformer also needs the 294 MB punctuation model.
+        assert_eq!(smaller("paraformer-zh", "zh"), Some("sensevoice"));
+        for (model, lang) in [
+            ("sensevoice", "en"),
+            ("", "zh"),
+            ("", "hi"),
+            ("", "fr"),
+            ("", "ja"),
+            ("", "ko"),
+            ("", "auto"),
+        ] {
+            assert_eq!(smaller(model, lang), None, "{model:?}/{lang}");
+        }
+        let (_, sensevoice) = smaller_alternative("", "en").unwrap();
+        assert!(sensevoice < route_download_bytes("parakeet-tdt-v3").unwrap());
+    }
+
+    #[test]
+    fn downloaded_bytes_counts_complete_files_and_kept_partials() {
+        let base = std::env::temp_dir().join(format!(
+            "vocalcode-downloaded-bytes-{}-{}",
+            std::process::id(),
+            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ));
+        let directory = base.join("models").join("sensevoice");
+        std::fs::create_dir_all(&directory).unwrap();
+        let tokens = artifact("sensevoice", "tokens.txt").unwrap().size;
+        let model = artifact("sensevoice", "model.int8.onnx").unwrap().size;
+
+        assert_eq!(
+            downloaded_bytes("sensevoice", "en", &base),
+            Some((0, tokens + model))
+        );
+        std::fs::write(directory.join("tokens.txt"), vec![0u8; tokens as usize]).unwrap();
+        std::fs::write(directory.join("model.int8.onnx.partial"), vec![0u8; 1234]).unwrap();
+        assert_eq!(
+            downloaded_bytes("sensevoice", "en", &base),
+            Some((tokens + 1234, tokens + model))
+        );
+        // A canonical of the wrong size is not complete; its partial still counts.
+        std::fs::write(directory.join("model.int8.onnx"), b"short").unwrap();
+        assert_eq!(
+            downloaded_bytes("sensevoice", "en", &base),
+            Some((tokens + 1234, tokens + model))
+        );
+        assert_eq!(downloaded_bytes("", "auto", &base), None);
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn hardware_recommendations_are_one_time_and_language_scoped() {
         let profile = |cores: usize, memory_gib: u64, fast_vector| HardwareProfile {
             logical_cores: cores,
@@ -2690,6 +3181,21 @@ mod download_tests {
         String::from_utf8(request).unwrap()
     }
 
+    /// `read_http_request` for a server that must outlive clients which
+    /// gave up before it answered.
+    fn try_read_http_request(stream: &mut std::net::TcpStream) -> Option<String> {
+        stream.set_read_timeout(Some(Duration::from_secs(2))).ok()?;
+        let mut request = Vec::new();
+        let mut byte = [0u8; 1];
+        while !request.ends_with(b"\r\n\r\n") {
+            match stream.read(&mut byte) {
+                Ok(0) | Err(_) => return None,
+                Ok(count) => request.extend_from_slice(&byte[..count]),
+            }
+        }
+        String::from_utf8(request).ok()
+    }
+
     #[test]
     fn model_lock_wait_is_cancelled_without_waiting_for_the_holder() {
         let directory = TempDir::new("model-install-cancel-lock-wait");
@@ -2813,13 +3319,7 @@ mod download_tests {
         let download_token = cancellation.clone();
         let download_path = canonical.clone();
         let downloader = thread::spawn(move || {
-            let policy = DownloadPolicy {
-                https_only: false,
-                io_slice_timeout: Duration::from_millis(250),
-                transfer_timeout: Duration::from_secs(30),
-                retry_delay: Duration::from_millis(10),
-                max_no_progress_attempts: 2,
-            };
+            let policy = test_policy(Duration::from_secs(5));
             download_with_policy(
                 &format!("http://{address}/model.onnx"),
                 &download_path,
@@ -2845,9 +3345,19 @@ mod download_tests {
             cancelled_at.elapsed()
         );
         assert!(!canonical.exists(), "cancelled bytes were published");
-        assert!(
-            exact_residues(&canonical).is_empty(),
-            "cancelled partial was not removed"
+        // Quitting mid-download is the commonest interruption of all; the
+        // byte already fetched is kept for the next launch to resume from.
+        assert_eq!(
+            std::fs::read(partial_path(&canonical).unwrap()).unwrap(),
+            b"f",
+            "cancellation must keep the verified-so-far prefix"
+        );
+        assert_eq!(
+            exact_residues(&canonical)
+                .into_iter()
+                .map(|(_, kind)| kind)
+                .collect::<Vec<_>>(),
+            [ResidueKind::Resumable]
         );
         let _ = release_tx.send(());
         server.join().unwrap();
@@ -2900,19 +3410,12 @@ mod download_tests {
             first_handler.join().unwrap();
         });
 
-        let policy = DownloadPolicy {
-            https_only: false,
-            io_slice_timeout: Duration::from_secs(2),
-            transfer_timeout: Duration::from_secs(30),
-            retry_delay: Duration::from_millis(10),
-            max_no_progress_attempts: 2,
-        };
         download_with_policy(
             &format!("http://{address}/model.onnx"),
             &canonical,
             &expected,
             &CancellationToken::new(),
-            policy,
+            test_policy(Duration::from_secs(5)),
             &mut |_, _| {},
         )
         .unwrap();
@@ -2923,57 +3426,84 @@ mod download_tests {
         server.join().unwrap();
     }
 
+    /// Over real sockets: a transfer that stops delivering ends after the
+    /// stall window — not after a count of quick retries, and not after an
+    /// absolute cap — keeps what it had, and the next attempt asks only for
+    /// the rest.
     #[test]
-    fn model_transfer_deadline_is_absolute_across_resumable_requests() {
+    fn stalled_transfer_keeps_its_partial_and_the_next_attempt_resumes_it() {
         const BYTES: &[u8] = b"deadline";
-        let directory = TempDir::new("model-install-transfer-deadline");
+        let directory = TempDir::new("stall-resume");
         let canonical = directory.path().join("model.onnx");
         let expected = expected_bytes(BYTES);
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let address = listener.local_addr().unwrap();
         let stop = Arc::new(AtomicBool::new(false));
+        let healthy = Arc::new(AtomicBool::new(false));
+        let starts = Arc::new(Mutex::new(Vec::<usize>::new()));
         let server_stop = Arc::clone(&stop);
+        let server_healthy = Arc::clone(&healthy);
+        let server_starts = Arc::clone(&starts);
         let server = thread::spawn(move || {
             let mut held_connections = Vec::new();
             while !server_stop.load(Ordering::Acquire) {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         stream.set_nonblocking(false).unwrap();
-                        let request = read_http_request(&mut stream);
-                        assert!(
-                            request.to_ascii_lowercase().contains("range: bytes=0-7"),
-                            "deadline retry had the wrong range: {request}"
+                        // Under load a client slice can time out while its
+                        // connection still waits in the backlog; that client
+                        // is gone, so its connection is simply dropped.
+                        let Some(request) = try_read_http_request(&mut stream) else {
+                            continue;
+                        };
+                        let request = request.to_ascii_lowercase();
+                        let start: usize = request
+                            .split("range: bytes=")
+                            .nth(1)
+                            .and_then(|rest| rest.split('-').next())
+                            .and_then(|value| value.parse().ok())
+                            .unwrap_or_else(|| panic!("request was not ranged: {request}"));
+                        server_starts.lock().unwrap().push(start);
+                        let healthy = server_healthy.load(Ordering::Acquire);
+                        // Unhealthy: half the object on the first request, then
+                        // headers and a motionless body on every resume.
+                        let body: &[u8] = match (healthy, start) {
+                            (true, _) => &BYTES[start..],
+                            (false, 0) => b"dead",
+                            (false, _) => b"",
+                        };
+                        let head = format!(
+                            "HTTP/1.1 206 Partial Content\r\nContent-Length: {}\r\nContent-Range: bytes {start}-7/8\r\nConnection: close\r\n\r\n",
+                            BYTES.len() - start
                         );
-                        stream
-                            .write_all(
-                                b"HTTP/1.1 206 Partial Content\r\nContent-Length: 8\r\nContent-Range: bytes 0-7/8\r\nConnection: close\r\n\r\n",
-                            )
-                            .unwrap();
-                        stream.flush().unwrap();
-                        // Keep every response body open and motionless. Each
-                        // individual request times out, but only the one
-                        // transfer deadline is allowed to govern the retries.
-                        held_connections.push(stream);
+                        let sent = stream
+                            .write_all(head.as_bytes())
+                            .and_then(|()| stream.write_all(body))
+                            .and_then(|()| stream.flush());
+                        if sent.is_ok() && !healthy {
+                            held_connections.push(stream);
+                        }
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         thread::sleep(Duration::from_millis(5));
                     }
-                    Err(error) => panic!("accept deadline test connection: {error}"),
+                    Err(error) => panic!("accept stall test connection: {error}"),
                 }
             }
         });
 
         let policy = DownloadPolicy {
             https_only: false,
-            io_slice_timeout: Duration::from_millis(100),
-            transfer_timeout: Duration::from_millis(350),
-            retry_delay: Duration::from_millis(5),
-            max_no_progress_attempts: 100,
+            io_slice_timeout: Duration::from_millis(250),
+            stall_timeout: Duration::from_secs(1),
+            retry_delay: Duration::from_millis(20),
+            max_retry_delay: Duration::from_millis(200),
         };
+        let url = format!("http://{address}/model.onnx");
         let started = Instant::now();
         let error = download_with_policy(
-            &format!("http://{address}/model.onnx"),
+            &url,
             &canonical,
             &expected,
             &CancellationToken::new(),
@@ -2982,23 +3512,65 @@ mod download_tests {
         )
         .unwrap_err();
         let elapsed = started.elapsed();
+        assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
+        assert!(
+            elapsed >= Duration::from_secs(1) && elapsed < Duration::from_secs(6),
+            "stall detection did not follow the stall window: {elapsed:?}"
+        );
+        assert!(!canonical.exists(), "timed-out bytes were published");
+        assert_eq!(
+            std::fs::read(partial_path(&canonical).unwrap()).unwrap(),
+            b"dead",
+            "a stalled attempt must keep the bytes it fetched"
+        );
+        let stalled_requests = {
+            let starts = starts.lock().unwrap();
+            assert_eq!(starts[0], 0);
+            assert!(starts.len() >= 2, "the stall was never retried: {starts:?}");
+            assert!(
+                starts[1..].iter().all(|start| *start == 4),
+                "retries must resume at the kept offset: {starts:?}"
+            );
+            starts.len()
+        };
+
+        healthy.store(true, Ordering::Release);
+        let mut first_progress = None;
+        download_with_policy(
+            &url,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            // Generous: this half checks what is requested, not timing.
+            DownloadPolicy {
+                io_slice_timeout: Duration::from_secs(2),
+                ..test_policy(Duration::from_secs(10))
+            },
+            &mut |done, _| {
+                first_progress.get_or_insert(done);
+            },
+        )
+        .unwrap();
         stop.store(true, Ordering::Release);
         server.join().unwrap();
 
-        assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
-        assert!(
-            elapsed >= Duration::from_millis(300) && elapsed < Duration::from_millis(3_500),
-            "transfer deadline was not absolute: {elapsed:?}"
+        assert_eq!(
+            first_progress,
+            Some(4),
+            "the kept prefix is reported before any request"
         );
-        assert!(!canonical.exists(), "timed-out bytes were published");
+        let resumed = starts.lock().unwrap()[stalled_requests..].to_vec();
         assert!(
-            exact_residues(&canonical).is_empty(),
-            "timed-out partial was not removed"
+            !resumed.is_empty() && resumed.iter().all(|start| *start == 4),
+            "the next attempt must ask only for the missing bytes: {resumed:?}"
         );
+        assert_eq!(std::fs::read(&canonical).unwrap(), BYTES);
+        assert!(exact_residues(&canonical).is_empty());
     }
 
     fn verified_partial(canonical: &Path, bytes: &[u8]) -> PathBuf {
-        let (path, mut file) = create_download_temp(canonical).unwrap();
+        let path = partial_path(canonical).unwrap();
+        let mut file = create_new_partial(&path).unwrap();
         file.write_all(bytes).unwrap();
         file.sync_all().unwrap();
         drop(file);
@@ -3074,23 +3646,642 @@ mod download_tests {
         assert!(exact_residues(&canonical).is_empty());
     }
 
-    #[test]
-    fn partial_downloads_are_created_exclusively() {
-        let dir = TempDir::new("model-install-exclusive-partial");
-        let final_path = dir.path().join("encoder.onnx");
-        let (first_path, mut first) = create_download_temp(&final_path).unwrap();
-        first.write_all(b"do not truncate").unwrap();
-        first.sync_all().unwrap();
-        drop(first);
+    const TEST_URL: &str = "https://models.vocalcode.app/test/model.onnx";
 
-        let (second_path, second) = create_download_temp(&final_path).unwrap();
-        drop(second);
-        assert_ne!(first_path, second_path);
-        assert_eq!(std::fs::read(&first_path).unwrap(), b"do not truncate");
+    /// Short timings with the production shape: short request slices, a stall
+    /// window, and exponential backoff between empty requests.
+    fn test_policy(stall_timeout: Duration) -> DownloadPolicy {
+        DownloadPolicy {
+            https_only: false,
+            io_slice_timeout: Duration::from_millis(250),
+            stall_timeout,
+            retry_delay: Duration::from_millis(10),
+            max_retry_delay: Duration::from_millis(80),
+        }
+    }
+
+    fn test_object(length: usize) -> Vec<u8> {
+        (0..length).map(|index| (index * 7 % 251) as u8).collect()
+    }
+
+    /// How the scripted server answers one request.
+    #[derive(Clone, Copy, Debug)]
+    enum Reply {
+        /// 206 for exactly the requested range; the connection drops after
+        /// `drop_after` body bytes when set.
+        Range { drop_after: Option<usize> },
+        /// 200 with the whole object, as a server that ignores Range does.
+        Whole { drop_after: Option<usize> },
+        /// 206, one byte per read with this pause before each; the
+        /// connection drops after `drop_after` bytes when set.
+        Trickle {
+            pause: Duration,
+            drop_after: Option<usize>,
+        },
+        /// The connection cannot be made.
+        Refused,
+    }
+
+    /// A scripted network for the resume logic. `script(request_index,
+    /// range_start)` picks each answer; the server records every range start
+    /// it was asked for and counts every body byte it handed out.
+    struct ScriptedServer<F> {
+        object: Vec<u8>,
+        script: F,
+        starts: Vec<u64>,
+        served: std::rc::Rc<std::cell::Cell<u64>>,
+    }
+
+    impl<F: FnMut(usize, u64) -> Reply> ScriptedServer<F> {
+        fn new(object: Vec<u8>, script: F) -> Self {
+            Self {
+                object,
+                script,
+                starts: Vec::new(),
+                served: Default::default(),
+            }
+        }
+
+        fn served(&self) -> u64 {
+            self.served.get()
+        }
+    }
+
+    impl<F: FnMut(usize, u64) -> Reply> RangeTransport for ScriptedServer<F> {
+        fn get(&mut self, _url: &str, range: &str) -> Result<RangeResponse, TransportError> {
+            let start: u64 = range
+                .strip_prefix("bytes=")
+                .and_then(|rest| rest.split('-').next())
+                .and_then(|value| value.parse().ok())
+                .unwrap_or_else(|| panic!("request was not ranged: {range}"));
+            let index = self.starts.len();
+            self.starts.push(start);
+            let total = self.object.len() as u64;
+            let (status, from, drop_after, pause) = match (self.script)(index, start) {
+                Reply::Refused => {
+                    return Err(TransportError::Retryable("connection refused".to_string()))
+                }
+                Reply::Range { drop_after } => (206, start, drop_after, None),
+                Reply::Whole { drop_after } => (200, 0, drop_after, None),
+                Reply::Trickle { pause, drop_after } => (206, start, drop_after, Some(pause)),
+            };
+            let data = self.object[from as usize..].to_vec();
+            Ok(RangeResponse {
+                status,
+                content_length: Some(data.len() as u64),
+                content_range: (status == 206)
+                    .then(|| format!("bytes {from}-{}/{total}", total - 1)),
+                body: Box::new(ScriptedBody {
+                    data,
+                    position: 0,
+                    drop_after,
+                    pause,
+                    served: self.served.clone(),
+                }),
+            })
+        }
+    }
+
+    struct ScriptedBody {
+        data: Vec<u8>,
+        position: usize,
+        drop_after: Option<usize>,
+        pause: Option<Duration>,
+        served: std::rc::Rc<std::cell::Cell<u64>>,
+    }
+
+    impl Read for ScriptedBody {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let end = self
+                .drop_after
+                .map_or(self.data.len(), |limit| limit.min(self.data.len()));
+            if self.position >= end {
+                return if end < self.data.len() {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::ConnectionReset,
+                        "connection dropped",
+                    ))
+                } else {
+                    Ok(0)
+                };
+            }
+            let mut count = out.len().min(end - self.position);
+            if let Some(pause) = self.pause {
+                thread::sleep(pause);
+                count = 1;
+            }
+            out[..count].copy_from_slice(&self.data[self.position..self.position + count]);
+            self.position += count;
+            self.served.set(self.served.get() + count as u64);
+            Ok(count)
+        }
+    }
+
+    /// The case that used to lose everything: the connection drops at 50%
+    /// and the network stays down for longer than the old six quick retries.
+    #[test]
+    fn a_connection_dropped_at_half_resumes_after_the_outage_without_refetching() {
+        const OUTAGE: Duration = Duration::from_millis(1_500);
+        let object = test_object(64 * 1024);
+        let half = object.len() / 2;
+        let directory = TempDir::new("drop-at-half");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+        let mut outage_until = None;
+        let mut network = ScriptedServer::new(object.clone(), |index, _| {
+            if index == 0 {
+                outage_until = Some(Instant::now() + OUTAGE);
+                return Reply::Range {
+                    drop_after: Some(half),
+                };
+            }
+            if outage_until.is_some_and(|until| Instant::now() < until) {
+                Reply::Refused
+            } else {
+                Reply::Range { drop_after: None }
+            }
+        });
+        let mut reported = Vec::new();
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(10)),
+            &mut |done, _| reported.push(done),
+        )
+        .unwrap();
+
+        let starts = &network.starts;
+        assert_eq!(starts[0], 0);
+        assert!(
+            starts[1..].iter().all(|start| *start == half as u64),
+            "every retry must resume at the kept offset: {starts:?}"
+        );
+        let refused = starts.len() - 2;
+        assert!(
+            (2..40).contains(&refused),
+            "the outage should be ridden out with backoff, not a spin: {refused} requests"
+        );
+        assert_eq!(
+            network.served(),
+            object.len() as u64,
+            "every byte must be fetched exactly once"
+        );
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+        assert!(exact_residues(&canonical).is_empty());
+        assert!(
+            reported.windows(2).all(|pair| pair[0] <= pair[1]),
+            "progress went backwards: {reported:?}"
+        );
     }
 
     #[test]
-    fn crash_before_replace_keeps_canonical_and_recovery_cleans_partial() {
+    fn a_failed_attempt_keeps_its_partial_and_the_next_attempt_fetches_only_the_rest() {
+        let object = test_object(48 * 1024);
+        let half = object.len() / 2;
+        let directory = TempDir::new("resume-across-attempts");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+
+        let mut down = ScriptedServer::new(object.clone(), |index, _| {
+            if index == 0 {
+                Reply::Range {
+                    drop_after: Some(half),
+                }
+            } else {
+                Reply::Refused
+            }
+        });
+        let started = Instant::now();
+        let error = download_with_transport(
+            &mut down,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_millis(300)),
+            &mut |_, _| {},
+        )
+        .unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
+        assert!(
+            elapsed >= Duration::from_millis(300) && elapsed < Duration::from_secs(3),
+            "{elapsed:?}"
+        );
+        assert!(!canonical.exists());
+        assert_eq!(
+            std::fs::read(partial_path(&canonical).unwrap()).unwrap(),
+            &object[..half]
+        );
+
+        let mut up = ScriptedServer::new(object.clone(), |_, _| Reply::Range { drop_after: None });
+        let mut first_progress = None;
+        download_with_transport(
+            &mut up,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |done, _| {
+                first_progress.get_or_insert(done);
+            },
+        )
+        .unwrap();
+        assert_eq!(first_progress, Some(half as u64));
+        assert_eq!(up.starts, [half as u64]);
+        assert!(up.starts[0] > 0, "the second attempt must resume");
+        assert_eq!(
+            down.served() + up.served(),
+            object.len() as u64,
+            "two attempts together fetch the file once"
+        );
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+        assert!(exact_residues(&canonical).is_empty());
+    }
+
+    #[test]
+    fn a_server_that_ignores_range_restarts_the_partial_from_zero() {
+        let object = test_object(40 * 1024);
+        let half = object.len() / 2;
+        let directory = TempDir::new("range-ignored");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+        std::fs::write(partial_path(&canonical).unwrap(), &object[..half]).unwrap();
+
+        let mut network =
+            ScriptedServer::new(object.clone(), |_, _| Reply::Whole { drop_after: None });
+        let mut reported = Vec::new();
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |done, _| reported.push(done),
+        )
+        .unwrap();
+
+        assert_eq!(
+            network.starts,
+            [half as u64],
+            "one resume request, answered with the whole object"
+        );
+        assert_eq!(network.served(), object.len() as u64);
+        assert_eq!(
+            std::fs::read(&canonical).unwrap(),
+            object,
+            "the 200 body must replace the prefix, not be appended to it"
+        );
+        assert_eq!(reported.first(), Some(&(half as u64)));
+        assert!(
+            reported.contains(&0),
+            "the bar restarts instead of overshooting"
+        );
+        assert!(exact_residues(&canonical).is_empty());
+    }
+
+    #[test]
+    fn restarts_for_a_server_that_ignores_range_are_bounded() {
+        let object = test_object(8 * 1024);
+        let half = object.len() / 2;
+        let directory = TempDir::new("range-ignored-drops");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+        let mut network = ScriptedServer::new(object.clone(), |_, _| Reply::Whole {
+            drop_after: Some(half),
+        });
+        let error = download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, ModelPrepareError::Failed(message) if message.contains("cannot resume")),
+            "{error}"
+        );
+        assert_eq!(
+            network.starts.len() as u32,
+            MODEL_MAX_FULL_RESTARTS + 2,
+            "{:?}",
+            network.starts
+        );
+        assert!(!canonical.exists());
+    }
+
+    #[test]
+    fn a_digest_mismatch_after_resume_discards_the_partial_and_downloads_again() {
+        let object = test_object(32 * 1024);
+        let half = object.len() / 2;
+        let directory = TempDir::new("resume-mismatch");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+        // The right length, the wrong bytes: what an older mirror object or
+        // a torn write leaves behind.
+        let stale: Vec<u8> = object[..half].iter().map(|byte| byte ^ 0x5a).collect();
+        std::fs::write(partial_path(&canonical).unwrap(), &stale).unwrap();
+
+        let mut network =
+            ScriptedServer::new(object.clone(), |_, _| Reply::Range { drop_after: None });
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap();
+
+        assert_eq!(
+            network.starts,
+            [half as u64, 0],
+            "resume once, then restart cleanly from zero"
+        );
+        assert_eq!(
+            network.served(),
+            (object.len() - half + object.len()) as u64
+        );
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+        assert!(exact_residues(&canonical).is_empty());
+    }
+
+    #[test]
+    fn a_clean_download_with_the_wrong_digest_fails_and_keeps_nothing() {
+        let object = test_object(16 * 1024);
+        let expected = expected_bytes(&object);
+        let mut tampered = object.clone();
+        tampered[100] ^= 1;
+        let directory = TempDir::new("clean-mismatch");
+        let canonical = directory.path().join("model.onnx");
+        let mut network = ScriptedServer::new(tampered, |_, _| Reply::Range { drop_after: None });
+        let error = download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, ModelPrepareError::Failed(message) if message.contains("sha256 mismatch")),
+            "{error}"
+        );
+        assert_eq!(
+            network.starts,
+            [0],
+            "a mismatch without a resumed prefix is the server's bytes"
+        );
+        assert!(!canonical.exists());
+        assert!(
+            exact_residues(&canonical).is_empty(),
+            "bytes that failed verification must never be resumed"
+        );
+    }
+
+    #[test]
+    fn an_unreachable_server_backs_off_until_the_stall_window_ends() {
+        let directory = TempDir::new("unreachable");
+        let canonical = directory.path().join("model.onnx");
+        let object = test_object(1024);
+        let expected = expected_bytes(&object);
+        let mut network = ScriptedServer::new(object, |_, _| Reply::Refused);
+        let policy = DownloadPolicy {
+            stall_timeout: Duration::from_millis(400),
+            max_retry_delay: Duration::from_millis(100),
+            ..test_policy(Duration::from_millis(400))
+        };
+        let started = Instant::now();
+        let error = download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            policy,
+            &mut |_, _| {},
+        )
+        .unwrap_err();
+        let elapsed = started.elapsed();
+        assert!(
+            matches!(&error, ModelPrepareError::TimedOut(message) if message.contains("connection refused")),
+            "{error}"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(400) && elapsed < Duration::from_secs(3),
+            "{elapsed:?}"
+        );
+        // 10, 20, 40, 80, 100, 100 … ms: a handful of requests across the
+        // window, where a fixed 100 ms counter gave up after 0.6 s.
+        assert!(
+            (3..=12).contains(&network.starts.len()),
+            "{} requests",
+            network.starts.len()
+        );
+    }
+
+    #[test]
+    fn a_slow_steady_transfer_outlasts_the_stall_window_many_times_over() {
+        let object = test_object(40);
+        let directory = TempDir::new("trickle");
+        let canonical = directory.path().join("model.onnx");
+        let expected = expected_bytes(&object);
+        // Four bytes a connection, and every reconnect is refused once: the
+        // whole transfer takes several stall windows, but no gap reaches one.
+        let mut network = ScriptedServer::new(object.clone(), |index, _| {
+            if index % 2 == 1 {
+                Reply::Refused
+            } else {
+                Reply::Trickle {
+                    pause: Duration::from_millis(40),
+                    drop_after: Some(4),
+                }
+            }
+        });
+        let started = Instant::now();
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_millis(400)),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert!(started.elapsed() >= Duration::from_millis(1_200));
+        let resumes: Vec<u64> = std::iter::once(0)
+            .chain((4..40).step_by(4).flat_map(|start| [start, start]))
+            .collect();
+        assert_eq!(
+            network.starts, resumes,
+            "a trickle is progress, not a stall"
+        );
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+    }
+
+    #[test]
+    fn a_partial_that_shares_its_bytes_with_another_name_is_replaced_not_written_through() {
+        const VICTIM: &[u8] = b"another file's bytes";
+        let object = test_object(4096);
+        let directory = TempDir::new("linked-partial");
+        let canonical = directory.path().join("encoder.onnx");
+        let victim = directory.path().join("victim.bin");
+        std::fs::write(&victim, VICTIM).unwrap();
+        std::fs::hard_link(&victim, partial_path(&canonical).unwrap()).unwrap();
+
+        let mut network =
+            ScriptedServer::new(object.clone(), |_, _| Reply::Range { drop_after: None });
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected_bytes(&object),
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            network.starts,
+            [0],
+            "a linked file is not a prefix to resume"
+        );
+        assert_eq!(std::fs::read(&victim).unwrap(), VICTIM);
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+    }
+
+    #[test]
+    fn a_partial_longer_than_the_artifact_is_discarded() {
+        let object = test_object(4096);
+        let directory = TempDir::new("oversized-partial");
+        let canonical = directory.path().join("model.onnx");
+        let mut oversized = object.clone();
+        oversized.extend_from_slice(b"trailing");
+        std::fs::write(partial_path(&canonical).unwrap(), &oversized).unwrap();
+
+        let mut network =
+            ScriptedServer::new(object.clone(), |_, _| Reply::Range { drop_after: None });
+        download_with_transport(
+            &mut network,
+            TEST_URL,
+            &canonical,
+            &expected_bytes(&object),
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(network.starts, [0]);
+        assert_eq!(std::fs::read(&canonical).unwrap(), object);
+    }
+
+    /// Production transport and production mirror: the first attempt is cut
+    /// off halfway and then loses the network; the second must resume with a
+    /// Range the mirror honours (206 + matching Content-Range) and publish a
+    /// file that passes the manifest SHA-256. Run with
+    /// `cargo test -p vocalcode-app live_mirror -- --ignored`.
+    #[test]
+    #[ignore = "downloads a small file from models.vocalcode.app"]
+    fn live_mirror_resumes_a_partial_download() {
+        struct Recorded<'a> {
+            inner: UreqRangeTransport,
+            ranges: &'a mut Vec<String>,
+            cut_after: Option<u64>,
+        }
+        impl RangeTransport for Recorded<'_> {
+            fn get(&mut self, url: &str, range: &str) -> Result<RangeResponse, TransportError> {
+                self.ranges.push(range.to_string());
+                match self.cut_after {
+                    Some(_) if self.ranges.len() > 1 => {
+                        Err(TransportError::Retryable("network lost".to_string()))
+                    }
+                    Some(limit) => {
+                        let mut response = self.inner.get(url, range)?;
+                        response.body = Box::new(response.body.take(limit));
+                        Ok(response)
+                    }
+                    None => self.inner.get(url, range),
+                }
+            }
+        }
+
+        let spec = spec_of("sensevoice").unwrap();
+        let (name, url) = *spec
+            .files
+            .iter()
+            .find(|(name, _)| *name == "tokens.txt")
+            .unwrap();
+        let expected = artifact(spec.id, name).unwrap();
+        let half = expected.size / 2;
+        let directory = TempDir::new("live-mirror");
+        let canonical = directory.path().join(name);
+        let policy = DownloadPolicy {
+            stall_timeout: Duration::from_secs(1),
+            ..DownloadPolicy::production()
+        };
+
+        let mut first_ranges = Vec::new();
+        let mut first = Recorded {
+            inner: UreqRangeTransport::new(&policy),
+            ranges: &mut first_ranges,
+            cut_after: Some(half),
+        };
+        let error = download_with_transport(
+            &mut first,
+            url,
+            &canonical,
+            expected,
+            &CancellationToken::new(),
+            policy,
+            &mut |_, _| {},
+        )
+        .unwrap_err();
+        assert!(matches!(error, ModelPrepareError::TimedOut(_)), "{error}");
+        let kept = std::fs::metadata(partial_path(&canonical).unwrap())
+            .unwrap()
+            .len();
+        assert_eq!(kept, half);
+
+        let mut second_ranges = Vec::new();
+        let mut second = Recorded {
+            inner: UreqRangeTransport::new(&DownloadPolicy::production()),
+            ranges: &mut second_ranges,
+            cut_after: None,
+        };
+        download_with_transport(
+            &mut second,
+            url,
+            &canonical,
+            expected,
+            &CancellationToken::new(),
+            DownloadPolicy::production(),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(
+            second_ranges,
+            [format!("bytes={half}-{}", expected.size - 1)],
+            "the second attempt must be one resumed range request"
+        );
+        assert!(artifact_is_valid(&canonical, expected));
+        assert!(exact_residues(&canonical).is_empty());
+    }
+
+    #[test]
+    fn crash_before_replace_keeps_canonical_and_the_partial_publishes_without_refetching() {
         const VERIFIED: &[u8] = b"new canonical bytes";
         const OLD: &[u8] = b"old canonical bytes";
         assert_eq!(VERIFIED.len(), OLD.len());
@@ -3119,7 +4310,28 @@ mod download_tests {
         .unwrap();
         assert!(!valid, "the old canonical has the wrong SHA-256");
         assert_eq!(std::fs::read(&canonical).unwrap(), OLD);
-        assert!(!partial.exists(), "a crashed partial must be cleaned");
+        assert!(
+            partial.exists(),
+            "the partial is the resume point while the canonical is wrong"
+        );
+
+        // It already holds every byte, so the next attempt verifies and
+        // publishes it without asking the network for anything.
+        let mut network = ScriptedServer::new(VERIFIED.to_vec(), |_, _| {
+            panic!("a complete partial must not be downloaded again")
+        });
+        download_with_transport(
+            &mut network,
+            "https://models.vocalcode.app/test/model.onnx",
+            &canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(&canonical).unwrap(), VERIFIED);
+        assert!(exact_residues(&canonical).is_empty());
     }
 
     #[test]
@@ -3240,9 +4452,15 @@ mod download_tests {
         std::fs::write(&canonical, VERIFIED).unwrap();
         let stale_part = canonical.with_extension("part-4242-9");
         let stale_backup = canonical.with_extension("replaced-4242-9");
+        let stale_resumable = partial_path(&canonical).unwrap();
         std::fs::write(&stale_part, b"partial").unwrap();
         std::fs::write(&stale_backup, b"old").unwrap();
+        std::fs::write(&stale_resumable, b"verif").unwrap();
         let lookalikes = [
+            dir.path().join("encoder.onnx.partial.1"),
+            dir.path().join("encoder.onnx.partia"),
+            dir.path().join("encoder.partial"),
+            dir.path().join("decoder.onnx.partial"),
             canonical.with_extension("part-4242"),
             canonical.with_extension("part-nope-9"),
             canonical.with_extension("part-04242-9"),
@@ -3265,9 +4483,36 @@ mod download_tests {
         assert!(valid);
         assert!(!stale_part.exists());
         assert!(!stale_backup.exists());
+        assert!(
+            !stale_resumable.exists(),
+            "a valid canonical makes its resume point stale"
+        );
         for path in &lookalikes {
             assert!(path.exists(), "lookalike was removed: {}", path.display());
         }
+    }
+
+    #[test]
+    fn recovery_keeps_the_resume_point_while_the_canonical_is_missing() {
+        const VERIFIED: &[u8] = b"verified";
+        let dir = TempDir::new("keep-resumable");
+        let canonical = dir.path().join("encoder.onnx");
+        let expected = expected_bytes(VERIFIED);
+        let resumable = partial_path(&canonical).unwrap();
+        let legacy = canonical.with_extension("part-4242-9");
+        std::fs::write(&resumable, b"veri").unwrap();
+        std::fs::write(&legacy, b"veri").unwrap();
+
+        let valid = with_model_install_lock(dir.path(), || {
+            recover_artifact_locked(&canonical, &expected)
+        })
+        .unwrap();
+        assert!(!valid);
+        assert_eq!(std::fs::read(&resumable).unwrap(), b"veri");
+        assert!(
+            !legacy.exists(),
+            "per-process partials are never resumed, so they are always removed"
+        );
     }
 
     #[cfg(any(unix, windows))]
@@ -3346,7 +4591,47 @@ mod download_tests {
             .file_type()
             .is_symlink());
 
-        let backup_dir = TempDir::new("model-install-backup-symlink");
+        // The resumable partial is opened for writing, so a link planted at
+        // its name must fail closed in both recovery and the downloader.
+        let resume_dir = TempDir::new("resumable-symlink");
+        let resume_victim = resume_dir.path().join("resume-victim.bin");
+        let resume_canonical = resume_dir.path().join("model.onnx");
+        let resume_link = partial_path(&resume_canonical).unwrap();
+        std::fs::write(&resume_victim, &VICTIM[..4]).unwrap();
+        symlink_file_for_test(&resume_victim, &resume_link).unwrap();
+        let error = with_model_install_lock(resume_dir.path(), || {
+            recover_artifact_locked(&resume_canonical, &expected)
+        })
+        .unwrap_err();
+        assert!(error.contains("symlink") || error.contains("reparse"));
+        let mut network =
+            ScriptedServer::new(VICTIM.to_vec(), |_, _| Reply::Range { drop_after: None });
+        let error = download_with_transport(
+            &mut network,
+            TEST_URL,
+            &resume_canonical,
+            &expected,
+            &CancellationToken::new(),
+            test_policy(Duration::from_secs(5)),
+            &mut |_, _| {},
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("symlink") || error.contains("reparse"),
+            "{error}"
+        );
+        assert!(
+            network.starts.is_empty(),
+            "nothing may be fetched into a link"
+        );
+        assert_eq!(std::fs::read(&resume_victim).unwrap(), &VICTIM[..4]);
+        assert!(std::fs::symlink_metadata(&resume_link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+
+        let backup_dir = TempDir::new("backup-symlink");
         let backup_victim = backup_dir.path().join("backup-victim.bin");
         let backup_canonical = backup_dir.path().join("model.onnx");
         let backup_link = backup_canonical.with_extension("replaced-4242-9");
