@@ -356,6 +356,8 @@ fn voice_corpus() {
                     "variant": clip["variant"], "pass": pass, "heard": trace.raw_text,
                     "typed": typed, "send": send, "writing_edits": trace.writing_edits,
                     "filler_removed": trace.filler_removed, "asr_chunks": trace.asr_chunks,
+                    "predecoded_audio_ms": trace.predecoded_audio_ms,
+                    "finish_ms": trace.finish_ms,
                     "elapsed_ms": elapsed, "audio_seconds": clip["seconds"],
                     "gate": route.gate.snapshot().state,
                 });

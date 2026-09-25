@@ -115,6 +115,45 @@ fn paused(ms: usize) -> Vec<f32> {
     audio.extend(vec![0.; 4800]);
     audio
 }
+/// `speech` heard over a fan or an office: pink noise at -46 dBFS (Paul
+/// Kellet's filter over deterministic white noise), louder than the fixed
+/// 0.003 RMS pause ceiling on its own.
+fn in_room(mut speech: Vec<f32>, mut seed: u32) -> Vec<f32> {
+    let mut b = [0_f32; 7];
+    let room: Vec<f32> = (0..speech.len())
+        .map(|_| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let w = seed as f32 / u32::MAX as f32 * 2. - 1.;
+            b[0] = 0.99886 * b[0] + w * 0.0555179;
+            b[1] = 0.99332 * b[1] + w * 0.0750759;
+            b[2] = 0.96900 * b[2] + w * 0.153852;
+            b[3] = 0.86650 * b[3] + w * 0.3104856;
+            b[4] = 0.55000 * b[4] + w * 0.5329522;
+            b[5] = -0.7616 * b[5] - w * 0.016898;
+            let out = b.iter().sum::<f32>() + w * 0.5362;
+            b[6] = w * 0.115926;
+            out
+        })
+        .collect();
+    let rms = (room.iter().map(|v| v * v).sum::<f32>() / room.len() as f32).sqrt();
+    let gain = 10_f32.powf(-46. / 20.) / rms;
+    for (s, n) in speech.iter_mut().zip(room) {
+        *s += n * gain;
+    }
+    speech
+}
+/// 500 ms of room, 8 s of speech at an ordinary microphone level (-12 dBFS),
+/// a 400 ms pause, 2 s more speech.
+fn noisy_long_dictation() -> Vec<f32> {
+    let spoken = |ms: usize| voice(ms).into_iter().map(|v| v * 6.25);
+    let mut speech = vec![0.; 8000];
+    speech.extend(spoken(8000));
+    speech.extend(vec![0.; 6400]);
+    speech.extend(spoken(2000));
+    in_room(speech, 3)
+}
 impl Harness {
     fn new(live: bool, samples: Vec<f32>) -> Self {
         let work = Arc::new(Mutex::new(Work::default()));
@@ -170,6 +209,21 @@ impl Harness {
         self.engine
             .handle(TriggerEvent::TalkReleased(TriggerId::synthetic(1)))
     }
+    /// Deliver `input` at the app's 80 ms cadence until a phrase is submitted
+    /// for background decoding. Returns how much of it was captured by then.
+    fn feed_until_submitted(&mut self, input: &[f32]) -> usize {
+        let mut fed = 0;
+        while self.work.lock().unwrap().queued.is_empty() && fed < input.len() {
+            let next = (fed + 1280).min(input.len());
+            self.audio
+                .lock()
+                .unwrap()
+                .extend_from_slice(&input[fed..next]);
+            fed = next;
+            self.engine.tick_partial().unwrap();
+        }
+        fed
+    }
 }
 
 #[test]
@@ -210,6 +264,87 @@ fn normal_long_dictation_prepares_once_and_only_decodes_the_unprocessed_tail_on_
     assert_eq!(trace.asr_chunks, 2);
     assert_eq!(trace.sample_count, input.len());
     assert!(trace.predecoded_audio_ms >= 8000);
+}
+
+#[test]
+fn normal_dictation_in_a_noisy_room_is_still_prepared_during_a_pause() {
+    // The room alone is above the old fixed pause ceiling, which never found
+    // this pause: the whole utterance was decoded after release.
+    let input = noisy_long_dictation();
+    let mut h = Harness::new(false, vec![]);
+    let fed = h.feed_until_submitted(&input);
+    let (prefix, reply) = h.next();
+    assert!(
+        (8740 * 16..=8900 * 16).contains(&prefix.len()),
+        "cut inside the pause, not a word: {} ms",
+        prefix.len() / 16
+    );
+    reply.send(Ok("Prepared sentence.".into())).unwrap();
+    h.audio.lock().unwrap().extend_from_slice(&input[fed..]);
+    h.engine.tick_partial().unwrap();
+    assert_eq!(
+        h.finish().unwrap(),
+        Outcome::Transcribed("Prepared sentence. Remaining words.".into())
+    );
+    let work = h.work.lock().unwrap();
+    assert!(work.queued.is_empty(), "the last two seconds are not split");
+    assert_eq!(
+        [prefix, work.synchronous[0].clone()].concat(),
+        input,
+        "each audio sample decoded exactly once"
+    );
+    assert_eq!(h.engine.take_trace().unwrap().asr_chunks, 2);
+}
+
+#[test]
+fn the_rest_of_a_noisy_pause_is_not_decoded_on_its_own() {
+    // The last phrase is prepared during the pause before release. What the
+    // room makes until the key comes up is not handed to the recognizer, which
+    // would type it as "Yeah."; a word spoken there still is.
+    let spoken = |ms: usize| voice(ms).into_iter().map(|v| v * 6.25);
+    let mut speech = vec![0.; 8000];
+    speech.extend(spoken(9000));
+    speech.extend(vec![0.; 24000]);
+    for (word, expected) in [
+        (0, "Prepared sentence."),
+        (250, "Prepared sentence. Remaining words."),
+    ] {
+        let mut input = speech.clone();
+        input.extend(spoken(word));
+        let input = in_room(input, 5);
+        let mut h = Harness::new(false, vec![]);
+        let fed = h.feed_until_submitted(&input);
+        let (prefix, reply) = h.next();
+        assert!((9740 * 16..=9900 * 16).contains(&prefix.len()));
+        reply.send(Ok("Prepared sentence.".into())).unwrap();
+        h.audio.lock().unwrap().extend_from_slice(&input[fed..]);
+        h.engine.tick_partial().unwrap();
+        assert_eq!(h.finish().unwrap(), Outcome::Transcribed(expected.into()));
+        let work = h.work.lock().unwrap();
+        assert!(work.queued.is_empty());
+        assert_eq!(work.synchronous.len(), usize::from(word > 0));
+    }
+}
+
+#[test]
+fn a_silent_room_learned_in_one_utterance_is_forgotten_by_the_next() {
+    // Digital silence teaches a floor of zero, which would hide every pause
+    // of a later dictation in a noisy room if it carried over.
+    let mut quiet = vec![0.; 16000];
+    quiet.extend(voice(1000));
+    let mut h = Harness::new(false, quiet);
+    h.engine.tick_partial().unwrap();
+    assert_eq!(
+        h.finish().unwrap(),
+        Outcome::Transcribed("Remaining words.".into())
+    );
+    h.audio.lock().unwrap().clear();
+    h.engine
+        .handle(TriggerEvent::TalkPressed(TriggerId::synthetic(1)))
+        .unwrap();
+    let input = noisy_long_dictation();
+    assert!(h.feed_until_submitted(&input) < input.len());
+    assert!((8740 * 16..=8900 * 16).contains(&h.next().0.len()));
 }
 
 #[test]
