@@ -1550,7 +1550,11 @@ impl LogFileSink {
     }
 
     fn append_locked(&self, bytes: &[u8]) -> std::io::Result<()> {
-        let deadline = file_lock_deadline(LOG_WRITE_LOCK_TIMEOUT, "log write lock")?;
+        self.append_locked_within(bytes, LOG_WRITE_LOCK_TIMEOUT)
+    }
+
+    fn append_locked_within(&self, bytes: &[u8], timeout: Duration) -> std::io::Result<()> {
+        let deadline = file_lock_deadline(timeout, "log write lock")?;
         let _process_guard = lock_log_process_until(&self.process_lock, deadline)?;
         let file_guard = lock_log_file_until(&self.lock, deadline)?;
         let _file_guard = LogWriteGuard(file_guard);
@@ -7395,12 +7399,17 @@ mod tests {
         assert!(source.contains("remaining.min(std::time::Duration::from_millis(100))"));
     }
 
+    /// The product's 250 ms log-lock deadline keeps a slow disk from stalling
+    /// dictation. These tests are about rotation and interleaving, and on a
+    /// loaded machine one append (open, rotate, write) can outlast 250 ms.
+    const TEST_LOG_LOCK_WAIT: Duration = Duration::from_secs(10);
+
     #[test]
     fn long_running_log_sink_stays_bounded_and_keeps_one_generation() {
         let scratch = TempDir::new("log-long-running");
         let sink = LogFileSink::new(scratch.path(), 128);
         for index in 0..500 {
-            sink.append_locked(format!("line-{index:04}\n").as_bytes())
+            sink.append_locked_within(format!("line-{index:04}\n").as_bytes(), TEST_LOG_LOCK_WAIT)
                 .unwrap();
         }
 
@@ -7428,8 +7437,11 @@ mod tests {
                 let sink = LogFileSink::new(&directory, 512);
                 barrier.wait();
                 for index in 0..250 {
-                    sink.append_locked(format!("{label}-{index:04}\n").as_bytes())
-                        .unwrap();
+                    sink.append_locked_within(
+                        format!("{label}-{index:04}\n").as_bytes(),
+                        TEST_LOG_LOCK_WAIT,
+                    )
+                    .unwrap();
                 }
             }));
         }
