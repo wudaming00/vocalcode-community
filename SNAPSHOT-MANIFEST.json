@@ -73,12 +73,12 @@
     {
       "path": "Cargo.lock",
       "bytes": 129943,
-      "sha256": "9c19bb563d24365f82681a4964b64ce3cf4058f4d2a3ab7778ffc0aaf1d9a390"
+      "sha256": "8a5ed1d96db07fc9e8abca0d1cd4524a3e12141febe398707e3dafdc3dd4bf91"
     },
     {
       "path": "Cargo.toml",
       "bytes": 1454,
-      "sha256": "6bc3c8ac87144b7ff720fc03af63a25fd39fc79a9bc14b5588c8e5352d2bf359"
+      "sha256": "ac7b16d7e2d4b75f72c7c7ef160ab450838dbf8954b4b068234396ca0899c6de"
     },
     {
       "path": "LICENSE",
@@ -392,8 +392,8 @@
     },
     {
       "path": "packaging/community/RELEASE-NOTES.md",
-      "bytes": 6723,
-      "sha256": "fe99d0a989e01403452032379f412c1c06d72b5bc691324ca341ca563e4e5626"
+      "bytes": 7287,
+      "sha256": "2e78f61f13fed504133474d5dd182beda17757335ad72922e28142b79c9c213d"
     },
     {
       "path": "packaging/community/e2e-windows.ps1",
@@ -1337,8 +1337,8 @@
     },
     {
       "path": "vocalcode-app/src/models.rs",
-      "bytes": 188814,
-      "sha256": "7599eac70b9f26b9718f84113264cff314b988485c922d685ce3084726a1d829"
+      "bytes": 189866,
+      "sha256": "d77945beb14ac88173d64f0a9d0a556d93b269f39ec3cd5d372aefa141c32222"
     },
     {
       "path": "vocalcode-app/src/noise_filter.rs",
@@ -1472,8 +1472,8 @@
     },
     {
       "path": "vocalcode-core/src/segmentation.rs",
-      "bytes": 27892,
-      "sha256": "a6f8b6191b13f4378921801290ad63c60bd3b57dcc642c6c3a8d75708408cc2a"
+      "bytes": 28072,
+      "sha256": "7af7e7836ba012a94a30f0af480a927f589719b7d591f4ff7aac7c264ab57f4f"
     },
     {
       "path": "vocalcode-core/src/traits.rs",
@@ -1587,13 +1587,18 @@
     },
     {
       "path": "vocalcode-platform/examples/assessment_asr.rs",
-      "bytes": 4406,
-      "sha256": "08d2a213d137bd8747f3e4716c8606f102a1c7522715d633264fe43170ea0044"
+      "bytes": 4428,
+      "sha256": "5706cbc807d04f875d139c4ffb22f58a1c36ae2c2fea271470934650d7a60c58"
     },
     {
       "path": "vocalcode-platform/examples/assessment_long_dictation.rs",
       "bytes": 6460,
       "sha256": "d23eb462934f34b2db6eacf23d53f0f6b7d6561bafacff4370a04753f280c474"
+    },
+    {
+      "path": "vocalcode-platform/examples/assessment_qwen3_long_audio.rs",
+      "bytes": 11851,
+      "sha256": "f459f8e7d6b6901ad619e3eb4f41cc6115302d3f93b58d29f872a5ba7f0cf26b"
     },
     {
       "path": "vocalcode-platform/examples/assessment_realtime_dictation.rs",
@@ -1622,8 +1627,8 @@
     },
     {
       "path": "vocalcode-platform/src/asr.rs",
-      "bytes": 13728,
-      "sha256": "e17aa11aa8d9716ce26e4d96a96272d93706f32b76e73efe53ad7550ff49f844"
+      "bytes": 83519,
+      "sha256": "50087858a3cfc43ab00bdee4fe015c6311dcfe8923d11de9efeb4ad3805e2209"
     },
     {
       "path": "vocalcode-platform/src/audio.rs",
@@ -1732,8 +1737,8 @@
     },
     {
       "path": "vocalcode-platform/tests/qwen3_smoke.rs",
-      "bytes": 1698,
-      "sha256": "0ad8c5ff17685958a254e8e5fe0fb2b0239cf083171623c4863cc62bbf7939f6"
+      "bytes": 1833,
+      "sha256": "a52d5dfe62276331bfa55237d0d2a6fc08390463d608d79945ea297a51343392"
     },
     {
       "path": "vocalcode-platform/tests/sensevoice_smoke.rs",

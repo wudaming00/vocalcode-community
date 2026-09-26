@@ -6,9 +6,9 @@ code. Recognition runs on your CPU after the selected model downloads.
 
 ## New in 1.4.1
 
-- **One app, free for good.** "VocalCode Community" is now just VocalCode.
-  It takes the place of the paid VocalCode releases (see below), so a paid
-  installation updates to it in place and keeps everything.
+- **One app, free for good.** The early free builds (VocalCode Community 1.3.1
+  and 1.4.0) and the paid releases are now one app, just VocalCode. A paid
+  installation updates to it in place and keeps everything (see below).
 - **Setup in three steps:** pick your language (its model starts
   downloading), check your talk key (add another if your keyboard has no
   Right Ctrl), then try a sentence in a box that shows what VocalCode heard.
@@ -84,7 +84,7 @@ size, SHA-256, publisher signature and product identity before installing.
 
 ## 中文
 
-1.4.1 新增：VocalCode Community 改名为 VocalCode，并接替付费版，付费版可原地更新、数据不动；
+1.4.1 新增：早期免费版（VocalCode Community 1.3.1 和 1.4.0）与付费版合并为同一个应用 VocalCode，付费版可原地更新、数据不动；
 首次设置改成三步（选语言、确认说话键、试说一句）；新安装默认：鼠标后退键不再当回车、语音闸门开启
 （只有噪声时不输入）、历史记录加密保存在本机一周，已有安装保持原设置；模型没准备好、麦克风异常或没有
 输入框时，指示器会给出提示；模型下载可断点续传；性能足够的电脑上英语默认用 Parakeet；嘈杂环境里更早
