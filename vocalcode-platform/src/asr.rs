@@ -389,7 +389,11 @@ struct Checked {
     /// `text` is Chinese for audio without measured speech (`Suspect::Invented`)
     /// that a half confirmed or that could not be split. It stands as a
     /// piece of the input, but is never spliced into the piece it was split
-    /// from: a half without speech invents "系统。" beside a real "要。".
+    /// from: a half without speech invents "系统。" beside a real "要。". A
+    /// Chinese answer split in two keeps its own answer instead, rather than
+    /// have the other half alone replace it (`decode_checked`). A header or
+    /// nothing has no answer to keep, and a cut-off or sparse answer is
+    /// weighed against the other half alone.
     no_speech: bool,
 }
 
@@ -421,7 +425,19 @@ impl Checked {
 /// Chinese script on the English route that looks misheard (`misheard_script`)
 /// is judged by what its halves hear. For speech (`Suspect::WrongScript`):
 /// - halves that heard something else, words in another script or far more
-///   Chinese (`heard_instead`), replace it ("Sounds good." for "提纲");
+///   Chinese (`heard_instead`), replace it ("Sounds good." for "提纲"),
+///   unless a half is left out of them: one that measured no speech yet still
+///   hears Chinese (`Checked::no_speech`). The rest would drop what the model
+///   heard twice, in the piece and in that half. Noise that starts or stops
+///   mid-reply does this: the whole measures the noise as speech against the
+///   quiet beside it, too much for the reply's few characters, and the half
+///   holding the reply measures none against the noise. At 0 dB SNR the other
+///   half's "Dear team." or "system" took the place of 73 of 468 such replies
+///   ("Dear team，好的。", "这件事情。"). "提纲" whose second half invented
+///   "系统。" in room noise would look the same, and would keep "提纲" too,
+///   as v1.4.0 did. Asking that half to share a character with the piece
+///   would tell them apart, but also lost a "好的，" that half heard as
+///   "然后呢？" in babble;
 /// - otherwise the piece's own answer is kept, since splicing the halves cuts
 ///   its words in two ("好的。" became "好的。的。" and "这件事。事情。"). A cut
 ///   inside a one-syllable reply can leave it unheard in either half.
@@ -441,7 +457,7 @@ impl Checked {
 ///   replace the piece: a half that repeated "名，" until its answer's room
 ///   ran out would;
 /// - otherwise halves that heard more than twice its Chinese replace it, as
-///   they would for speech;
+///   they would for speech, whatever other words they heard beside it;
 /// - otherwise it is dropped. Halves that hear nothing ("提到了system," for
 ///   mains hum) or only another script ("好的。" in pink noise, whose halves
 ///   heard "spoken voice" and nothing) do not confirm it, and what they did
@@ -488,6 +504,9 @@ fn decode_checked(
     // the model makes of one half, or hears beside the Chinese in the same
     // half, is no evidence against the Chinese a half still hears.
     let a_half_hears_chinese = cjk_chars(&first.heard) > 0 || cjk_chars(&second.heard) > 0;
+    // A half without measured speech that still hears Chinese is left out of
+    // the halves' text, which then says less than the model heard here.
+    let a_half_is_left_out = first.no_speech || second.no_speech;
     // What of the halves' text may replace this answer.
     let mut halves = String::new();
     for half in [first, second] {
@@ -499,7 +518,9 @@ fn decode_checked(
         Suspect::Invented if a_half_hears_chinese => (answer.clone(), true),
         Suspect::Invented if more_chinese(&answer, &halves) => (halves, false),
         Suspect::Invented => (String::new(), false),
-        Suspect::WrongScript if heard_instead(&answer, &halves) => (halves, false),
+        Suspect::WrongScript if heard_instead(&answer, &halves) && !a_half_is_left_out => {
+            (halves, false)
+        }
         Suspect::WrongScript => (answer.clone(), false),
         Suspect::Header | Suspect::Empty => (halves, false),
         Suspect::Truncated | Suspect::Sparse if text_units(&answer) > text_units(&halves) => {
@@ -517,20 +538,21 @@ fn heard_instead(text: &str, halves: &str) -> bool {
     text_units(halves) > 0 && (!mostly_cjk(halves) || more_chinese(text, halves))
 }
 
-/// Whether halves that hear mostly Chinese heard more than twice the piece's
-/// Chinese. Each half can at most hear the whole reply again, so more than
-/// that is what the piece missed ("方案" whose halves hear "Call the function"
-/// and "这个方案有两个问题"; a reply cut off after its first words).
+/// Whether the halves heard more than twice the piece's Chinese. Each half can
+/// at most hear the whole reply again, so more than that is what the piece
+/// missed ("方案" whose halves hear "Call the function" and "这个方案有两个问题";
+/// a reply cut off after its first words).
 ///
-/// Mostly Chinese halves are judged by their Chinese alone, so a few English
-/// words beside it do not replace the piece; nor does Chinese up to twice its
-/// own. Both trade words for splices that never happen: the piece "方案" whose
-/// halves hear "Call the" and "这个方案" stays "方案", and a piece that heard
-/// 20 characters of a 40-character reply keeps its 20 when its halves hear all
-/// 40. No recorded input lost words this way; the halves that took this path
-/// repeated or padded a short reply ("好的。的。", "好。哦。").
+/// Halves that hear mostly Chinese replace a piece that heard it only this
+/// way (`heard_instead`), so a few English words beside their Chinese do not
+/// replace it, nor does Chinese up to twice its own. Both trade words for
+/// splices that never happen: the piece "方案" whose halves hear "Call the"
+/// and "这个方案" stays "方案", and a piece that heard 20 characters of a
+/// 40-character reply keeps its 20 when its halves hear all 40. No recorded
+/// input lost words this way; the halves that took this path repeated or
+/// padded a short reply ("好的。的。", "好。哦。").
 fn more_chinese(text: &str, halves: &str) -> bool {
-    mostly_cjk(halves) && cjk_chars(halves) > 2 * cjk_chars(text)
+    cjk_chars(halves) > 2 * cjk_chars(text)
 }
 
 /// The exported decoder's fixed context: prompt, audio and answer together.
@@ -1746,28 +1768,38 @@ mod qwen3_long_audio_tests {
         // Chinese for no measured speech, whose first half answered only the
         // header. That half's first quarter, after a moment of silence, holds
         // speech to measure and hears the reply: more than twice the piece's
-        // Chinese, so it takes the piece's place, as it would for speech.
+        // Chinese, so it takes the piece's place, as it would for speech, and
+        // so does a code-switched reply with as much Chinese beside more
+        // English words. No more than twice its Chinese does not: dropped.
         let mut audio = hum(RATE, 3_200);
         quiet(&mut audio, RATE, 0, 200, 0.0);
         assert_eq!(speech_seconds(&audio, RATE), 0.0);
-        let reply = "好的，我们今天先发布。";
-        let mut calls = 0;
-        let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
-            calls += 1;
-            let heard = match (offset(&audio, piece), piece.len()) {
-                (_, len) if len == audio.len() => "好。",
-                (0, len) if len > at(RATE, 1_200) => "language",
-                (0, _) => {
-                    assert!(speech_seconds(piece, RATE) > 0.4);
-                    reply
-                }
-                _ => "",
+        for (reply, kept) in [
+            ("好的，我们今天先发布。", "好的，我们今天先发布。"),
+            (
+                "Ship the new build to QA tonight，好的发布。",
+                "Ship the new build to QA tonight，好的发布。",
+            ),
+            ("Ship it tonight，好的。", ""),
+        ] {
+            let mut calls = 0;
+            let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
+                calls += 1;
+                let heard = match (offset(&audio, piece), piece.len()) {
+                    (_, len) if len == audio.len() => "好。",
+                    (0, len) if len > at(RATE, 1_200) => "language",
+                    (0, _) => {
+                        assert!(speech_seconds(piece, RATE) > 0.4);
+                        reply
+                    }
+                    _ => "",
+                };
+                Ok(Some((heard.into(), text_units(heard))))
             };
-            Ok(Some((heard.into(), text_units(heard))))
-        };
-        let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
-        assert_eq!(text, reply);
-        assert_eq!(calls, 1 + 2 + 2, "the first half's quarters");
+            let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
+            assert_eq!(text, kept, "{reply:?}");
+            assert_eq!(calls, 1 + 2 + 2, "the first half's quarters");
+        }
     }
 
     #[test]
@@ -1796,39 +1828,107 @@ mod qwen3_long_audio_tests {
 
     #[test]
     fn chinese_a_half_without_speech_hears_is_never_spliced() {
-        // "提纲" for 1.4 s of speech then room: the halves that replace it are
-        // the speech's "Sounds good." without the room's invented "系统。",
-        // whether the room's half is too short to split (1.2 s of room) or its
-        // own quarters hear Chinese again (2.2 s).
+        // 1.4 s of speech then room, whose room half invents "系统。" and is
+        // too short to split (1.2 s of room) or whose own first quarter hears
+        // Chinese again (2.2 s). A header or nothing for the whole is replaced
+        // by the speech's "Sounds good." without the room's "系统。". "提纲"
+        // is not replaced by "Sounds good." alone, which would drop the
+        // Chinese that half heard (see the test below); it stays as v1.4.0
+        // heard it, and "系统。" is never added.
         for room in [1_200, 2_200] {
             let mut audio = syllables(RATE, 1_400 + room);
             quiet(&mut audio, RATE, 1_400, room, 0.003);
+            for (whole, problem, kept) in [
+                ("language", Suspect::Header, "Sounds good."),
+                ("", Suspect::Empty, "Sounds good."),
+                ("提纲", Suspect::WrongScript, "提纲"),
+            ] {
+                assert_eq!(
+                    suspect(whole, text_units(whole), &audio, RATE, true),
+                    Some(problem)
+                );
+                let mut calls = 0;
+                let mut second_half = None;
+                let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
+                    calls += 1;
+                    let heard = if piece.len() == audio.len() {
+                        whole
+                    } else if piece.as_ptr() == audio.as_ptr() {
+                        "Sounds good."
+                    } else if second_half.is_none() {
+                        second_half = Some(piece.as_ptr());
+                        assert_eq!(speech_seconds(piece, RATE), 0.0);
+                        "系统。"
+                    } else if second_half == Some(piece.as_ptr()) {
+                        "系统"
+                    } else {
+                        ""
+                    };
+                    Ok(Some((heard.into(), text_units(heard))))
+                };
+                let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
+                assert_eq!(text, kept, "{whole:?}, {room} ms of room");
+                assert_eq!(calls, if room < 1_500 { 3 } else { 5 }, "{room} ms of room");
+            }
+        }
+    }
+
+    #[test]
+    fn chinese_a_half_without_speech_hears_is_not_replaced_by_the_other_half() {
+        // Noise that starts or stops mid-reply, as the onset probes at 0 dB
+        // SNR: the whole measures the fan as speech against the quiet beside
+        // it, so its Chinese is too little (WrongScript); the half holding the
+        // reply measures none of the fan (Invented), and it, or its own first
+        // quarter, still hears the reply. That half is never spliced in, and
+        // the other half's "Dear team." or "system" does not take the whole's
+        // place either: the whole keeps what v1.4.0 heard.
+        let lull = |ms| {
+            let mut audio = syllables(RATE, ms);
+            quiet(&mut audio, RATE, 0, ms, 0.001);
+            audio
+        };
+        let words = |ms| syllables(RATE, ms);
+        let fan = |ms| hum(RATE, ms);
+        // What a piece starting this many ms in hears.
+        let on: fn(usize) -> &'static str = |ms| match ms {
+            0 => "Dear team.",
+            ms if ms < 2_300 => "好的。",
+            _ => "",
+        };
+        let off: fn(usize) -> &'static str = |ms| if ms == 0 { "好的。" } else { "Dear team." };
+        let alone: fn(usize) -> &'static str = |ms| match ms {
+            0 => "system",
+            ms if ms < 1_500 => "这件事情。",
+            _ => "",
+        };
+        for (parts, whole, hears) in [
+            // A fan switched on after "Dear team": the reply's half too short
+            // to split, then long enough that its quarters are decoded too.
+            ([lull(500), words(800), fan(1_600)], "Dear team，好的。", on),
+            ([lull(500), words(800), fan(2_400)], "Dear team，好的。", on),
+            // Switched off after the reply.
+            ([fan(1_600), words(800), lull(500)], "好的，Dear team.", off),
+            // Switched on after a quiet lead, with nothing else said.
+            ([lull(800), fan(2_000), Vec::new()], "这件事情。", alone),
+        ] {
+            let audio = parts.concat();
             assert_eq!(
-                suspect("提纲", 2, &audio, RATE, true),
+                suspect(whole, text_units(whole), &audio, RATE, true),
                 Some(Suspect::WrongScript)
             );
-            let mut calls = 0;
-            let mut second_half = None;
             let mut decode = |piece: &[f32]| -> Result<Option<(String, usize)>> {
-                calls += 1;
                 let heard = if piece.len() == audio.len() {
-                    "提纲"
-                } else if piece.as_ptr() == audio.as_ptr() {
-                    "Sounds good."
-                } else if second_half.is_none() {
-                    second_half = Some(piece.as_ptr());
-                    assert_eq!(speech_seconds(piece, RATE), 0.0);
-                    "系统。"
-                } else if second_half == Some(piece.as_ptr()) {
-                    "系统"
+                    whole
                 } else {
-                    ""
+                    hears(offset(&audio, piece) * 1000 / RATE as usize)
                 };
+                if cjk_chars(heard) > 0 && piece.len() < audio.len() {
+                    assert_eq!(speech_seconds(piece, RATE), 0.0, "{whole:?}: {heard:?}");
+                }
                 Ok(Some((heard.into(), text_units(heard))))
             };
             let text = transcribe_in_pieces(&mut decode, &audio, RATE, 20_000, true).unwrap();
-            assert_eq!(text, "Sounds good.", "{room} ms of room");
-            assert_eq!(calls, if room < 1_500 { 3 } else { 5 }, "{room} ms of room");
+            assert_eq!(text, whole, "{} ms", audio.len() * 1000 / RATE as usize);
         }
     }
 
