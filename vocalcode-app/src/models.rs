@@ -353,7 +353,10 @@ pub fn recommended_threads(model_id: &str, lang: &str, profile: HardwareProfile)
 /// auto-detecting model. Comparing the raw language strings would needlessly
 /// hash and construct a second ~670 MB model when, for example, a user changes
 /// Français to Deutsch. SenseVoice also has language-dependent decoder hints
-/// and cleaners, which must participate in pipeline identity.
+/// and cleaners, which must participate in pipeline identity. Qwen3-ASR takes
+/// its piece length and the English route's check for invented Chinese script
+/// from the language, so each of its languages is its own pipeline; as with
+/// SenseVoice, switching language during its first download cancels it.
 pub fn same_model_route(
     left_model: &str,
     left_lang: &str,
@@ -368,6 +371,7 @@ pub fn same_model_route(
             == wants_cjk_space_collapse(right_model, right_lang)
         && (!matches!(left, Some(Route::Single("sensevoice")))
             || sensevoice_language_hint(left_lang) == sensevoice_language_hint(right_lang))
+        && (!matches!(left, Some(Route::Single("qwen3-asr-0.6b"))) || left_lang == right_lang)
 }
 
 fn sensevoice_language_hint(language: &str) -> &'static str {
@@ -2551,11 +2555,14 @@ pub fn build_asr(
         )
         .map(|a| Box::new(a) as Box<dyn Asr>)
         .map_err(|e| e.to_string()),
+        // The route language sets the piece length and the English script
+        // check, so it is part of the pipeline identity (`same_model_route`).
         Kind::Qwen3 => SherpaQwen3Asr::new(
             &p("conv_frontend.onnx"),
             &p("encoder.int8.onnx"),
             &p("decoder.int8.onnx"),
             &dir.to_string_lossy(),
+            language,
             threads,
             spec.label,
         )
@@ -2752,6 +2759,22 @@ mod tests {
             !same_model_route("sensevoice", "ja", "sensevoice", "ko"),
             "The current commit path only rebuilds cleaners when route identity changes"
         );
+    }
+
+    #[test]
+    fn qwen3_language_change_requires_reload() {
+        assert!(
+            !same_model_route("qwen3-asr-0.6b", "en", "qwen3-asr-0.6b", "zh"),
+            "The English Qwen3 route rejects Chinese script; zh must rebuild it"
+        );
+        assert!(!same_model_route("qwen3-asr-0.6b", "zh", "", "hi"));
+        assert!(same_model_route("qwen3-asr-0.6b", "hi", "", "hi"));
+        assert!(same_model_route(
+            "qwen3-asr-0.6b",
+            "en",
+            "qwen3-asr-0.6b",
+            "en"
+        ));
     }
 
     #[test]

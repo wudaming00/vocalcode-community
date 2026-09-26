@@ -171,6 +171,13 @@ fn frame_energies(samples: &[f32], frame: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Chinese characters and Japanese kana: scripts written without spaces
+/// between words (Hangul is spaced).
+pub fn is_unspaced_script(c: char) -> bool {
+    matches!(c as u32,
+        0x3040..=0x30ff | 0x3400..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f)
+}
+
 /// Stable phrase boundaries must not glue English sentences together after
 /// punctuation. Preserve CJK adjacency, while allowing other spaced scripts
 /// (including accented Latin and Hangul) to keep their word separation.
@@ -178,11 +185,11 @@ pub fn join_separator(previous: &str, next: &str) -> &'static str {
     let (Some(left), Some(right)) = (previous.chars().last(), next.chars().next()) else {
         return "";
     };
-    let cjk = |c: char| {
-        matches!(c as u32,
-        0x3040..=0x30ff | 0x3400..=0x9fff | 0xf900..=0xfaff | 0x20000..=0x2fa1f)
-    };
-    if left.is_whitespace() || right.is_whitespace() || cjk(left) || cjk(right) {
+    if left.is_whitespace()
+        || right.is_whitespace()
+        || is_unspaced_script(left)
+        || is_unspaced_script(right)
+    {
         return "";
     }
     if (left.is_alphanumeric()

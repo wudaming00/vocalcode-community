@@ -1,6 +1,6 @@
 //! Optional real-model smoke test for the Qwen3-ASR adapter.
 //!
-//! Run with:
+//! Run with (VOCALCODE_QWEN3_LANGUAGE=<route code such as en> is optional):
 //!   VOCALCODE_QWEN3_MODEL_DIR=<dir> VOCALCODE_QWEN3_WAV=<16-kHz-wav> \
 //!     cargo test -p vocalcode-platform --test qwen3_smoke -- --ignored --nocapture
 
@@ -34,6 +34,7 @@ fn qwen3_decodes_local_audio_to_nonempty_text() {
         &root.join("encoder.int8.onnx").to_string_lossy(),
         &root.join("decoder.int8.onnx").to_string_lossy(),
         &tokenizer.to_string_lossy(),
+        &std::env::var("VOCALCODE_QWEN3_LANGUAGE").unwrap_or_default(),
         8,
         "Qwen3-ASR smoke test",
     )
